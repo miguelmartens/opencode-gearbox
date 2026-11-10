@@ -385,7 +385,12 @@ export async function registerCommands(
     },
     async compact(sessionID, arg) {
       await deps.compactNow(ctx, sessionID, arg || undefined);
-      await say(sessionID, 'Gearbox: compaction queued');
+      await say(
+        sessionID,
+        arg
+          ? 'Gearbox: compaction queued. The note goes into the summary prompt, whether the judge model or OpenCode writes the summary.'
+          : 'Gearbox: compaction queued',
+      );
     },
     async debug(sessionID) {
       const state = getState(sessionID);

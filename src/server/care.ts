@@ -177,20 +177,42 @@ async function judgeIsCheaper(
   }).switch;
 }
 
-async function onCompaction(ctx: Ctx, event: any): Promise<void> {
-  if (event.result) return;
-  const settings = await loadSettings(ctx);
-  if (settings.compactWith !== 'small') return;
+/** A judge-model summary when `compactWith` is "small" and that is cheaper; else `null`. */
+async function judgeSummary(
+  ctx: Ctx,
+  event: any,
+  settings: Settings,
+  note: string | undefined,
+): Promise<string | null> {
+  if (settings.compactWith !== 'small') return null;
   const sessionID: string = event.sessionID;
-  const note = notes.get(sessionID);
-  notes.delete(sessionID);
   const sessionRef = event.model as ModelRef | undefined;
-  if (typeof sessionRef?.providerID !== 'string' || typeof sessionRef?.id !== 'string') return;
+  if (typeof sessionRef?.providerID !== 'string' || typeof sessionRef?.id !== 'string') return null;
   const model = await resolveJudgeModel(ctx, sessionRef, settings);
   const transcript = formatHookMessages(event.messages ?? []);
   const prompt = summaryPrompt(transcript, note);
-  if (!(await judgeIsCheaper(ctx, sessionID, sessionRef, model, prompt))) return;
-  const summary = await generate(ctx, sessionID, model, prompt, COMPACTION_TIMEOUT_MS);
+  if (!(await judgeIsCheaper(ctx, sessionID, sessionRef, model, prompt))) return null;
+  return generate(ctx, sessionID, model, prompt, COMPACTION_TIMEOUT_MS);
+}
+
+async function onCompaction(ctx: Ctx, event: any): Promise<void> {
+  if (event.result) return;
+  const sessionID: string = event.sessionID;
+  const settings = await loadSettings(ctx);
+  const note = notes.get(sessionID);
+  notes.delete(sessionID);
+  let summary: string | null = null;
+  try {
+    summary = await judgeSummary(ctx, event, settings, note);
+  } finally {
+    // OpenCode writes the summary: a `/gearbox compact` note goes into its compaction prompt, or
+    // waits for the next compaction when the event has no system list.
+    if (!summary && note) {
+      if (Array.isArray(event.system))
+        event.system.push(`Extra instructions from the user: ${note}`);
+      else notes.set(sessionID, note);
+    }
+  }
   if (summary) event.result = { summary };
 }
 

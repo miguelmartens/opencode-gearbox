@@ -429,6 +429,7 @@ test('compact passes the note to compactNow', async () => {
   );
   await fake.runCommand('gearbox', 'compact keep the parser notes', 'ses_c');
   assert.deepEqual(seen, [['ses_c', 'keep the parser notes']]);
+  assert.match(fake.lastMessage(), /note goes into the summary prompt/);
 });
 
 test('debug shows the last decision and the request model', async () => {

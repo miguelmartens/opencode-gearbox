@@ -367,7 +367,7 @@ test('compactNow compacts and passes the note into the next compaction prompt', 
   assert.doesNotMatch((second.input as { prompt: string }).prompt, /keep the API decisions/);
 });
 
-test('a compactNow note is kept while compactWith is "session"', async () => {
+test('a compactNow note goes into OpenCode\'s compaction while compactWith is "session"', async () => {
   const fake = fakeWith(
     {
       storage: { settings: { compactWith: 'session' } },
@@ -377,10 +377,44 @@ test('a compactNow note is kept while compactWith is "session"', async () => {
   );
   await registerContextCare(fake.ctx);
   await compactNow(fake.ctx, 'ses_n2', 'keep the API decisions');
-  await fake.fire('compaction', compactionEvent('ses_n2'));
+  const event = await fake.fire('compaction', compactionEvent('ses_n2'));
   assert.equal(fake.callsTo('generate.text').length, 0);
+  assert.equal(event.result, undefined);
+  assert.match(event.system.join('\n'), /keep the API decisions/);
+  // The note is used once.
   fake.storage.delete('settings');
   await fake.fire('compaction', compactionEvent('ses_n2'));
+  const [gen] = fake.callsTo('generate.text');
+  assert.doesNotMatch((gen.input as { prompt: string }).prompt, /keep the API decisions/);
+});
+
+test("a compactNow note goes into OpenCode's compaction when the judge is not cheaper", async () => {
+  const unpriced = models.map((m) => (m.id === 'big' ? { ...m, cost: [] } : m));
+  const fake = fakeWith({ models: unpriced, generateText: async () => ({ text: 's' }) }, [
+    'ses_n3',
+  ]);
+  await registerContextCare(fake.ctx);
+  await compactNow(fake.ctx, 'ses_n3', 'keep the API decisions');
+  const event = await fake.fire('compaction', compactionEvent('ses_n3'));
+  assert.equal(event.result, undefined);
+  assert.match(event.system.join('\n'), /keep the API decisions/);
+});
+
+test('a compactNow note is kept for the next compaction when the event has no system list', async () => {
+  const fake = fakeWith(
+    {
+      storage: { settings: { compactWith: 'session' } },
+      generateText: async () => ({ text: 's' }),
+    },
+    ['ses_n4'],
+  );
+  await registerContextCare(fake.ctx);
+  await compactNow(fake.ctx, 'ses_n4', 'keep the API decisions');
+  const event = compactionEvent('ses_n4');
+  delete event.system;
+  await fake.fire('compaction', event);
+  fake.storage.delete('settings');
+  await fake.fire('compaction', compactionEvent('ses_n4'));
   const [gen] = fake.callsTo('generate.text');
   assert.match((gen.input as { prompt: string }).prompt, /keep the API decisions/);
 });

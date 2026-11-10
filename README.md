@@ -90,7 +90,7 @@ All output appears as a toast or, for long text, as a dialog. No model turn is s
 | `/gearbox stats`          | User turns per level, model requests, tokens, cost and judge cost for this session                     |
 | `/gearbox bench [p/m]`    | Score the judge model (or `provider/model[#variant]`) on the 75 labelled prompts; see below            |
 | `/gearbox handoff [full]` | Continue in a fresh session seeded with a summary. `full` also writes `HANDOFF.md`                     |
-| `/gearbox compact [note]` | Compact now; the judge model's summary keeps `note` in mind                                            |
+| `/gearbox compact [note]` | Compact now; the summary keeps `note` in mind, whether the judge model or OpenCode writes it           |
 | `/gearbox debug`          | Last decision, the judge's raw answer, whether a judge call is running, and the last request's model   |
 
 Plugin commands run from the TUI (or `client.session.command`). `opencode run "/gearbox …"` sends the text as a normal prompt.

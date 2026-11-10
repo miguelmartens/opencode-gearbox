@@ -112,7 +112,7 @@ export function trackUsage(ctx: Ctx): void {
         state.requestModel = toModelRef(data.model) ?? state.requestModel;
         return;
       }
-      sweepIdle(Date.now());
+      sweepIdle(Date.now(), sessionID);
       const tokens = data.tokens ?? {};
       state.contextTokens =
         (tokens.input ?? 0) + (tokens.cache?.read ?? 0) + (tokens.cache?.write ?? 0);

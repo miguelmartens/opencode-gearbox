@@ -11,13 +11,13 @@ function forgottenIDs(): string[] {
   return forgotten;
 }
 
-test('evictIdle forgets sessions idle for more than 24 h', () => {
+test('evictIdle forgets sessions untouched for more than 24 h', () => {
   const now = Date.now();
   const forgotten = forgottenIDs();
-  getState('ses_old').lastRequestAt = now - 25 * HOUR;
   getState('ses_old').userTurn = 3;
-  getState('ses_recent').lastRequestAt = now - HOUR;
+  getState('ses_old').touchedAt = now - 25 * HOUR;
   getState('ses_recent').userTurn = 3;
+  getState('ses_recent').touchedAt = now - HOUR;
   evictIdle(now);
   assert.ok(forgotten.includes('ses_old'));
   assert.ok(!forgotten.includes('ses_recent'));
@@ -25,20 +25,28 @@ test('evictIdle forgets sessions idle for more than 24 h', () => {
   assert.equal(getState('ses_recent').userTurn, 3);
 });
 
-test('evictIdle forgets a session without requests 24 h after it was created', () => {
+test('getState touches the session', () => {
+  const state = getState('ses_touch');
+  state.touchedAt = 0;
+  assert.ok(getState('ses_touch').touchedAt > Date.now() - 1000);
+});
+
+test('evictIdle keeps the given session and sessions with a judge call running', () => {
+  const now = Date.now();
   const forgotten = forgottenIDs();
-  getState('ses_quiet');
-  evictIdle(Date.now() + 23 * HOUR);
-  assert.ok(!forgotten.includes('ses_quiet'));
-  evictIdle(Date.now() + 25 * HOUR);
-  assert.ok(forgotten.includes('ses_quiet'));
+  getState('ses_keep').touchedAt = now - 25 * HOUR;
+  getState('ses_judging').judging = 1;
+  getState('ses_judging').touchedAt = now - 25 * HOUR;
+  evictIdle(now, 'ses_keep');
+  assert.ok(!forgotten.includes('ses_keep'));
+  assert.ok(!forgotten.includes('ses_judging'));
 });
 
 test('sweepIdle evicts at most once an hour', () => {
   const now = Date.now() + 100 * HOUR;
   const forgotten = forgottenIDs();
   sweepIdle(now);
-  getState('ses_sweep').lastRequestAt = now - 25 * HOUR;
+  getState('ses_sweep').touchedAt = now - 25 * HOUR;
   sweepIdle(now + 60_000);
   assert.ok(!forgotten.includes('ses_sweep'));
   sweepIdle(now + HOUR + 1);
@@ -47,12 +55,11 @@ test('sweepIdle evicts at most once an hour', () => {
 
 test('logOnce logs again after its session is evicted', (t) => {
   const errors = t.mock.method(console, 'error', () => {});
-  const now = Date.now();
-  getState('ses_log').lastRequestAt = now;
+  getState('ses_log');
   logOnce('ses_log', 'scope', new Error('x'));
   logOnce('ses_log', 'scope', new Error('x'));
   assert.equal(errors.mock.callCount(), 1);
-  evictIdle(now + 25 * HOUR);
+  evictIdle(Date.now() + 25 * HOUR);
   logOnce('ses_log', 'scope', new Error('x'));
   assert.equal(errors.mock.callCount(), 2);
 });

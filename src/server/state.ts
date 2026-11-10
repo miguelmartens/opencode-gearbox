@@ -25,8 +25,8 @@ export type SessionState = {
   firstModel: ModelRef | null;
   /** Judge calls for this session's routing that have not settled yet. */
   judging: number;
-  /** When this state was created; idle eviction uses it until the first request. */
-  createdAt: number;
+  /** Last time any module read this state (`getState`); idle eviction uses it. */
+  touchedAt: number;
 };
 
 /** Context care's view of a session: what the status bar shows as context ratio and advice. */
@@ -63,7 +63,7 @@ function freshState(): SessionState {
     judgeAnswer: null,
     firstModel: null,
     judging: 0,
-    createdAt: Date.now(),
+    touchedAt: Date.now(),
   };
 }
 
@@ -73,6 +73,7 @@ export function getState(sessionID: string): SessionState {
     state = freshState();
     sessions.set(sessionID, state);
   }
+  state.touchedAt = Date.now();
   return state;
 }
 
@@ -101,16 +102,20 @@ export function resetState(sessionID: string): void {
   for (const forget of forgetters) forget(sessionID);
 }
 
-/** Forgets every session whose last request (else its creation) is more than 24 h old. */
-export function evictIdle(now: number): void {
+/**
+ * Forgets every session untouched for more than 24 h. `keep` (the session being handled) and
+ * sessions with a judge call running are never forgotten.
+ */
+export function evictIdle(now: number, keep?: string): void {
   for (const [sessionID, state] of sessions) {
-    if (now - (state.lastRequestAt ?? state.createdAt) > MAX_IDLE_MS) resetState(sessionID);
+    if (sessionID === keep || state.judging > 0) continue;
+    if (now - state.touchedAt > MAX_IDLE_MS) resetState(sessionID);
   }
 }
 
 /** `evictIdle`, at most once an hour. */
-export function sweepIdle(now: number): void {
+export function sweepIdle(now: number, keep?: string): void {
   if (now - lastSweep < SWEEP_EVERY_MS) return;
   lastSweep = now;
-  evictIdle(now);
+  evictIdle(now, keep);
 }

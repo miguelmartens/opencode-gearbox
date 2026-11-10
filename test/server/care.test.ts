@@ -411,3 +411,22 @@ test('a care status emit keeps the routing effort pause', async () => {
   assert.equal(status.advice, 'swamped');
   assert.equal(status.paused, 'no effort control');
 });
+
+test('handoff still prompts the new session when writing the file fails', async () => {
+  const fake = fakeWith(
+    {
+      generateText: async () => ({ text: 'SUMMARY: parser done' }),
+      overrides: { location: { project: { directory: '/nonexistent/gearbox/dir' } } },
+    },
+    ['ses_h7'],
+  );
+  const result = await handoff(fake.ctx, 'ses_h7', 'full');
+  assert.equal(result.newSessionID, 'ses_fake_1');
+  assert.equal(result.file, undefined);
+  assert.match(result.fileError ?? '', /ENOENT|no such file/i);
+  const [prompt] = fake.callsTo('session.prompt');
+  assert.ok(prompt, 'the new session is prompted');
+  const text = (prompt.input as { text: string }).text;
+  assert.match(text, /SUMMARY: parser done/);
+  assert.doesNotMatch(text, /HANDOFF/);
+});

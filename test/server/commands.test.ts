@@ -327,6 +327,19 @@ test('handoff full calls handoff with mode full and reports the new session', as
   assert.match(fake.lastMessage(), /HANDOFF\.md/);
 });
 
+test('handoff reports a failed file write in the toast', async () => {
+  const fake = await setup(
+    {},
+    {
+      handoff: async () => ({ newSessionID: 'ses_new', fileError: 'EACCES: permission denied' }),
+    },
+  );
+  await fake.runCommand('gearbox', 'handoff full', 'ses_h');
+  assert.match(fake.lastMessage(), /ses_new/);
+  assert.match(fake.lastMessage(), /EACCES: permission denied/);
+  assert.equal(fake.toasts.at(-1)?.variant, 'warning');
+});
+
 test('handoff rejects unknown arguments', async () => {
   const seen: unknown[] = [];
   const fake = await setup(

@@ -92,11 +92,13 @@ export async function resolveJudgeModel(
 
 type GenerateText = (input: { model?: ModelRef; prompt: string }) => Promise<{ text?: unknown }>;
 
+/** `ctx.experimental.generate.text`, bound to its object: a host method may rely on `this`. */
 function generator(ctx: Ctx): GenerateText | null {
   const experimental = (ctx as unknown as { experimental?: { generate?: { text?: unknown } } })
     .experimental;
-  const text = experimental?.generate?.text;
-  return typeof text === 'function' ? (text as GenerateText) : null;
+  const api = experimental?.generate;
+  const text = api?.text;
+  return typeof text === 'function' ? (text.bind(api) as GenerateText) : null;
 }
 
 async function estimateCost(
@@ -120,7 +122,8 @@ async function estimateCost(
 /**
  * Runs the judge, raced against `timeoutMs`. Returns `null` on timeout, error or a missing model.
  * `generate.text` ignores abort signals, so a late call finishes in the background. Every call is
- * recorded in the ledger once, when it settles, whether it won the race or not.
+ * recorded in the ledger once, when it settles, whether it won the race or not. A won race
+ * returns within `timeoutMs` too: the cost estimate is attached only if it is ready by then.
  */
 export async function runJudge(
   ctx: Ctx,
@@ -152,7 +155,7 @@ export async function runJudge(
     const text = await Promise.race([call, timeout]);
     if (text === null) return null;
     const ms = Date.now() - start;
-    const costUSD = await cost;
+    const costUSD = (await Promise.race([cost, timeout])) ?? undefined;
     return costUSD === undefined ? { text, ms } : { text, ms, costUSD };
   } finally {
     clearTimeout(timer);

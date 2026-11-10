@@ -5,9 +5,10 @@ import { basename, join } from 'node:path';
 import type { Plugin } from '@opencode/plugin';
 import { buildCompactionPrompt, buildHandoffAdvicePrompt, parseYesNo } from '../core/judge.ts';
 import { contextRatio, shouldAskHandoff, shouldWarnSwamped } from '../core/context.ts';
+import { shouldSwitch } from '../core/cost.ts';
 import type { GearboxStatus, ModelRef, Settings } from '../core/types.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
-import { contextLimit, findModelInfo } from './models.ts';
+import { cacheWarm, contextLimit, findModelInfo, toModelLite } from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { loadSettings } from './settings-store.ts';
 import { getCare, getState, onForget, peekCare } from './state.ts';
@@ -18,8 +19,15 @@ type Ctx = Plugin.Context;
 
 type Advice = GearboxStatus['advice'];
 
-/** Summaries are long answers; they get far more time than a judge verdict. */
-const SUMMARY_TIMEOUT_MS = 120_000;
+/**
+ * Summaries are long answers; they get more time than a judge verdict. Compaction waits for this
+ * before OpenCode falls back to its own, so it stays short.
+ */
+const SUMMARY_TIMEOUT_MS = 30_000;
+/** Expected length of a compaction summary, in tokens. */
+const SUMMARY_TOKENS = 2000;
+/** Rough token estimate: about 4 characters per token. */
+const CHARS_PER_TOKEN = 4;
 const REPLY_TAIL_MAX = 500;
 const TOPIC_MAX = 80;
 const TOPICS_MAX = 10;
@@ -39,7 +47,7 @@ export function getCareState(sessionID: string): { contextRatio: number | null; 
 
 type SessionInfo = {
   id: string;
-  parentID?: string;
+  parentID?: string | null;
   agent?: string;
   title?: string;
   model?: ModelRef;
@@ -137,6 +145,36 @@ function formatSessionMessages(messages: SessionMessage[]): string {
 // ---------------------------------------------------------------------------------------------
 // Compaction
 
+/**
+ * True when the judge model can take `prompt` (it fits the judge's context) and the summary costs
+ * less there than OpenCode's own compaction on the session model, which reads the session's warm
+ * cache when it has one (anti-goal 1). An unknown price or limit leaves compaction to OpenCode.
+ */
+async function judgeIsCheaper(
+  ctx: Ctx,
+  sessionID: string,
+  sessionRef: ModelRef,
+  judgeRef: ModelRef,
+  prompt: string,
+): Promise<boolean> {
+  const sessionInfo = await findModelInfo(ctx, sessionRef);
+  const judgeInfo = await findModelInfo(ctx, judgeRef);
+  const own = sessionInfo ? toModelLite(sessionInfo) : null;
+  const judge = judgeInfo ? toModelLite(judgeInfo) : null;
+  if (!own || !judge) return false;
+  const tokens = Math.ceil(prompt.length / CHARS_PER_TOKEN);
+  if (tokens > judge.contextLimit) return false;
+  return shouldSwitch({
+    contextTokens: tokens,
+    cacheWarm: await cacheWarm(ctx, getState(sessionID), sessionRef, sessionInfo),
+    from: own.price,
+    // The summary call writes no cache: it pays the plain input price.
+    to: { ...judge.price, cacheWrite: 0 },
+    expectedOutput: SUMMARY_TOKENS,
+    minSavingRatio: 0,
+  }).switch;
+}
+
 async function onCompaction(ctx: Ctx, event: any): Promise<void> {
   if (event.result) return;
   const settings = await loadSettings(ctx);
@@ -144,9 +182,12 @@ async function onCompaction(ctx: Ctx, event: any): Promise<void> {
   const sessionID: string = event.sessionID;
   const note = notes.get(sessionID);
   notes.delete(sessionID);
-  const model = await resolveJudgeModel(ctx, event.model, settings);
+  const sessionRef = event.model as ModelRef | undefined;
+  if (typeof sessionRef?.providerID !== 'string' || typeof sessionRef?.id !== 'string') return;
+  const model = await resolveJudgeModel(ctx, sessionRef, settings);
   const transcript = formatHookMessages(event.messages ?? []);
   const prompt = summaryPrompt(transcript, note);
+  if (!(await judgeIsCheaper(ctx, sessionID, sessionRef, model, prompt))) return;
   const summary = await generate(ctx, sessionID, model, prompt, SUMMARY_TIMEOUT_MS);
   if (summary) event.result = { summary };
 }
@@ -200,7 +241,7 @@ async function askHandoff(
 async function onStepEnded(ctx: Ctx, step: StepEnded): Promise<void> {
   const sessionID = step.sessionID;
   const session = (await ctx.session.get({ sessionID })) as SessionInfo;
-  if (session.parentID !== undefined) return;
+  if (session.parentID != null) return;
   const ref = await sessionModel(ctx, session);
   const limit = contextLimit(await findModelInfo(ctx, ref));
   const tokens = step.tokens ?? {};

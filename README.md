@@ -17,7 +17,7 @@ Inspired by [HeyCubit/effortless](https://github.com/HeyCubit/effortless) (a Cla
 - **No judge for the obvious cases.** Follow-ups (`ok`, `go`, `yes please`, `continue`) reuse the last level. "max effort", "low effort" and the other level names in a prompt set that level directly.
 - **Never in your way.** If you pick a variant yourself, Gearbox pauses for that session and tells you once. A judge timeout, an unreadable answer or a provider error falls back to the last level, else `medium`. The judge never blocks a prompt.
 - **Context care.**
-  - Compaction summaries are written by the judge model (see [Pick a fast judge](#pick-a-fast-judge)), not by the session's model.
+  - Compaction summaries are written by the judge model (see [Pick a fast judge](#pick-a-fast-judge)) when that is cheaper than the session's own compaction and the conversation fits the judge's context. A warm session cache can make the session's model cheaper; then OpenCode compacts as usual. A judge summary that takes over 30 s also falls back to OpenCode.
   - `/gearbox handoff` starts a fresh session seeded with a summary.
   - A warning when the context gets swamped.
   - Handoff advice when the work has moved on.
@@ -129,7 +129,7 @@ Options from the plugin entry are the base. Changes made with `/gearbox set` are
 | `modelSwitch.main`           | `false`    | Switch the main chat's model per prompt. **No effect on OpenCode 2.2.6** (see below)                       |
 | `modelSwitch.subagents`      | `true`     | Give subagents without an explicit `model` a model from the price ladder                                   |
 | `modelSwitch.minSavingRatio` | `0.2`      | A main-chat switch must save at least this share of the cost of staying                                    |
-| `compactWith`                | `"small"`  | `small`: the judge model writes compaction summaries. `session`: OpenCode compacts as usual                |
+| `compactWith`                | `"small"`  | `small`: the judge model writes compaction summaries when cheaper. `session`: OpenCode compacts as usual   |
 | `swampedAt`                  | `0.7`      | Context ratio for the swamped warning                                                                      |
 | `handoffAdviceFrom`          | `0.3`      | Context ratio from which the judge is asked, every second prompt, whether a handoff would help             |
 | `budget.dailyUSD`            | `null`     | Daily spend budget. At 80% one warning, and save mode turns on. Above 100%, a warning every turn           |

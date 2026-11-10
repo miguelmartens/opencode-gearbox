@@ -682,3 +682,142 @@ test('a manual-variant prompt is admitted without waiting for the status build',
   assert.equal(admitted, true);
   assert.equal(getState(sessionID).autoPaused, 'manual variant');
 });
+
+async function childWithoutModel(
+  ancestors: Record<string, any>,
+  parentID: string,
+  extra: Setup = {},
+) {
+  const sessionID = newSession();
+  const fake = await setup({
+    sessions: { ...ancestors, [sessionID]: { id: sessionID, parentID, agent: 'general' } },
+    agents: [{ id: 'build' }, { id: 'general' }],
+    generateText: async () => ({ text: 'LEVEL: low' }),
+    ...extra,
+  });
+  await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}low effort: list files`));
+  return { fake, sessionID };
+}
+
+test('a subagent without a model is routed from its parent model', async () => {
+  const root = newSession();
+  const { fake, sessionID } = await childWithoutModel({ [root]: { id: root, model: OPUS } }, root);
+  const [call] = fake.callsTo('session.switchModel');
+  assert.deepEqual(call?.input, { sessionID, model: { ...HAIKU, variant: 'low' } });
+  assert.deepEqual(getState(sessionID).firstModel, OPUS);
+});
+
+test('a subagent without a model anywhere is routed from the default model', async () => {
+  const root = newSession();
+  const { fake } = await childWithoutModel({ [root]: { id: root } }, root);
+  const [call] = fake.callsTo('session.switchModel');
+  assert.deepEqual((call?.input as any)?.model, { ...HAIKU, variant: 'low' });
+});
+
+test('a subagent that inherits a manually picked variant keeps its model', async () => {
+  const root = newSession();
+  const mid = newSession();
+  const { fake } = await childWithoutModel(
+    {
+      [root]: { id: root, model: OPUS },
+      [mid]: { id: mid, parentID: root, agent: 'general', model: { ...OPUS, variant: 'high' } },
+    },
+    mid,
+  );
+  assert.equal(fake.callsTo('session.switchModel').length, 0);
+});
+
+test('an inherited model outside effortModels is left alone', async () => {
+  const root = newSession();
+  const { fake } = await childWithoutModel({ [root]: { id: root, model: OPUS } }, root, {
+    settings: { effortModels: '^gpt-' },
+  });
+  assert.equal(fake.callsTo('session.switchModel').length, 0);
+  assert.equal(fake.callsTo('generate.text').length, 0);
+});
+
+test('a manual variant on the root Session.Info pauses its subagents before the root prompts', async () => {
+  const root = newSession();
+  const child = newSession();
+  const fake = await setup({
+    sessions: {
+      [root]: { id: root, model: { ...OPUS, variant: 'high' } },
+      [child]: { id: child, parentID: root, agent: 'general', model: OPUS },
+    },
+    agents: [{ id: 'build' }, { id: 'general' }],
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await fake.fire('prompt', promptEvent(child, `${SUBAGENT_PREFIX}Find the config loader`));
+  const event = await fake.fire('context', contextEvent(child, OPUS));
+  assert.deepEqual(event.options, { maxTokens: 32000 });
+  assert.equal(fake.callsTo('session.switchModel').length, 0);
+  assert.equal(fake.callsTo('generate.text').length, 0);
+});
+
+test('a root variant accepted with auto on no longer pauses its subagents', async () => {
+  const root = newSession();
+  const child = newSession();
+  const fake = await setup({
+    sessions: {
+      [root]: { id: root, model: { ...OPUS, variant: 'high' } },
+      [child]: { id: child, parentID: root, agent: 'general', model: OPUS },
+    },
+    agents: [{ id: 'build' }, { id: 'general' }],
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await fake.fire('prompt', promptEvent(root, 'Refactor the auth module'));
+  getState(root).autoPaused = null; // `/gearbox auto on`
+  await fake.fire('prompt', promptEvent(child, `${SUBAGENT_PREFIX}low effort: list files`));
+  assert.equal(fake.callsTo('session.switchModel').length, 1);
+});
+
+test('a prompt hook with a hanging session.get returns within timeoutMs + 50 ms', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { judge: { timeoutMs: 100 } },
+    generateText: async () => ({ text: 'LEVEL: low' }),
+    overrides: { session: { get: () => new Promise(() => {}) } },
+  });
+  const start = Date.now();
+  await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}Find the config loader`));
+  assert.ok(Date.now() - start <= 150, `took ${Date.now() - start} ms`);
+});
+
+test('a subagent whose parent lookup hangs returns in time and never switches late', async () => {
+  const child = newSession();
+  const info = { id: child, parentID: 'ses_hanging', agent: 'general', model: OPUS };
+  const fake = await setup({
+    settings: { judge: { timeoutMs: 100 } },
+    agents: [{ id: 'general' }],
+    generateText: async () => ({ text: 'LEVEL: low' }),
+    overrides: {
+      session: {
+        get: async (input: any) => (input?.sessionID === child ? info : new Promise(() => {})),
+      },
+    },
+  });
+  const start = Date.now();
+  await fake.fire('prompt', promptEvent(child, `${SUBAGENT_PREFIX}low effort: list files`));
+  assert.ok(Date.now() - start <= 150, `took ${Date.now() - start} ms`);
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(fake.callsTo('session.switchModel').length, 0);
+});
+
+test('a subagent waits for the judge and its reads at most timeoutMs + 50 ms in total', async () => {
+  const child = newSession();
+  const root = newSession();
+  const slow = (value: unknown) => new Promise((resolve) => setTimeout(() => resolve(value), 60));
+  const sessions: Record<string, any> = {
+    [root]: { id: root, model: OPUS },
+    [child]: { id: child, parentID: root, agent: 'general', model: OPUS },
+  };
+  const fake = await setup({
+    settings: { judge: { timeoutMs: 100 } },
+    agents: [{ id: 'general' }],
+    generateText: () => new Promise(() => {}),
+    overrides: { session: { get: (input: any) => slow(sessions[input?.sessionID]) } },
+  });
+  const start = Date.now();
+  await fake.fire('prompt', promptEvent(child, `${SUBAGENT_PREFIX}Refactor the auth module`));
+  assert.ok(Date.now() - start <= 150, `took ${Date.now() - start} ms`);
+});

@@ -153,12 +153,13 @@ Gearbox only switches between models of the session's own provider and never pic
 - `medium` → the middle of the ladder.
 - `high`, `xhigh`, `max` → the chat model itself.
 
-**Subagents** (`modelSwitch.subagents`, on by default). A subagent's model can only change in its prompt hook. So in a child session Gearbox waits for the judge there, at most `judge.timeoutMs`.
+**Subagents** (`modelSwitch.subagents`, on by default). A subagent's model can only change in its prompt hook. So in a child session Gearbox waits for the judge there, at most `judge.timeoutMs` in total, session and catalog reads included.
 
 - **First prompt:** the child has no cache yet, so Gearbox switches it to the ladder model with the matching variant.
 - **Later prompts** (a resumed subagent): the child holds a warm cache. Gearbox changes its model only when the cost check below (with `minSavingRatio`) says switching is cheaper than staying. So a resumed child never climbs to a pricier model; its effort still follows the level.
 - **Effort rungs first:** the subagent ladder skips cheaper models without effort variants, unless no model on it has any.
-- **Your pick wins:** an agent with its own `model` keeps it. While the root session is paused by a manual variant, its subagents are left alone too.
+- **Your pick wins:** an agent with its own `model` keeps it. While the root session runs on a variant you picked (and you have not run `/gearbox auto on`), its subagents are left alone too.
+- **No model of its own:** a subagent whose session has no model is routed from its nearest ancestor's model, else from OpenCode's default model. If that ancestor runs on a picked variant, the subagent keeps it.
 
 A free or "contributor" model at the bottom of the ladder may not suit you; leave it out with `effortModels`, e.g. `"^(?!.*free).*$"`.
 

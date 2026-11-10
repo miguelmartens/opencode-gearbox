@@ -527,3 +527,29 @@ test('a re-prompted subagent climbs back up the ladder of its first model', asyn
   assert.equal(switches.length, 2);
   assert.deepEqual((switches[1].input as any).model, { ...OPUS, variant: 'max' });
 });
+
+test('subagent without an agent on its Session.Info keeps its model', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    sessions: { [sessionID]: { id: sessionID, parentID: 'ses_root', model: OPUS } },
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}Find the config loader`));
+  assert.equal(fake.callsTo('session.switchModel').length, 0);
+});
+
+test('a manual-variant prompt is admitted without waiting for the status build', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    sessions: { [sessionID]: { id: sessionID, model: { ...OPUS, variant: 'high' } } },
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  // The status reads settings from storage; a hanging store must not hold up admission.
+  fake.ctx.storage.get = () => new Promise(() => {});
+  const admitted = await Promise.race([
+    fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module')).then(() => true),
+    new Promise((resolve) => setTimeout(() => resolve(false), 100)),
+  ]);
+  assert.equal(admitted, true);
+  assert.equal(getState(sessionID).autoPaused, 'manual variant');
+});

@@ -181,3 +181,32 @@ test('runJudge logs a provider error once and still returns null', async (t) => 
   const logged = errors.mock.calls.filter((c) => /Insufficient balance/.test(String(c.arguments)));
   assert.equal(logged.length, 1);
 });
+
+test('runJudge calls generate.text as a method, so a host that needs `this` works', async () => {
+  const fake = makeFakeCtx({
+    overrides: {
+      experimental: {
+        generate: {
+          answer: 'LEVEL: low',
+          async text(this: { answer: string }) {
+            return { text: this.answer };
+          },
+        },
+      },
+    },
+  });
+  const result = await runJudge(fake.ctx, chat, 'p', 1000);
+  assert.equal(result?.text, 'LEVEL: low');
+});
+
+test('a won race returns within timeoutMs even when the cost estimate is slow', async () => {
+  const fake = makeFakeCtx({
+    generateText: async () => ({ text: 'LEVEL: low' }),
+    overrides: { model: { list: () => new Promise(() => {}) } },
+  });
+  const start = Date.now();
+  const result = await runJudge(fake.ctx, chat, 'p', 100);
+  assert.equal(result?.text, 'LEVEL: low');
+  assert.equal(result?.costUSD, undefined);
+  assert.ok(Date.now() - start <= 150, `took ${Date.now() - start} ms`);
+});

@@ -127,7 +127,11 @@ async function onStepEnded(
 }
 
 /** Feeds `session.step.*` events into stats and the budget (docs/api-probe.md §8). */
-function watchUsage(ctx: Ctx, deps: CommandDeps, requestModels: Map<string, ModelRef>): void {
+/** Model and variant of each session's last request, from `session.step.started`. */
+const requestModels = new Map<string, ModelRef>();
+onForget((sessionID) => requestModels.delete(sessionID));
+
+function watchUsage(ctx: Ctx, deps: CommandDeps): void {
   watchEvents(
     ctx,
     ['session.step.started', 'session.step.ended'],
@@ -233,8 +237,6 @@ export async function registerCommands(
     now: Date.now,
     ...overrides,
   };
-  const requestModels = new Map<string, ModelRef>();
-  onForget((sessionID) => requestModels.delete(sessionID));
 
   const say = (
     sessionID: string,
@@ -344,6 +346,12 @@ export async function registerCommands(
         return say(sessionID, 'Usage: /gearbox handoff [full]', 'error');
       const result = await deps.handoff(ctx, sessionID, arg === 'full' ? 'full' : 'quick');
       const file = result.file ? `; wrote ${result.file}` : '';
+      if (result.fileError)
+        return say(
+          sessionID,
+          `Gearbox: handoff to session ${result.newSessionID}; could not write the handoff file: ${result.fileError}`,
+          'warning',
+        );
       await say(sessionID, `Gearbox: handoff to session ${result.newSessionID}${file}`);
     },
     async compact(sessionID, arg) {
@@ -398,5 +406,5 @@ export async function registerCommands(
   });
 
   trackUsage(ctx);
-  watchUsage(ctx, deps, requestModels);
+  watchUsage(ctx, deps);
 }

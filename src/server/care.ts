@@ -266,6 +266,9 @@ function renderHandoff(sessionID: string, summary: string, changes: FileStatus[]
   return `${lines.join('\n')}\n`;
 }
 
+/** `file` is the handoff notes path; `fileError` says why writing them failed. */
+export type HandoffResult = { newSessionID: string; file?: string; fileError?: string };
+
 /** Writes `HANDOFF.md`, or `HANDOFF-<timestamp>.md` when it exists: never overwrites. */
 async function writeHandoff(directory: string, content: string): Promise<string> {
   const file = join(directory, HANDOFF_FILE);
@@ -289,7 +292,7 @@ export async function handoff(
   ctx: Ctx,
   sessionID: string,
   mode: 'quick' | 'full',
-): Promise<{ newSessionID: string; file?: string }> {
+): Promise<HandoffResult> {
   const session = (await ctx.session.get({ sessionID })) as SessionInfo;
   const ref = await sessionModel(ctx, session);
   const settings = await loadSettings(ctx);
@@ -309,13 +312,20 @@ export async function handoff(
       ...(ref.variant && ref.variant !== 'default' ? { variant: ref.variant } : {}),
     },
   });
-  const file =
-    mode === 'full'
-      ? await writeHandoff(
-          ctx.location.project?.directory ?? ctx.location.directory,
-          renderHandoff(sessionID, summary, changes),
-        )
-      : undefined;
+  // The session exists now: a failed file write must not leave it empty.
+  let file: string | undefined;
+  let fileError: string | undefined;
+  if (mode === 'full') {
+    try {
+      file = await writeHandoff(
+        ctx.location.project?.directory ?? ctx.location.directory,
+        renderHandoff(sessionID, summary, changes),
+      );
+    } catch (error) {
+      fileError = error instanceof Error ? error.message : String(error);
+      logOnce(sessionID, 'handoff file', error);
+    }
+  }
   const text = [
     `Continue the work from a previous session (${sessionID}). Handoff summary:`,
     '',
@@ -323,7 +333,10 @@ export async function handoff(
     ...(file ? ['', `Full handoff notes, with the changed files, are in ${basename(file)}.`] : []),
   ].join('\n');
   await ctx.session.prompt({ sessionID: created.id, text });
-  return file ? { newSessionID: created.id, file } : { newSessionID: created.id };
+  const result: HandoffResult = { newSessionID: created.id };
+  if (file) result.file = file;
+  if (fileError) result.fileError = fileError;
+  return result;
 }
 
 // ---------------------------------------------------------------------------------------------

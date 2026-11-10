@@ -25,10 +25,10 @@ export default Plugin.define({
     const remember = (status: GearboxStatus) =>
       setStatuses((prev) => ({ ...prev, [status.sessionID]: { status, at: Date.now() } }));
 
-    const fetchOnce = (sessionID: string) => {
+    const fetchOnce = (sessionID: string, at: number) => {
       if (requested.has(sessionID)) return;
       const failed = failures.get(sessionID);
-      if (failed && Date.now() < failed.retryAt) return;
+      if (failed && at < failed.retryAt) return;
       requested.add(sessionID);
       gearbox
         .status({ sessionID })
@@ -50,9 +50,12 @@ export default Plugin.define({
 
     const line = (sessionID: string | undefined): string => {
       if (!sessionID) return '';
-      fetchOnce(sessionID);
+      // Read the clock first: the 1 s tick re-renders the bar, so a fetch is retried once its
+      // backoff expires even when no status event arrives.
+      const at = now();
+      fetchOnce(sessionID, at);
       const seen = statuses()[sessionID];
-      return seen ? formatStatus(ageStatus(seen.status, now() - seen.at)) : '';
+      return seen ? formatStatus(ageStatus(seen.status, at - seen.at)) : '';
     };
 
     const showToast = (t: ToastEvent) => {

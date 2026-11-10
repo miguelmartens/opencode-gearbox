@@ -158,9 +158,9 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     }
   }
 
-  /** An agent file with `model` keeps it. Unknown agents count as explicit: never override. */
+  /** An agent file with `model` keeps it. Unknown or missing agents count as explicit. */
   async function hasExplicitModel(agentID: string | undefined): Promise<boolean> {
-    if (!agentID) return false;
+    if (!agentID) return true;
     try {
       const result = (await ctx.agent.get({ agentID } as never)) as unknown as {
         data?: { model?: unknown };
@@ -237,13 +237,14 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     local.pausedVariant = variant;
     if (state.autoPaused !== null) return true;
     state.autoPaused = MANUAL_VARIANT;
-    await toast({
+    // Not awaited: this runs in the prompt hook, and admission never waits on notifications.
+    void toast({
       sessionID,
       title: 'Gearbox paused',
       message: `You picked the "${variant}" variant, so Gearbox stopped choosing effort. Run /gearbox auto on to resume.`,
       variant: 'info',
     });
-    await statusChanged(ctx, sessionID);
+    void statusChanged(ctx, sessionID);
     return true;
   }
 

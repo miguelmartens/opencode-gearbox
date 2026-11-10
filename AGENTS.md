@@ -11,3 +11,18 @@ opencode-gearbox is built from one plan:
 - TypeScript erasable syntax only: no `enum`, no `namespace`, no parameter properties, `import type` for types, `.ts` extensions on relative imports.
 - Work test-first with `node --test`. Done = `npm test` and `npx prettier --check .` pass.
 - Conventional Commits. Never push, publish, or edit a global OpenCode config.
+
+## End-to-end runs
+
+`test/e2e/CHECKLIST.md` records the manual run against a real OpenCode, with its setup. To repeat it:
+
+- Use a temporary project whose `opencode.jsonc` loads this repository by absolute path (a directory, not a file).
+- Set `XDG_CONFIG_HOME` to an empty directory so the global config stays out of the run.
+- Drive a private `opencode serve`:
+  - commands with `client.session.command({ sessionID, name: "gearbox", text })`;
+  - command output from `rpc.gearbox.toast` events.
+
+  `opencode run "/gearbox …"` does not run plugin commands.
+
+- Log request bodies with a scratch `http.request` hook plugin. Load it only in the temporary project.
+- A config reload or an edited plugin file reloads the plugin and resets its in-memory session state.

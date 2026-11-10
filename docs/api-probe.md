@@ -333,3 +333,30 @@ await ctx.command.transform((editor) => {
 - The `title` hook (kind `title`) and title `http.request` run in parallel with the first primary request. `context` does not run for titles.
 - `ctx.session.get` returns `Session.Info` unwrapped; `ctx.agent.get`, `ctx.agent.list`, `ctx.model.list`, `ctx.model.default`, `ctx.plugin.list` return `{ location, data }`.
 - `test/fake-ctx.ts` differs from runtime in three places that adapter tests should not rely on: `model.list` returns a bare array (runtime: `{ location, data }`), `agent.get` returns the agent (runtime: `{ location, data }`, throws when missing), and `ctx.toast` exists (runtime: no server toast).
+
+## Coordinator decisions for Wave 2
+
+Approved by Miguel on 2026-11-10 after this probe. These override the plan where they differ.
+
+### Routing (Task 6)
+
+1. **Effort, all sessions, through `context`.** The `prompt` hook starts the judge (not awaited) for main chats. The `context` hook awaits `pending` up to `judge.timeoutMs`, applies `applyShaping`, filters the model's variant IDs to `LEVELS` (drop `none`, `minimal`, `thinking`), runs `pickVariant`, and copies that variant's `settings` into `event.options` (§7). Apply the turn's decision on every `context` step of that turn. No matching variant → leave options alone and set status `paused = "no effort control"`. `context` is the agent-loop hook only; `compaction`, `generate` and `title` have their own hooks and get no effort.
+2. **Manual variant, root sessions only (§3).** `event.model.variant` that is not `undefined`/`"default"` → `autoPaused = "manual variant"`, one toast, change nothing. Gearbox never calls `switchModel` on a root session in 2.2.6, so any root variant is the user's.
+3. **Subagent model routing, approved: subagents only.** In a child session's `prompt` hook (`Session.Info.parentID` set, §1), strip the `"You are a subagent spawned by another session.\n"` prefix, classify, and **await** the judge there, bounded by `judge.timeoutMs` (fallback `lastLevel ?? "medium"`). A subagent may start up to `timeoutMs` later; this is accepted. If the child's agent has an explicit `model` (§6) → effort only. Else if `modelSwitch.subagents` → `routeModel(level, buildLadder(models, childModel, effortModels))` and `ctx.session.switchModel({ sessionID, model: { providerID, id, variant } })` inside that `prompt` hook. If `buildLadder` returns `[]`, fall back to effort only. Build the `effortModels` RegExp without `g`/`y` flags.
+4. **Main chat: effort only on 2.2.6, never `switchModel`.** Keep a behaviourally feature-detected `experimental.model.resolve` registration. Only after its callback has fired once may main-chat model switching (`modelSwitch.main` + `shouldSwitch`) run through it. Until then `modelSwitch.main` has no effect. `/gearbox settings` and the README say so.
+5. **Judge model.** `settings.judge.model` → `ctx.agent.get({ agentID: "title" }).data.model` (§5) → cheapest enabled tool-capable model of the session's provider by base-tier `cost.output`, skipping `cost: []`. `runJudge` races `ctx.experimental.generate.text` against `timeoutMs` (abort signals are ignored, §4) and estimates `costUSD` from prompt and answer length × judge price (about 4 chars per token).
+
+### Notifications and RPC (Tasks 6–9)
+
+- The server has no toast API. Use `src/server/notify.ts` (on `main`): `toast({ sessionID, message, variant })`, `emitStatus(status)`, `logOnce(sessionID, scope, error)`. Task 9's `registerRpc` calls `setEmitter((name, payload) => registration.events.emit(name, payload))`. Before that, notifications are dropped.
+- `src/rpc.ts` event names are local names: `STATUS_EVENT = "status"`, `TOAST_EVENT = "toast"` (wire types `rpc.gearbox.status`, `rpc.gearbox.toast`). Task 9 builds the `Rpc.define` contract with both events, and the TUI shows `toast` events with `ui.toast.show`. Long command output (`stats`, `bench`, `settings`, `debug`, `help`) also goes out as a toast event with the full text. Task 9's TUI may show long messages with `ui.dialog.alert`.
+- Call `emitStatus` after each routing decision and after each context-care advice change.
+
+### Packaging (Task 9)
+
+- TUI peers (`@opentui/core`, `@opentui/solid`, `solid-js`, `@opencode/theme` if imported) are host-provided like `effect`. Declare them as `peerDependencies` (and `peerDependenciesMeta.optional` where the server part does not need them). `dependencies` stays `@opencode/plugin` only. Check the exact peer ranges in `node_modules/@opencode/plugin/package.json` (2.2.7 lists `>=0.8.1` for `@opentui/*`).
+
+### Tests
+
+- `test/fake-ctx.ts` now follows the runtime shapes above: `{ location, data }` from `model.list`, `model.default`, `agent.list` and `agent.get`; `agent.get` throws `Agent not found: <id>`; `ctx.rpc` is callable with `.register`; there is no `ctx.toast`; `fake.toasts` records `notify.toast(...)`; `fake.publish(event)` feeds `ctx.event.subscribe`.
+- Cache TTL defaults in §11 for OpenAI, Google and OpenAI-compatible are assumptions, not observations.

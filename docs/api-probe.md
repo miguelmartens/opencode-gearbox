@@ -360,3 +360,15 @@ Approved by Miguel on 2026-11-10 after this probe. These override the plan where
 
 - `test/fake-ctx.ts` now follows the runtime shapes above: `{ location, data }` from `model.list`, `model.default`, `agent.list` and `agent.get`; `agent.get` throws `Agent not found: <id>`; `ctx.rpc` is callable with `.register`; there is no `ctx.toast`; `fake.toasts` records `notify.toast(...)`; `fake.publish(event)` feeds `ctx.event.subscribe`.
 - Cache TTL defaults in §11 for OpenAI, Google and OpenAI-compatible are assumptions, not observations.
+
+### End-to-end must-checks (Task 10)
+
+Reviews of Tasks 6–9 and the integration fixes left these for the real OpenCode 2.2.6 run. Record each in `test/e2e/CHECKLIST.md` next to the plan's eight steps:
+
+- The TUI status bar renders in `prompt.footer.status`, and the RPC `status` call succeeds: `src/rpc.ts` uses JSON-Schema `type: [T, "null"]`, which the probe never ran.
+- Toast events show as TUI toasts, and long command output (`/gearbox stats`, `/gearbox bench`) opens a dialog only in the session that ran it.
+- The judge really runs: `/gearbox debug` shows a judge source with a raw answer, not only `fallback`.
+- Effort reaches the request: for an Anthropic and an OpenAI-style model, the request body carries the level (log it with a temporary scratch `http.request` hook plugin loaded only in the temp project, or with OpenCode's own logs).
+- A model without effort variants shows `Paused: no effort control`.
+- After a failed status fetch (e.g. briefly break the RPC), the bar recovers after the backoff without a new status event.
+- `opencode run "/gearbox x"` does not run plugin commands (§10). Drive commands from the TUI or with `client.session.command`.

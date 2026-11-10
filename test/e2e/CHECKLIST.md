@@ -1,12 +1,15 @@
 # End-to-end checklist
 
-Manual end-to-end run of the plan's Task 10 steps and the must-checks from `docs/api-probe.md`, against the real OpenCode binary. Output blocks are copied from the run. Long command output arrives as a `rpc.gearbox.toast` event; the blocks show its `message`.
+Manual end-to-end run of the plan's Task 10 steps and the must-checks from `docs/api-probe.md`, against the real OpenCode binary. Output blocks are copied from the runs. Long command output arrives as a `rpc.gearbox.toast` event; the blocks show its `message`. `<repo>` is this repository's checkout and `<home>` the user's home directory.
 
 ## Setup
 
 - **OpenCode:** `opencode v2.2.6` (Homebrew). Plugin typings and client `@opencode/plugin` / `@opencode/client` 2.2.7.
-- **Date:** 2026-11-10/11, branch `gearbox-t10` at `f4b669f` (no `src/` changes during the run).
-- **Isolation:** `XDG_CONFIG_HOME` pointed at an empty temp directory, so the global `~/.config/opencode` was neither loaded nor edited. Credentials came from the normal data directory.
+- **Runs:**
+  - **First run:** 2026-11-10/11 at `f4b669f`.
+  - **Second run:** 2026-11-11 at `2f39cb0`/`895c319`, after the follow-up fixes to `/gearbox bench`, `debug` and `stats`. It repeated steps 1–5, 7 and 8.
+  - Each block says which run it comes from.
+- **Isolation:** `XDG_CONFIG_HOME` pointed at an empty temp directory, so the global `<home>/.config/opencode` was neither loaded nor edited. Credentials came from the normal data directory.
 - **Temp project** `/tmp/gbx-e2e/proj` (git repo with `x.ts`, `queue.ts`, `worker.ts`, `main.ts`) and its `opencode.jsonc`:
 
   ```jsonc
@@ -24,17 +27,22 @@ Manual end-to-end run of the plan's Task 10 steps and the must-checks from `docs
       { "action": "edit", "resource": "*", "effect": "allow" },
       { "action": "shell", "resource": "*", "effect": "allow" },
     ],
-    "plugins": [
-      "/Users/miguelm/orca/workspaces/opencode-gearbox/gearbox-t10",
-      "/tmp/gbx-e2e/logger",
-    ],
+    "plugins": ["<repo>", "/tmp/gbx-e2e/logger"],
   }
   ```
 
-- **Request logger:** `/tmp/gbx-e2e/logger` is a scratch plugin, loaded only in the temp project. Its `http.request` hook writes each request body's effort fields (`output_config`, `thinking`, `reasoning`, `reasoning_effort`) to a JSONL file.
-- **Driver:** a private `opencode serve` on `127.0.0.1`, driven by `@opencode/client`. Prompts went through `session.prompt` + `session.wait`. Commands went through `session.command({ name: "gearbox", text })`, because `opencode run "/gearbox …"` does not run plugin commands (must-check 7). Bus events (`rpc.gearbox.toast`, `rpc.gearbox.status`, `session.*`) were collected by subscription.
+  In the second run, step 5 also pointed `deepseek-v4.1-flash` at a local logging proxy, to record which model wrote the compaction summary:
+
+  ```jsonc
+  "providers": { "opencode-go": { "models": { "deepseek-v4.1-flash": {
+    "settings": { "baseURL": "http://127.0.0.1:4195/inference/go/openai/v1" } } } } }
+  ```
+
+- **Request logger:** `/tmp/gbx-e2e/logger` is a scratch plugin, loaded only in the temp project. Its `http.request` hook writes each request body's effort fields (`output_config`, `thinking`, `reasoning`, `reasoning_effort`) to a JSONL file. `generate.text` calls (judge, summaries) run no session hooks. For those, the second run used the logging proxy above, which forwards to `https://opencode.ai` unchanged.
+- **Driver:** a private `opencode serve` on `127.0.0.1`, driven by `@opencode/client`. Prompts went through `session.prompt` + `session.wait`. Commands went through `session.command({ name: "gearbox", text })`, because `opencode run "/gearbox …"` does not run plugin commands (M7). Bus events (`rpc.gearbox.toast`, `rpc.gearbox.status`, `session.*`) were collected by subscription.
 - **TUI:** `opencode --server <url> --session <id> <dir>` ran in a pseudo-terminal (160×48), with the screen rendered by `pyte`. The TUI rows below are copied from that rendered screen.
 - **Models:** `opencode-go` (subscription; every request reports `cost: 0`). Main chat `claude-haiku-5-5` (Anthropic Messages). Also `gpt-6-luna` (OpenAI Responses) and `mimo-v2.6-flash` (no variants). Judge = `small_model` = `deepseek-v4.1-flash#low` unless noted.
+- **Judge latency:** during both runs `deepseek-v4.1-flash` answered in 2–13 s, sometimes with `The inference service is overloaded`. Many judge calls missed the 4 s `judge.timeoutMs` and fell back. That is the designed fallback (Review Focus 3), but it means not every run shows a `(judge)` decision.
 
 ## Summary
 
@@ -46,8 +54,8 @@ Manual end-to-end run of the plan's Task 10 steps and the must-checks from `docs
 | 4   | Subagent routing; explicit-model agent kept  | PASS     |
 | 5   | `/compact` summary by the small model        | PASS     |
 | 6   | `/gearbox handoff` → new session + summary   | PASS     |
-| 7   | Coexistence: steps 1–2 with three plugins    | PASS     |
-| 8   | `/gearbox bench` prints a score              | PASS (1) |
+| 7   | Coexistence: steps 1–2 with three plugins    | PASS (1) |
+| 8   | `/gearbox bench` prints a score              | PASS     |
 | M1  | Status bar renders; RPC `status` works       | PASS     |
 | M2  | Toasts; long output → dialog in own session  | PASS     |
 | M3  | Judge really runs                            | PASS     |
@@ -56,13 +64,13 @@ Manual end-to-end run of the plan's Task 10 steps and the must-checks from `docs
 | M6  | Bar recovers after failed fetch + backoff    | PASS     |
 | M7  | `opencode run "/gearbox x"` runs no command  | PASS     |
 
-(1) The score prints, but with the `deepseek-v4.1-flash` judge most cases failed on provider errors. See step 8 and Findings.
+(1) Step 7 passed its judge path with `judge.model = opencode-go/claude-haiku-5-5#none`, because the default judge (`deepseek-v4.1-flash`) was overloaded. With the default judge the prompts ran on the fallback level. See step 7.
 
 ## Steps
 
 ### 1. Effort per prompt — PASS
 
-Fresh `claude-haiku-5-5` session. `/gearbox debug` after each prompt:
+**First run.** Fresh `claude-haiku-5-5` session. Both prompts were judged:
 
 ```
 ### prompt: rename foo to bar in x.ts  (7557 ms)
@@ -70,18 +78,12 @@ Last decision: low (judge) Single-file trivial rename with no broader impact.; j
 Last level: low
 Auto paused: no
 Judge answer: LEVEL: low WHY: Single-file trivial rename with no broader …
-Judge pending: yes
+Judge pending: yes                    ← old debug line, replaced by "Judge running" in the second run
 User turn: 1
 Request model: opencode-go/claude-haiku-5-5
 
 ### prompt: debug this race condition across 3 files  (104311 ms)
 Last decision: xhigh (judge) Race condition spans three files, requiring complex debugging.; judge 2019 ms, $0.0000
-Last level: xhigh
-Auto paused: no
-Judge answer: LEVEL: xhigh WHY: Race condition spans three files, requiri…
-Judge pending: yes
-User turn: 2
-Request model: opencode-go/claude-haiku-5-5
 ```
 
 Request bodies (logger, `[kind, output_config]`, with repeat counts):
@@ -92,65 +94,93 @@ Request bodies (logger, `[kind, output_config]`, with repeat counts):
   16 ["primary",{"effort":"xhigh"}]
 ```
 
-Two earlier runs hit judge failures (`deepseek-v4.1-flash` overloaded). The prompt still ran, with the fallback level (Review Focus 3):
+**Second run.** `/gearbox debug` was sent 150 ms after a prompt that was not awaited, while the judge was still in flight. Then again after the turn:
 
 ```
-Last decision: low (fallback) judge timed out or failed      ← 2nd prompt, run 1 (1st prompt: low (judge))
-Last decision: medium (fallback) judge timed out or failed   ← 1st prompt, run 2 (2nd prompt: high (judge))
-```
-
-### 2. Follow-up "ok" — PASS
-
-Same session, after the race-condition prompt:
-
-```
-### prompt: ok  (1744 ms)
-Last decision: xhigh (followup) follow-up
-Last level: xhigh
+### prompt (not awaited): rename foo to bar in x.ts
+### /gearbox debug
+Last decision: none
+Last level: none
 Auto paused: no
-Judge answer: LEVEL: xhigh WHY: Race condition spans three files, requiri…
-Judge pending: yes
-User turn: 3
+Judge answer: none
+Judge running: yes
+User turn: 1
+Request model: unknown
+
+### turn finished
+### /gearbox debug
+Last decision: medium (fallback) judge timed out or failed
+...
+Judge running: no
+User turn: 1
+
+### prompt: debug this race condition across 3 files  (5660 ms)
+### /gearbox debug
+Last decision: high (judge) Multi-file race-condition debugging scoped across three files.; judge 1921 ms, $0.0000
+Last level: high
+Auto paused: no
+Judge answer: LEVEL: high WHY: Multi-file race-condition debugging scoped…
+Judge running: no
+User turn: 2
 Request model: opencode-go/claude-haiku-5-5
 ```
 
-`/gearbox stats` counts two judge calls for three prompts, so "ok" made no judge call:
+The `rename` judge call missed the 4 s timeout in this run, so that turn ran at the fallback `medium`. The prompt itself was not delayed.
+
+### 2. Follow-up "ok" — PASS
+
+**Second run**, after a judged `xhigh` race-condition prompt:
 
 ```
-low    4
-medium 0
+### prompt: ok  (1790 ms)
+### /gearbox debug
+Last decision: xhigh (followup) follow-up
+Last level: xhigh
+Auto paused: no
+Judge answer: LEVEL: xhigh WHY: Concurrency race debugging across multipl…
+Judge running: no
+User turn: 3
+Request model: opencode-go/claude-haiku-5-5
+
+### /gearbox stats
+low    0
+medium 1
 high   0
-xhigh  16
+xhigh  2
 max    0
-total  20 turns; tokens in 46, out 6646, cache read 683496; cost $0.0000; judge $0.0001 (2 calls)
+total  3 turns, 12 requests; tokens in 30, out 2725, cache read 301788; cost $0.0000; judge $0.0001 (2 calls)
 ```
+
+Three user turns took two judge calls: `rename` (timed out, still counted) and the race prompt. So "ok" made no judge call. The stats now count one turn per prompt at its level. The 12 model requests are counted separately.
 
 ### 3. Manual variant — PASS
 
-Via the API (`session.switchModel` to `#max` between prompts, the same path as a TUI pick):
+**Second run**, via the API (`session.switchModel` to `#max` between prompts, the same path as a TUI pick):
 
 ```
 ### switchModel variant=max
-### prompt: what does queue.ts export? one line  (4487 ms)
+### prompt: what does queue.ts export? one line  (2411 ms)
 ### /gearbox debug
-Last decision: low (judge) Simple lookup question requiring a one-line answer.; judge 1498 ms, $0.0000
-Last level: low
+Last decision: medium (fallback) judge timed out or failed
+Last level: medium
 Auto paused: manual variant
-...
+Judge answer: none
+Judge running: no
+User turn: 2
 Request model: opencode-go/claude-haiku-5-5#max
 
 ### /gearbox
-Gearbox: low · opencode-go/claude-haiku-5-5#max · Paused: manual variant
+Gearbox: medium · opencode-go/claude-haiku-5-5#max · Paused: manual variant
 
 ### /gearbox auto on
 Gearbox: auto on
 
-### prompt: what does worker.ts export? one line  (4813 ms)
+### prompt: what does worker.ts export? one line  (6064 ms)
 ### /gearbox
-Gearbox: low · opencode-go/claude-haiku-5-5#max · Auto
+Gearbox: medium · opencode-go/claude-haiku-5-5#max · Auto
 ```
 
-One toast was emitted:
+One toast:
 
 ```json
 {
@@ -163,12 +193,12 @@ One toast was emitted:
 While paused, Gearbox left the request alone. The only effort in the body is OpenCode's own per-message update for the user's `max`. After `auto on`, Gearbox's level is back:
 
 ```
-["primary","default",{"effort":"low"},null]
-["primary","max",null,["…{\"role\":\"system\",\"content\":[],\"output_config\":{\"effort\":\"max\"}}…"]]   ← paused
-["primary","max",{"effort":"low"},null]                                                               ← after auto on
+["primary","default",{"effort":"medium"},"null"]
+["primary","max",null,"[…{\"role\":\"system\",\"content\":[],\"output_config\":{\"effort\"…"]   ← paused
+["primary","max",{"effort":"medium"},"null"]                                                   ← after auto on
 ```
 
-In the TUI: `/effort` → pick `high` → prompt. The toast and the bar:
+**First run**, in the TUI: `/effort` → pick `high` → prompt. The toast and the bar:
 
 ```
 ┃  Gearbox paused                                    x  ┃
@@ -185,24 +215,32 @@ After typing `/gearbox auto on` in the TUI:
 
 ### 4. Subagents — PASS
 
-Main chat on `claude-haiku-5-5`: "Use the task tool twice … subagent "general" … subagent "pinned" …". Child sessions from `session.created`:
+**Second run.** Main chat on `claude-haiku-5-5`: "Use the task tool twice … subagent "general" … subagent "pinned" …". Child sessions from `session.created`:
 
 ```
-{"id":"ses_…74v05u","parentID":"ses_…D3HXo6","agent":"general","model":{"id":"claude-haiku-5-5","providerID":"opencode-go","variant":"default"}}
-{"id":"ses_…tZmRj5","parentID":"ses_…D3HXo6","agent":"pinned","model":{"id":"gpt-6-luna","providerID":"opencode-go","variant":"medium"}}
-session.model.selected: [{"sessionID":"ses_…74v05u","model":{"id":"mimo-v2.6-flash","providerID":"opencode-go"},"previous":{"id":"claude-haiku-5-5",…}}]
+{"id":"ses_e38390aecffe1C6u5S2EOD48uu","parentID":"ses_e383921ccffedLW5kW3CkRAd6G","agent":"general","model":{"id":"claude-haiku-5-5","providerID":"opencode-go","variant":"default"}}
+{"id":"ses_e3838d2e9ffePDaxoddNSI1pcR","parentID":"ses_e383921ccffedLW5kW3CkRAd6G","agent":"pinned","model":{"id":"gpt-6-luna","providerID":"opencode-go","variant":"medium"}}
+session.model.selected: [{"sessionID":"ses_e38390aecffe1C6u5S2EOD48uu","model":{"id":"mimo-v2.6-flash","providerID":"opencode-go"},"previous":{"id":"claude-haiku-5-5","providerID":"opencode-go","variant":"default"}}]
 ```
 
-`general` (no `model` in its agent): `/gearbox debug` in the child:
+Request bodies (`[session, kind, agent, model, variant, effort]`):
 
 ```
-Last decision: medium (fallback) judge timed out
-...
-Request model: opencode-go/mimo-v2.6-flash
-Gearbox: medium · opencode-go/mimo-v2.6-flash · Paused: no effort control
+["OD48uu","primary","general","mimo-v2.6-flash","default",null]                       (×3)
+["SI1pcR","primary","pinned","gpt-6-luna","medium",{"effort":"medium","summary":"auto"}] (×3)
 ```
 
-The level is `medium`, and `routeModel("medium")` on the real `opencode-go` ladder (computed with `buildLadder` from the live catalog) is `mimo-v2.6-flash`:
+- **`general`** (no `model` in its agent): its turn ran at `medium` (fallback). It was switched to `routeModel("medium")` = `mimo-v2.6-flash`, which has no effort variants.
+- **`pinned`** (explicit `model: opencode-go/gpt-6-luna#medium`): it kept its model, and Gearbox set the effort.
+- **First run:** `pinned`'s judge answered `low`, and its requests carried `{"effort":"low","summary":"auto"}`, overriding the agent's own `#medium` variant:
+
+  ```
+  Last decision: low (judge) Simple lookup of a file's exports; answer is one line.; judge 1346 ms, $0.0000
+  Request model: opencode-go/gpt-6-luna#medium
+  Gearbox: low · opencode-go/gpt-6-luna#medium · Auto
+  ```
+
+The full ladder was **computed offline**: `buildLadder` and `routeModel` ran on the live `opencode-go` catalog from `client.model.list`. No subagent judged `low` during the runs, so the `low` rung was not observed in a request.
 
 ```
 low → longcat-2.5-free
@@ -210,32 +248,32 @@ medium → mimo-v2.6-flash
 high → claude-haiku-5-5
 ```
 
-`pinned` (explicit `model: opencode-go/gpt-6-luna#medium`): the model is kept and only the effort is set:
-
-```
-Last decision: low (judge) Simple lookup of a file's exports; answer is one line.; judge 1346 ms, $0.0000
-Request model: opencode-go/gpt-6-luna#medium
-Gearbox: low · opencode-go/gpt-6-luna#medium · Auto
-```
-
-Request bodies: `["tZmRj5","primary","pinned","gpt-6-luna","medium",{"effort":"low","summary":"auto"}]` (×3). The `general` child's three requests went to `mimo-v2.6-flash` with no effort field.
-
 ### 5. `/compact` — PASS
 
-`session.compact` on the step 1 session. The logger's `compaction` hook ran after Gearbox's and saw `event.result` already set. There was no `compaction`-kind model request. The judge call count went from 2 to 3. `session.compaction.ended.text`:
+**Second run.** `session.compact` on the step 1 session (second run).
+
+- The logger's `compaction` hook ran after Gearbox's and saw `event.result` already set (`hasResult: true`).
+- No `compaction`-kind model request went to the session's model.
+- The judge call count went from 2 to 3.
+
+The logging proxy recorded the summary call with its model:
 
 ```
-**Decisions made / reasons**
-- Race originated in the uncommitted `worker.ts` change: `drain()` used `inflight.splice(0)`, causing a second concurrent `drain()` to return early and rejection handling to reject before sibling jobs finished.
-- Fix in `worker.ts`: keep a live `Set` of in-flight promise…
+{"t":"2026-11-10T23:14:47.305Z","path":"/inference/go/openai/v1/chat/completions","model":"deepseek-v4.1-flash","reasoning_effort":"low","kind":"summary","head":"[{\"role\":\"user\",\"content\":\"<conversation>\\nUSER: rename foo to bar in x.ts\\n\\nASSISTANT: …"}
 ```
 
 ```
-["compaction.hook",null,"claude-haiku-5-5",true,"**Decisions made / reasons**\n- Race originated in …"]
-/gearbox stats: … judge $0.0006 (3 calls)
+["compaction.hook",null,"claude-haiku-5-5",true]
+/gearbox stats before: total  3 turns, 6 requests; … judge $0.0001 (2 calls)
+/gearbox stats after:  total  3 turns, 6 requests; … judge $0.0002 (3 calls)
+compaction.ended.text: "- **Completed:** Renamed `foo` to `bar` in `/private/tmp/gbx-e2e/proj/x.ts`; updated both occurrences: function declaration and call in `total`.\n- **Blocked:** …"
 ```
+
+So the summary was written by the resolved judge model, `deepseek-v4.1-flash#low`. Here that is the `small_model`.
 
 ### 6. `/gearbox handoff` — PASS
+
+**First run.** The follow-up changes do not touch handoff.
 
 ```
 ### /gearbox handoff
@@ -266,67 +304,85 @@ Gearbox: handoff to session ses_e38618025ffeoMkb9qDb4BU45v; wrote /private/tmp/g
 - `x.ts` (modified, +2 -2)
 ```
 
-### 7. Coexistence — PASS
+### 7. Coexistence — PASS (judge path with `judge.model = claude-haiku-5-5#none`)
 
-This used a second project, `/tmp/gbx-e2e/proj7`, on its own server. It loaded Miguel's plugins the way his global config does:
+This used a second project, `/tmp/gbx-e2e/proj7`, on its own server. It loaded the user's plugins the way the user's global config does:
 
-- `/Users/miguelm/.config/opencode/plugins/caveman` (directory plugin, `server.js`)
+- `<home>/.config/opencode/plugins/caveman` (directory plugin, `server.js`)
 - `@prevalentware/opencode-goal-plugin` (npm, 0.1.95)
-- TokenEconomizer through `.opencode/plugins/tokeneconomizer.ts` → symlink to `/Users/miguelm/TokenEconomizer/plugin/opencode/tokeneconomizer.ts`. That is the same symlink as the global `plugins/` directory. A file path in `plugins` is rejected with `configured plugin path must be a directory`.
+- TokenEconomizer through `.opencode/plugins/tokeneconomizer.ts` → symlink to `<home>/TokenEconomizer/plugin/opencode/tokeneconomizer.ts`. That is the same symlink as the global `plugins/` directory. A file path in `plugins` is rejected with `configured plugin path must be a directory`.
 
-`plugin.list`:
+`plugin.list` (second run):
 
 ```
-[["tokeneconomizer",".../proj7/.opencode/plugins/tokeneconomizer.ts","active"],["gearbox",".../gearbox-t10","active"],["gbx-e2e-logger","/tmp/gbx-e2e/logger","active"],["caveman","/Users/miguelm/.config/opencode/plugins/caveman","active"],["local.goal-mode.server","@prevalentware/opencode-goal-plugin","active"]]
-commands: init review goal gearbox pause_goal resume_goal
+tokeneconomizer:active gearbox:active gbx-e2e-logger:active caveman:active local.goal-mode.server:active
 ```
 
-In the first run, `deepseek-v4.1-flash` took 40–60 s per call and some calls failed with `Generate.ProviderRequestError … "The inference service is overloaded."`. So both judged prompts fell back to `medium` and the prompts still ran. This shows the fallback, not the judge. For the judge path, the run was repeated with `/gearbox set judge.model opencode-go/claude-haiku-5-5#none`, which was reset afterwards with `set judge.model null`:
+**Default judge (first run).** `deepseek-v4.1-flash` took 40–60 s per call and some calls failed with `Generate.ProviderRequestError … "The inference service is overloaded."`. Both judged prompts fell back to `medium` and still ran. This shows the fallback, not the judge.
+
+**Judge path (second run),** with `/gearbox set judge.model opencode-go/claude-haiku-5-5#none`, reset afterwards with `set judge.model null`:
 
 ```
 ### /gearbox set judge.model opencode-go/claude-haiku-5-5#none
 Gearbox: judge.model = "opencode-go/claude-haiku-5-5#none"
 
-### prompt: rename foo to bar in x.ts  (5038 ms)
-Last decision: low (judge) Single-file rename, a trivial mechanical edit with no design decisions.; judge 939 ms, $0.0000
+### prompt: rename foo to bar in x.ts  (6230 ms)
+Last decision: low (judge) Single-file rename, trivial mechanical edit with no design decisions.; judge 1465 ms, $0.0000
+Judge running: no
 
-### prompt: debug this race condition across 3 files  (30690 ms)
-Last decision: xhigh (judge) Race condition debugging across three files requires tracing concurrent execution paths.; judge 1045 ms, $0.0000
+### prompt: debug this race condition across 3 files  (68078 ms)
+Last decision: xhigh (judge) Race condition debugging across three files requires tracing concurrent interactions.; judge 918 ms, $0.0000
 
-### prompt: ok  (23823 ms)
+### prompt: ok  (2241 ms)
 Last decision: xhigh (followup) follow-up
 
 ### /gearbox stats
-total  12 turns; tokens in 30, out 3571, cache read 431063; cost $0.0000; judge $0.0001 (2 calls)
+low    1
+medium 0
+high   0
+xhigh  2
+max    0
+total  3 turns, 11 requests; tokens in 28, out 2442, cache read 353942; cost $0.0000; judge $0.0001 (2 calls)
 
-request bodies:  1 ["title",null]   3 ["primary",{"effort":"low"}]   9 ["primary",{"effort":"xhigh"}]
+### /gearbox set judge.model null
+Gearbox: judge.model = null
+
+request bodies:  1 ["title",null]   3 ["primary",{"effort":"low"}]   8 ["primary",{"effort":"xhigh"}]
 ```
 
 No plugin errors in the server log apart from the judge provider errors.
 
-### 8. `/gearbox bench` — PASS (score printed)
+### 8. `/gearbox bench` — PASS
 
-The default judge is `small_model` → `deepseek-v4.1-flash`, lightened to `#low`:
+**Second run,** with the default judge (`small_model` → `deepseek-v4.1-flash`, lightened to `#low`). Failed calls are retried once, and unanswered cases are listed apart from wrong answers:
 
 ```
-Gearbox: benching opencode-go/deepseek-v4.1-flash#low on 75 prompts…
-Bench opencode-go/deepseek-v4.1-flash#low: 28/75 (37%)
-holdout: 9/20 (45%)
-avg judge time: 2500 ms
-Misses (47):
-- t01 "what does the -r flag do in cp?": no answer (ok: low)
-- t02 "rename the variable usr to user in auth.ts": no answer (ok: low)
-…
+Bench opencode-go/deepseek-v4.1-flash#low
+answered: 39/75 (36 failed twice: timeout or provider error)
+correct: 35/39 (90%) of answered, 35/75 (47%) of all
+holdout: 7/8 (88%) of answered, 7/20 (35%) of all
+avg judge time: 2209 ms
+bench spend: $0.0014 over 130 judge calls (today's spend, not session stats)
+Misses (4):
 - n10 "why is this test flaky? it passes locally but fails in CI a…": xhigh (ok: medium|high)
+- a07 "do it": xhigh (ok: high|medium)
+- h14 "yes all of it": xhigh (ok: high|medium)
+- a08 "The same shapes, 100%": low (ok: medium|high)
+No answer (36):
+- t02 "rename the variable usr to user in auth.ts": no answer (ok: low)
+- t06 "vad heter kommandot för att lista git-grenar?": no answer (ok: low)
 …
 ```
 
-42 of the 47 misses are `no answer`: the provider was overloaded or timed out (4 s). Of the 33 cases it answered, 28 were right. For comparison, `/gearbox bench opencode-go/claude-haiku-5-5#none`:
+`/gearbox bench opencode-go/claude-haiku-5-5#none`:
 
 ```
-Bench opencode-go/claude-haiku-5-5#none: 71/75 (95%)
-holdout: 20/20 (100%)
-avg judge time: 978 ms
+Bench opencode-go/claude-haiku-5-5#none
+answered: 75/75
+correct: 71/75 (95%) of answered, 71/75 (95%) of all
+holdout: 20/20 (100%) of answered, 20/20 (100%) of all
+avg judge time: 944 ms
+bench spend: $0.0021 over 75 judge calls (today's spend, not session stats)
 Misses (4):
 - a07 "do it": xhigh (ok: high|medium)
 - o02 "we're leaking memory in production, heap grows ~200MB/hour.…": xhigh (ok: medium|high)
@@ -334,7 +390,19 @@ Misses (4):
 - a10 "yes": low (ok: medium|high)
 ```
 
+After both benches, the session's stats stayed empty, and the spend went into today's total:
+
+```
+### /gearbox stats
+total  0 turns, 0 requests; tokens in 0, out 0, cache read 0; cost $0.0000; judge $0.0000 (0 calls)
+### /gearbox
+Gearbox: no level yet · unknown · Auto
+Spent today: $0.0071
+```
+
 ## Must-checks (`docs/api-probe.md`)
+
+M1, M2 and M4–M7 are from the first run. The follow-up changes do not touch the TUI, RPC, the request path or command dispatch.
 
 ### M1. Status bar and RPC `status` — PASS
 
@@ -351,7 +419,7 @@ RPC status (fresh): {"sessionID":"ses_e386c1796ffeIxmoYCQ8C0jGJP","level":null,"
 RPC status: {"sessionID":"ses_e386c1796ffeIxmoYCQ8C0jGJP","level":"low","model":{"providerID":"opencode-go","id":"claude-haiku-5-5"},"auto":true,"paused":null,"contextRatio":0.025842,"cacheRemainingMs":298482,"judgeReason":"Single-file trivial rename edit.","advice":null}
 ```
 
-`rpc.gearbox.status` events arrived with the same shape: 43 in the step 1–2 session.
+`rpc.gearbox.status` events arrived with the same shape: 43 in the first-run step 1–2 session.
 
 ### M2. Toasts and dialogs — PASS
 
@@ -367,9 +435,19 @@ RPC status: {"sessionID":"ses_e386c1796ffeIxmoYCQ8C0jGJP","level":"low","model":
   $0.0000; judge $0.0043 (150 calls)
   ```
 
+  (First-run stats format. Bench calls no longer go into session stats; see step 8.)
+
 ### M3. The judge really runs — PASS
 
-`/gearbox debug` shows `(judge)` decisions with the raw answer, e.g. `Judge answer: LEVEL: low WHY: Single-file trivial rename with no broader …`, judge 939–3845 ms. Fallbacks happen only when the provider fails; the server log shows the error:
+- `/gearbox debug` shows `(judge)` decisions with the raw answer, e.g. `Judge answer: LEVEL: low WHY: Single-file trivial rename with no broader …`, judge 918–3845 ms.
+- While a judge call is in flight, `debug` shows `Judge running: yes` (step 1, second run).
+- The logging proxy shows the judge requests going to the judge model:
+
+  ```
+  {"path":"/inference/go/openai/v1/chat/completions","model":"deepseek-v4.1-flash","reasoning_effort":"low","kind":"judge","head":"[{\"role\":\"user\",\"content\":\"You rate how much reasonin…"}
+  ```
+
+Fallbacks happen only when the provider fails; the server log shows the error:
 
 ```
 [gearbox] judge call failed for session ses_e38655d61ffeFiufjyW3D3HXo6: {
@@ -381,11 +459,12 @@ RPC status: {"sessionID":"ses_e386c1796ffeIxmoYCQ8C0jGJP","level":"low","model":
 
 ### M4. Effort reaches the request — PASS
 
-Anthropic Messages (`claude-haiku-5-5`): `output_config: {"effort":"low"}` and `{"effort":"xhigh"}` (step 1). OpenAI Responses (`gpt-6-luna`, prompt "what does x.ts export? answer in one line" → `low (judge)`):
+- **Anthropic Messages** (`claude-haiku-5-5`): `output_config: {"effort":"low"}` and `{"effort":"xhigh"}` (step 1).
+- **OpenAI Responses** (`gpt-6-luna`): the prompt "what does x.ts export? answer in one line" was judged `low`. The request bodies:
 
-```
-3 ["primary","gpt-6-luna",{"model":"gpt-6-luna","reasoning":{"effort":"low","summary":"auto"}}]
-```
+  ```
+  3 ["primary","gpt-6-luna",{"model":"gpt-6-luna","reasoning":{"effort":"low","summary":"auto"}}]
+  ```
 
 ### M5. Model without effort variants — PASS
 
@@ -422,13 +501,16 @@ Bar every 3 s: empty at 23:59:28, :31, :34 and :37; `⚙ Auto` from 23:59:40 on 
 
 ## Findings
 
-Not fixed here: `src/` belongs to earlier tasks.
+Fixed after the first run (second run above):
 
-1. **The default judge can be slow or unavailable.** With `small_model = deepseek-v4.1-flash`, the 4 s `judge.timeoutMs` often expired, and the provider returned `overloaded` errors. Some calls took 40–60 s. Prompts were never blocked, but many decisions were `fallback`. `claude-haiku-5-5#none` answered in about 1 s and scored 71/75. The README recommends a fast `judge.model`.
-2. **`/gearbox bench` counts provider failures as misses.** `28/75 (37%)` mixed 42 `no answer` results with 5 wrong ones. Reporting the answered count separately (or retrying failed cases) would make the score mean judge quality.
-3. **`/gearbox debug` always prints `Judge pending: yes` after a request.** `turnDecision` stores the settled decision back into `state.pending`, so the field never says `no` on an active session.
-4. **`/gearbox stats` "turns" counts model requests, not prompts.** Three prompts showed `20 turns`.
-5. **Bench judge calls go into the session's stats and today's spend.** One session showed `judge $0.0043 (150 calls)` after two benches. This is consistent with the ledger design, but it is surprising in `stats`.
+1. **Fixed:** `/gearbox bench` counted provider failures as misses. It now retries a failed call once, prints `answered N/75`, scores over the answered cases and over all cases, and lists `No answer` apart from `Misses`.
+2. **Fixed:** `/gearbox debug` always printed `Judge pending: yes`. It now prints `Judge running: yes|no` from an in-flight counter.
+3. **Fixed:** `/gearbox stats` counted model requests as turns. It now counts one turn per user prompt at its level, and shows requests separately.
+4. **Fixed:** bench judge calls went into the session's stats. They now count only in today's spend, and the bench output shows their cost.
+
+Open:
+
+5. **The default judge can be slow or unavailable.** With `small_model = deepseek-v4.1-flash`, the 4 s `judge.timeoutMs` often expired. Prompts were never blocked, but many decisions were `fallback`. `claude-haiku-5-5#none` answered in about 1 s and scored 71/75. The README recommends a fast `judge.model`.
 6. **The bottom of the subagent ladder can be a free or contributor model.** On `opencode-go` a `low` subagent goes to `longcat-2.5-free`. Users can exclude such models with `effortModels`. The README says so.
 7. **A plugin reload (config change, `location.reload`, edited plugin file) resets the in-memory session state.** After the reload, the bar showed `⚙ Auto` without a level until the next prompt. This is expected, but users will see it.
-8. **The coexistence run sent test sessions through TokenEconomizer's dispatcher**, as Miguel's normal setup would.
+8. **The coexistence runs sent test sessions through TokenEconomizer's dispatcher**, as the user's normal setup would.

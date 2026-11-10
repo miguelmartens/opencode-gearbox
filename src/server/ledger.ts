@@ -5,7 +5,8 @@
 import type { Plugin } from '@opencode/plugin';
 import { LEVELS } from '../core/types.ts';
 import type { Level, Settings, Stats } from '../core/types.ts';
-import { addTurn, emptyStats } from '../core/stats.ts';
+import { addRequest, emptySessionStats } from '../core/stats.ts';
+import type { SessionStats } from '../core/stats.ts';
 import { budgetState } from '../core/context.ts';
 import { getState, onForget } from './state.ts';
 import { loadSettings, saveSettings } from './settings-store.ts';
@@ -59,10 +60,19 @@ function isStats(v: unknown): v is Stats {
   );
 }
 
-/** Stored stats, or empty stats when missing or of the wrong shape. */
-export async function readStats(ctx: Ctx, sessionID: string): Promise<Stats> {
+/**
+ * Stored stats, or empty stats when missing or of the wrong shape. Stats stored before requests
+ * were counted apart count every request as a turn.
+ */
+export async function readStats(ctx: Ctx, sessionID: string): Promise<SessionStats> {
   const stored = await ctx.storage.get(`stats/${sessionID}`);
-  return isStats(stored) ? stored : emptyStats();
+  if (!isStats(stored)) return emptySessionStats();
+  const extra = stored as Stats & { requests?: unknown; lastTurn?: unknown };
+  return {
+    ...stored,
+    requests: isNum(extra.requests) ? extra.requests : stored.turns,
+    lastTurn: isNum(extra.lastTurn) ? extra.lastTurn : null,
+  };
 }
 
 const queues = new WeakMap<object, Promise<unknown>>();
@@ -77,7 +87,7 @@ function serial<T>(ctx: Ctx, task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-async function writeStats(ctx: Ctx, sessionID: string, stats: Stats): Promise<void> {
+async function writeStats(ctx: Ctx, sessionID: string, stats: SessionStats): Promise<void> {
   await ctx.storage.set(`stats/${sessionID}`, stats as never);
   getState(sessionID).stats = stats;
 }
@@ -127,9 +137,11 @@ export type StepUsage = {
   output: number;
   cacheRead: number;
   costUSD: number;
+  /** The session's user turn: the first request of a turn counts the turn and its level. */
+  turn: number;
 };
 
-/** One model request: a stats turn and its cost added to today's spend. */
+/** One model request: added to the session's stats and its cost to today's spend. */
 export function recordStep(
   ctx: Ctx,
   sessionID: string,
@@ -137,25 +149,25 @@ export function recordStep(
   now = Date.now(),
 ): Promise<void> {
   return serial(ctx, async () => {
-    const stats = addTurn(await readStats(ctx, sessionID), {
-      ...step,
-      judgeCostUSD: 0,
-      judged: false,
-    });
+    const stats = addRequest(await readStats(ctx, sessionID), step);
     await writeStats(ctx, sessionID, stats);
     await addSpend(ctx, sessionID, step.costUSD, now);
   });
 }
 
-/** One settled judge or summary call (routing, context care, bench): counted exactly once. */
+/**
+ * One settled judge or summary call (routing, context care, bench): counted exactly once. It is
+ * always real spend; `sessionStats: false` (bench) keeps it out of the session's stats.
+ */
 export function recordJudgeCall(
   ctx: Ctx,
   sessionID: string | null,
   costUSD: number,
   now = Date.now(),
+  opts: { sessionStats?: boolean } = {},
 ): Promise<void> {
   return serial(ctx, async () => {
-    if (sessionID) {
+    if (sessionID && opts.sessionStats !== false) {
       const stats = await readStats(ctx, sessionID);
       await writeStats(ctx, sessionID, {
         ...stats,

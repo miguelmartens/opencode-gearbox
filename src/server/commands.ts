@@ -121,6 +121,7 @@ async function onStepEnded(
       output: t.output,
       cacheRead: t.cacheRead,
       costUSD,
+      turn: state.userTurn,
     },
     deps.now(),
   );
@@ -149,6 +150,20 @@ function watchUsage(ctx: Ctx, deps: CommandDeps): void {
   );
 }
 
+type BenchResult = { c: BenchCase; answered: boolean; got: Level | null; ms: number };
+
+const pct = (hits: number, of: number): string =>
+  `${hits}/${of} (${of ? Math.round((hits / of) * 100) : 0}%)`;
+
+function benchLine(c: BenchCase, got: string): string {
+  return `- ${c.id} "${clip(c.message)}": ${got} (ok: ${c.ok.join('|')})`;
+}
+
+/**
+ * Scores the judge on the labelled cases. A failed call (timeout, provider error) is retried once;
+ * cases still unanswered are listed apart from wrong answers. Bench calls are real spend: they go
+ * into today's spend, not into the session's stats.
+ */
 async function runBench(
   ctx: Ctx,
   deps: CommandDeps,
@@ -157,7 +172,16 @@ async function runBench(
   timeoutMs: number,
 ): Promise<string> {
   const cases = (bench as { cases: BenchCase[] }).cases;
-  const results: Array<{ c: BenchCase; got: Level | null; ms: number }> = new Array(cases.length);
+  const results: BenchResult[] = new Array(cases.length);
+  const meta = { sessionID, sessionStats: false };
+  let calls = 0;
+  let spentUSD = 0;
+  const ask = async (prompt: string) => {
+    calls += 1;
+    const answer = await deps.runJudge(ctx, model, prompt, timeoutMs, meta).catch(() => null);
+    spentUSD += answer?.costUSD ?? 0;
+    return answer;
+  };
   let next = 0;
   const worker = async () => {
     while (next < cases.length) {
@@ -169,11 +193,10 @@ async function runBench(
         contextRatio: null,
         isSubagent: false,
       });
-      const answer = await deps
-        .runJudge(ctx, model, prompt, timeoutMs, { sessionID })
-        .catch(() => null);
+      const answer = (await ask(prompt)) ?? (await ask(prompt));
       results[index] = {
         c,
+        answered: answer !== null,
         got: answer ? (parseJudgeAnswer(answer.text)?.level ?? null) : null,
         ms: answer?.ms ?? 0,
       };
@@ -181,25 +204,37 @@ async function runBench(
   };
   await Promise.all(Array.from({ length: BENCH_CONCURRENCY }, worker));
 
-  const score = (list: typeof results) => {
-    const hits = list.filter((r) => r.got !== null && r.c.ok.includes(r.got)).length;
-    return `${hits}/${list.length} (${list.length ? Math.round((hits / list.length) * 100) : 0}%)`;
+  const correct = (r: BenchResult) => r.got !== null && r.c.ok.includes(r.got);
+  const score = (list: BenchResult[]) => {
+    const answered = list.filter((r) => r.answered);
+    const hits = list.filter(correct).length;
+    return `${pct(hits, answered.length)} of answered, ${pct(hits, list.length)} of all`;
   };
-  const misses = results.filter((r) => r.got === null || !r.c.ok.includes(r.got));
+  const answered = results.filter((r) => r.answered);
+  const unanswered = results.filter((r) => !r.answered);
+  const misses = answered.filter((r) => !correct(r));
   const holdout = results.filter((r) => r.c.holdout);
-  const answered = results.filter((r) => r.got !== null);
   const avgMs = answered.length
     ? Math.round(answered.reduce((sum, r) => sum + r.ms, 0) / answered.length)
     : 0;
-  const lines = [`Bench ${formatModel(model)}: ${score(results)}`];
+  const lines = [
+    `Bench ${formatModel(model)}`,
+    `answered: ${answered.length}/${results.length}` +
+      (unanswered.length ? ` (${unanswered.length} failed twice: timeout or provider error)` : ''),
+    `correct: ${score(results)}`,
+  ];
   if (holdout.length > 0) lines.push(`holdout: ${score(holdout)}`);
   lines.push(`avg judge time: ${avgMs} ms`);
+  lines.push(
+    `bench spend: ${usd(spentUSD)} over ${calls} judge calls (today's spend, not session stats)`,
+  );
   if (misses.length > 0) {
     lines.push(`Misses (${misses.length}):`);
-    for (const r of misses)
-      lines.push(
-        `- ${r.c.id} "${clip(r.c.message)}": ${r.got ?? 'no answer'} (ok: ${r.c.ok.join('|')})`,
-      );
+    for (const r of misses) lines.push(benchLine(r.c, r.got ?? 'unreadable answer'));
+  }
+  if (unanswered.length > 0) {
+    lines.push(`No answer (${unanswered.length}):`);
+    for (const r of unanswered) lines.push(benchLine(r.c, 'no answer'));
   }
   return lines.join('\n');
 }
@@ -373,7 +408,7 @@ export async function registerCommands(
           `Last level: ${state.lastLevel ?? 'none'}`,
           `Auto paused: ${state.autoPaused ?? 'no'}`,
           `Judge answer: ${state.judgeAnswer === null ? 'none' : clip(state.judgeAnswer.replace(/\s+/g, ' ').trim())}`,
-          `Judge pending: ${state.pending ? 'yes' : 'no'}`,
+          `Judge running: ${state.judging > 0 ? 'yes' : 'no'}`,
           `User turn: ${state.userTurn}`,
           `Request model: ${formatModel(requestModels.get(sessionID))}`,
         ].join('\n'),

@@ -17,17 +17,17 @@ Inspired by [HeyCubit/effortless](https://github.com/HeyCubit/effortless) (a Cla
 - **No judge for the obvious cases.** Follow-ups (`ok`, `go`, `yes please`, `continue`) reuse the last level. "max effort", "low effort" and the other level names in a prompt set that level directly.
 - **Never in your way.** If you pick a variant yourself, Gearbox pauses for that session and tells you once. A judge timeout, an unreadable answer or a provider error falls back to the last level, else `medium`. The judge never blocks a prompt.
 - **Context care.**
-  - Compaction summaries are written by the small model.
+  - Compaction summaries are written by the judge model (see [Pick a fast judge](#pick-a-fast-judge)), not by the session's model.
   - `/gearbox handoff` starts a fresh session seeded with a summary.
   - A warning when the context gets swamped.
   - Handoff advice when the work has moved on.
 - **Stats, save mode and budget.**
-  - Per-session turns per level, tokens, cost and judge cost.
+  - Per session: user turns per level, model requests, tokens, cost and judge cost.
   - Save mode caps effort for a few hours.
   - An optional daily spend budget turns save mode on at 80%.
 - **Benchmark.** `/gearbox bench` scores a judge model on 75 labelled prompts.
 
-Works with any provider whose models expose effort variants: Anthropic, OpenAI, DeepSeek, Google, and OpenAI-compatible endpoints. A model without effort variants runs unchanged, and the bar says `Paused: no effort control`.
+Effort works with any model that exposes effort variants. Verified on OpenCode 2.2.6: Anthropic Messages, OpenAI Responses and OpenAI-compatible endpoints (DeepSeek). Google and other providers with effort variants should work the same way but are unverified. A model without effort variants runs unchanged, and the bar says `Paused: no effort control`.
 
 ## Requirements
 
@@ -64,11 +64,12 @@ To run it from a checkout, use the absolute path of the repository instead of th
 
 ### Pick a fast judge
 
-The judge must answer within `judge.timeoutMs` (4 s by default), or the turn falls back to the last level. Gearbox uses, in order:
+The judge must answer within `judge.timeoutMs` (4 s by default), or the turn falls back to the last level. The same model writes compaction and handoff summaries. Gearbox uses, in order:
 
 1. `judge.model`.
 2. Your `small_model` (V2 stores it as the `title` agent's model).
 3. The cheapest tool-capable model of the session's provider.
+4. The session's own model.
 
 Gearbox picks the model's `none`, `minimal` or `low` variant when it has one, so the judge does not think for long.
 
@@ -86,13 +87,17 @@ All output appears as a toast or, for long text, as a dialog. No model turn is s
 | `/gearbox set <key> <v>`  | Change a setting, e.g. `set bias -1`, `set judge.model openai/gpt-6-luna#none`, `set judge.model null` |
 | `/gearbox settings`       | Show the current settings                                                                              |
 | `/gearbox save [on\|off]` | Cap effort at `saveMode.cap` for `saveMode.hours`                                                      |
-| `/gearbox stats`          | Requests per level, tokens, cost and judge cost for this session                                       |
-| `/gearbox bench [p/m]`    | Score the judge model (or `provider/model[#variant]`) on the 75 labelled prompts                       |
+| `/gearbox stats`          | User turns per level, model requests, tokens, cost and judge cost for this session                     |
+| `/gearbox bench [p/m]`    | Score the judge model (or `provider/model[#variant]`) on the 75 labelled prompts; see below            |
 | `/gearbox handoff [full]` | Continue in a fresh session seeded with a summary. `full` also writes `HANDOFF.md`                     |
-| `/gearbox compact [note]` | Compact now; the small model keeps `note` in mind                                                      |
-| `/gearbox debug`          | Last decision, the judge's raw answer and the model and variant of the last request                    |
+| `/gearbox compact [note]` | Compact now; the judge model's summary keeps `note` in mind                                            |
+| `/gearbox debug`          | Last decision, the judge's raw answer, whether a judge call is running, and the last request's model   |
 
 Plugin commands run from the TUI (or `client.session.command`). `opencode run "/gearbox …"` sends the text as a normal prompt.
+
+In `/gearbox stats` a **turn** is one user prompt, counted once at the level it ran at. A **request** is one model call; a turn with tool calls makes several. Tokens and cost add up per request.
+
+`/gearbox bench` retries a failed judge call (timeout or provider error) once. It prints how many cases were answered, the score over the answered cases and over all 75, and lists wrong answers ("Misses") apart from cases that got no answer. Bench calls are real spend: they count in today's spend (and the budget), and the bench output shows their cost, but they stay out of the session's stats.
 
 ## Status bar
 
@@ -100,35 +105,35 @@ Plugin commands run from the TUI (or `client.session.command`). `opencode run "/
 ⚙ <Level> · <model> · ◔ <context %> · cache <m:ss> · <Auto | Manual | Paused: reason> [· ↻ handoff? | · ⚠ swamped]
 ```
 
-- **Level:** the effort of the last request.
+- **Level:** the effort of the current turn.
 - **Model:** the model id without the provider and a leading `claude-`.
 - **Context:** how full the context window is.
-- **Cache:** how long the provider's prompt cache stays warm. It uses `settings.cache.ttl` when the model has one, else 5 minutes.
+- **Cache:** how long the provider's prompt cache stays warm. It uses the model's `settings.cache.ttl`, else the provider's `settings.cache.ttl`, else 5 minutes.
 - **Mode:** `Manual` means `auto` is off. `Paused: manual variant` means you picked a variant. `Paused: no effort control` means the model has no effort variants.
 
 ## Options
 
 Options from the plugin entry are the base. Changes made with `/gearbox set` are stored on top of them, in plugin storage (key `settings`). Gearbox never writes to `opencode.json(c)`.
 
-| Key                          | Default    | Meaning                                                                                                        |
-| ---------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------- |
-| `auto`                       | `true`     | Choose effort automatically                                                                                    |
-| `bias`                       | `0`        | Shift every judged level by −2…2 steps                                                                         |
-| `floor`                      | `"low"`    | Lowest level Gearbox may choose                                                                                |
-| `ceiling`                    | `"max"`    | Highest level Gearbox may choose                                                                               |
-| `saveMode.until`             | `null`     | Save mode end (epoch ms); set by `/gearbox save`                                                               |
-| `saveMode.cap`               | `"medium"` | Highest level while save mode is on                                                                            |
-| `saveMode.hours`             | `5`        | How long `/gearbox save` lasts                                                                                 |
-| `judge.model`                | unset      | Judge model, `provider/model[#variant]`. Unset: `small_model`, then the provider's cheapest tool-capable model |
-| `judge.timeoutMs`            | `4000`     | How long a turn waits for the judge before it falls back                                                       |
-| `modelSwitch.main`           | `false`    | Switch the main chat's model per prompt. **No effect on OpenCode 2.2.6** (see below)                           |
-| `modelSwitch.subagents`      | `true`     | Give subagents without an explicit `model` a model from the price ladder                                       |
-| `modelSwitch.minSavingRatio` | `0.2`      | A main-chat switch must save at least this share of the cost of staying                                        |
-| `compactWith`                | `"small"`  | `small`: the judge model writes compaction summaries. `session`: OpenCode compacts as usual                    |
-| `swampedAt`                  | `0.7`      | Context ratio for the swamped warning                                                                          |
-| `handoffAdviceFrom`          | `0.3`      | Context ratio from which the judge is asked, every second prompt, whether a handoff would help                 |
-| `budget.dailyUSD`            | `null`     | Daily spend budget. At 80% one warning, and save mode turns on. Above 100%, a warning every turn               |
-| `effortModels`               | `".*"`     | Regular expression of model ids Gearbox manages. Other models run unchanged and are left out of the ladder     |
+| Key                          | Default    | Meaning                                                                                                    |
+| ---------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------- |
+| `auto`                       | `true`     | Choose effort automatically                                                                                |
+| `bias`                       | `0`        | Shift every level (judged, follow-up or named) by −2…2 steps                                               |
+| `floor`                      | `"low"`    | Lowest level Gearbox may choose                                                                            |
+| `ceiling`                    | `"max"`    | Highest level Gearbox may choose                                                                           |
+| `saveMode.until`             | `null`     | Save mode end (epoch ms); set by `/gearbox save`                                                           |
+| `saveMode.cap`               | `"medium"` | Highest level while save mode is on                                                                        |
+| `saveMode.hours`             | `5`        | How long `/gearbox save` lasts                                                                             |
+| `judge.model`                | unset      | Judge and summary model, `provider/model[#variant]`. Unset: see [Pick a fast judge](#pick-a-fast-judge)    |
+| `judge.timeoutMs`            | `4000`     | How long a turn waits for the judge before it falls back                                                   |
+| `modelSwitch.main`           | `false`    | Switch the main chat's model per prompt. **No effect on OpenCode 2.2.6** (see below)                       |
+| `modelSwitch.subagents`      | `true`     | Give subagents without an explicit `model` a model from the price ladder                                   |
+| `modelSwitch.minSavingRatio` | `0.2`      | A main-chat switch must save at least this share of the cost of staying                                    |
+| `compactWith`                | `"small"`  | `small`: the judge model writes compaction summaries. `session`: OpenCode compacts as usual                |
+| `swampedAt`                  | `0.7`      | Context ratio for the swamped warning                                                                      |
+| `handoffAdviceFrom`          | `0.3`      | Context ratio from which the judge is asked, every second prompt, whether a handoff would help             |
+| `budget.dailyUSD`            | `null`     | Daily spend budget. At 80% one warning, and save mode turns on. Above 100%, a warning every turn           |
+| `effortModels`               | `".*"`     | Regular expression of model ids Gearbox manages. Other models run unchanged and are left out of the ladder |
 
 The levels, lowest to highest: `low`, `medium`, `high`, `xhigh`, `max`. Shaping order: `bias`, then `floor` and `ceiling`, then the save-mode cap.
 

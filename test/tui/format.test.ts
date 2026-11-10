@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ageStatus, formatStatus, isLongMessage, shortModel } from '../../src/tui/format.ts';
+import {
+  ageStatus,
+  formatStatus,
+  isLongMessage,
+  retryDelayMs,
+  shortModel,
+  toastKind,
+} from '../../src/tui/format.ts';
 import type { GearboxStatus } from '../../src/core/types.ts';
 
 const full: GearboxStatus = {
@@ -78,4 +85,20 @@ test('isLongMessage flags multi-line or long text for a dialog', () => {
   assert.equal(isLongMessage('Auto paused: manual variant'), false);
   assert.equal(isLongMessage('line one\nline two'), true);
   assert.equal(isLongMessage('x'.repeat(200)), true);
+});
+
+test('retryDelayMs backs off failed status fetches up to a minute', () => {
+  assert.equal(retryDelayMs(1), 2_000);
+  assert.equal(retryDelayMs(2), 4_000);
+  assert.equal(retryDelayMs(3), 8_000);
+  assert.equal(retryDelayMs(20), 60_000);
+});
+
+test('toastKind opens a dialog only for long text of the current session', () => {
+  const long = 'line one\nline two';
+  assert.equal(toastKind({ sessionID: 'ses_a', message: long }, 'ses_a'), 'dialog');
+  assert.equal(toastKind({ sessionID: 'ses_b', message: long }, 'ses_a'), 'toast');
+  assert.equal(toastKind({ message: long }, 'ses_a'), 'toast');
+  assert.equal(toastKind({ sessionID: 'ses_a', message: long }, undefined), 'toast');
+  assert.equal(toastKind({ sessionID: 'ses_a', message: 'short' }, 'ses_a'), 'toast');
 });

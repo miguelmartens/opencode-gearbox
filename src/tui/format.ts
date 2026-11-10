@@ -43,3 +43,20 @@ export function ageStatus(s: GearboxStatus, elapsedMs: number): GearboxStatus {
 export function isLongMessage(message: string): boolean {
   return message.includes('\n') || message.length > 120;
 }
+
+const RETRY_BASE_MS = 2_000;
+const RETRY_MAX_MS = 60_000;
+
+/** Wait before the next `status` fetch after `failures` failed ones: 2 s, 4 s, 8 s … 1 min. */
+export function retryDelayMs(failures: number): number {
+  return Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** Math.max(0, failures - 1));
+}
+
+/** Long text for the session on screen opens a dialog; anything else is a toast. */
+export function toastKind(
+  t: { sessionID?: string; message: string },
+  currentSessionID: string | undefined,
+): 'dialog' | 'toast' {
+  const current = currentSessionID !== undefined && t.sessionID === currentSessionID;
+  return current && isLongMessage(t.message) ? 'dialog' : 'toast';
+}

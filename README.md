@@ -24,7 +24,7 @@ Inspired by [HeyCubit/effortless](https://github.com/HeyCubit/effortless) (a Cla
 - **Stats, save mode and budget.**
   - Per session: user turns per level, model requests, tokens, cost and judge cost.
   - Save mode caps effort for a few hours.
-  - An optional daily spend budget turns save mode on at 80%.
+  - An optional daily spend budget turns save mode on at 80%. It counts the cost each provider reports per request. A reported cost of 0 (subscriptions) is trusted, so on those providers only judge calls add to the spend.
 - **Benchmark.** `/gearbox bench` scores a judge model on 75 labelled prompts.
 
 Effort works with any model that exposes effort variants. Verified on OpenCode 2.2.6: Anthropic Messages, OpenAI Responses and OpenAI-compatible endpoints (DeepSeek). Google and other providers with effort variants should work the same way but are unverified. A model without effort variants runs unchanged, and the bar says `Paused: no effort control`.
@@ -71,7 +71,7 @@ The judge must answer within `judge.timeoutMs` (4 s by default), or the turn fal
 3. The cheapest tool-capable model of the session's provider.
 4. The session's own model.
 
-Gearbox picks the model's `none`, `minimal` or `low` variant when it has one, so the judge does not think for long.
+For options 2–4, Gearbox picks the model's `none`, `minimal` or `low` variant when it has one, so the judge does not think for long. An explicit `judge.model` is used as given: add the variant yourself, e.g. `#none`.
 
 Run `/gearbox bench` for your judge, and `/gearbox bench provider/model` for a candidate, before you rely on it. In the end-to-end run on `opencode-go`, `claude-haiku-5-5#none` scored 71/75 at about 1 s per answer. `deepseek-v4.1-flash` was often overloaded and missed the 4 s timeout. See `test/e2e/CHECKLIST.md`.
 

@@ -447,6 +447,14 @@ test('debug shows the last decision and the request model', async () => {
   assert.match(fake.lastMessage(), /p\/m#xhigh/);
 });
 
+test('debug reads the request model from the session state', async () => {
+  resetState('ses_dbg4');
+  getState('ses_dbg4').requestModel = { providerID: 'p', id: 'm', variant: 'low' };
+  const fake = await setup();
+  await fake.runCommand('gearbox', 'debug', 'ses_dbg4');
+  assert.match(fake.lastMessage(), /Request model: p\/m#low/);
+});
+
 test('debug shows the raw judge answer', async () => {
   resetState('ses_dbg2');
   getState('ses_dbg2').judgeAnswer = 'I think xhigh, maybe';

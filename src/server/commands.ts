@@ -7,13 +7,13 @@ import type { Level, ModelRef } from '../core/types.ts';
 import { mergeSettings, parseSetCommand } from '../core/settings.ts';
 import { summarize } from '../core/stats.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
-import { getState, onForget } from './state.ts';
+import { getState } from './state.ts';
 import { loadSettings, saveSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
 import { compactNow, handoff } from './care.ts';
 import { readSpend, readStats, recordStep, saveModeActive, usd } from './ledger.ts';
 import { findModelInfo } from './models.ts';
-import { buildStatus, statusChanged, toModelRef, trackUsage } from './status.ts';
+import { buildStatus, statusChanged, trackUsage } from './status.ts';
 import { watchEvents } from './lifecycle.ts';
 import { logOnce, toast } from './notify.ts';
 import bench from '../../bench/judge-cases.json' with { type: 'json' };
@@ -127,24 +127,18 @@ async function onStepEnded(
   );
 }
 
-/** Feeds `session.step.*` events into stats and the budget (docs/api-probe.md §8). */
-/** Model and variant of each session's last request, from `session.step.started`. */
-const requestModels = new Map<string, ModelRef>();
-onForget((sessionID) => requestModels.delete(sessionID));
-
+/**
+ * Feeds `session.step.ended` events into stats and the budget (docs/api-probe.md §8). The request
+ * model comes from `trackUsage`, which records it on `session.step.started`.
+ */
 function watchUsage(ctx: Ctx, deps: CommandDeps): void {
   watchEvents(
     ctx,
-    ['session.step.started', 'session.step.ended'],
+    ['session.step.ended'],
     async (event) => {
       const sessionID = event.data?.sessionID;
       if (typeof sessionID !== 'string') return;
-      if (event.type === 'session.step.started') {
-        const model = toModelRef(event.data?.model);
-        if (model) requestModels.set(sessionID, model);
-      } else {
-        await onStepEnded(ctx, deps, event.data, requestModels.get(sessionID));
-      }
+      await onStepEnded(ctx, deps, event.data, getState(sessionID).requestModel ?? undefined);
     },
     'usage',
   );
@@ -410,7 +404,7 @@ export async function registerCommands(
           `Judge answer: ${state.judgeAnswer === null ? 'none' : clip(state.judgeAnswer.replace(/\s+/g, ' ').trim())}`,
           `Judge running: ${state.judging > 0 ? 'yes' : 'no'}`,
           `User turn: ${state.userTurn}`,
-          `Request model: ${formatModel(requestModels.get(sessionID))}`,
+          `Request model: ${formatModel(state.requestModel)}`,
         ].join('\n'),
       );
     },

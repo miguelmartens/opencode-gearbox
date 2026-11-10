@@ -20,10 +20,12 @@ type Ctx = Plugin.Context;
 type Advice = GearboxStatus['advice'];
 
 /**
- * Summaries are long answers; they get more time than a judge verdict. Compaction waits for this
- * before OpenCode falls back to its own, so it stays short.
+ * Summaries are long answers; they get more time than a judge verdict. Compaction waits for its
+ * summary before OpenCode falls back to its own, so that wait stays short. A handoff has no
+ * fallback, so it waits longer.
  */
-const SUMMARY_TIMEOUT_MS = 30_000;
+const COMPACTION_TIMEOUT_MS = 30_000;
+const HANDOFF_TIMEOUT_MS = 120_000;
 /** Expected length of a compaction summary, in tokens. */
 const SUMMARY_TOKENS = 2000;
 /** Rough token estimate: about 4 characters per token. */
@@ -188,7 +190,7 @@ async function onCompaction(ctx: Ctx, event: any): Promise<void> {
   const transcript = formatHookMessages(event.messages ?? []);
   const prompt = summaryPrompt(transcript, note);
   if (!(await judgeIsCheaper(ctx, sessionID, sessionRef, model, prompt))) return;
-  const summary = await generate(ctx, sessionID, model, prompt, SUMMARY_TIMEOUT_MS);
+  const summary = await generate(ctx, sessionID, model, prompt, COMPACTION_TIMEOUT_MS);
   if (summary) event.result = { summary };
 }
 
@@ -340,7 +342,7 @@ export async function handoff(
   const messages = dataOf<SessionMessage>(await ctx.session.context({ sessionID }));
   const judge = await resolveJudgeModel(ctx, ref, settings);
   const prompt = summaryPrompt(formatSessionMessages(messages));
-  const summary = await generate(ctx, sessionID, judge, prompt, SUMMARY_TIMEOUT_MS);
+  const summary = await generate(ctx, sessionID, judge, prompt, HANDOFF_TIMEOUT_MS);
   if (!summary) throw new Error('handoff summary failed');
   const changes = mode === 'full' ? dataOf<FileStatus>(await ctx.vcs.status()) : [];
 

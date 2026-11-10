@@ -13,7 +13,7 @@ Inspired by [HeyCubit/effortless](https://github.com/HeyCubit/effortless) (a Cla
 ## What it does
 
 - **Auto effort.** The judge rates each main-chat prompt `low | medium | high | xhigh | max`. Gearbox applies that level as the model's matching variant settings on every request of the turn.
-- **Subagents.** Each task-tool subagent gets its own level. By default it also gets a model from your provider's price ladder, because a fresh subagent has no cache to lose. A subagent whose agent file sets `model` keeps that model; Gearbox only sets its effort.
+- **Subagents.** Each task-tool subagent gets its own level. By default it also gets a model from your provider's price ladder on its first prompt, because a fresh subagent has no cache to lose. A subagent whose agent file sets `model` keeps that model; Gearbox only sets its effort.
 - **No judge for the obvious cases.** Follow-ups (`ok`, `go`, `yes please`, `continue`) reuse the last level. "max effort", "low effort" and the other level names in a prompt set that level directly.
 - **Never in your way.** If you pick a variant yourself, Gearbox pauses for that session and tells you once. A judge timeout, an unreadable answer or a provider error falls back to the last level, else `medium`. The judge never blocks a prompt.
 - **Context care.**
@@ -153,9 +153,18 @@ Gearbox only switches between models of the session's own provider and never pic
 - `medium` → the middle of the ladder.
 - `high`, `xhigh`, `max` → the chat model itself.
 
-**Subagents** (`modelSwitch.subagents`, on by default). A subagent's model can only change before its first request. So in a child session Gearbox waits for the judge in the prompt hook, at most `judge.timeoutMs`. Then it switches the child to the ladder model with the matching variant. An agent with its own `model` keeps it. A free or "contributor" model at the bottom of the ladder may not suit you; leave it out with `effortModels`, e.g. `"^(?!.*free).*$"`.
+**Subagents** (`modelSwitch.subagents`, on by default). A subagent's model can only change in its prompt hook. So in a child session Gearbox waits for the judge there, at most `judge.timeoutMs`.
 
-**Main chat** (`modelSwitch.main`, off by default). A model switch throws away the warm prompt cache, so Gearbox estimates both costs:
+- **First prompt:** the child has no cache yet, so Gearbox switches it to the ladder model with the matching variant.
+- **Later prompts** (a resumed subagent): the child holds a warm cache. Gearbox changes its model only when the cost check below (with `minSavingRatio`) says switching is cheaper than staying. So a resumed child never climbs to a pricier model; its effort still follows the level.
+- **Effort rungs first:** the subagent ladder skips cheaper models without effort variants, unless no model on it has any.
+- **Your pick wins:** an agent with its own `model` keeps it. While the root session is paused by a manual variant, its subagents are left alone too.
+
+A free or "contributor" model at the bottom of the ladder may not suit you; leave it out with `effortModels`, e.g. `"^(?!.*free).*$"`.
+
+**Main chat** (`modelSwitch.main`, off by default). A model switch throws away the warm prompt cache, so Gearbox estimates both costs, once per turn. The cache counts as warm only on the model that served the last request.
+
+**The cost check:**
 
 - Staying costs `context × (warm ? cache-read price : input price) + expected output × output price`.
 - Switching costs `context × cache-write price (else input price) + expected output × the target's output price`.

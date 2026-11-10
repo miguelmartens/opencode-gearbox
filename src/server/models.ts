@@ -137,3 +137,23 @@ export async function cacheTtlMs(ctx: Ctx, ref: ModelRef, info?: ModelInfo): Pro
   if (own !== null) return own;
   return (await providerTtl(ctx, ref.providerID).catch(() => null)) ?? DEFAULT_CACHE_TTL_MS;
 }
+
+/** A session's last request: when it finished and on which model. */
+export type LastRequest = { lastRequestAt: number | null; requestModel: ModelRef | null };
+
+/**
+ * True when `ref` holds a warm prompt cache: it served the session's last request (an unknown
+ * request model counts as `ref`) and that request is younger than the cache TTL.
+ */
+export async function cacheWarm(
+  ctx: Ctx,
+  last: LastRequest,
+  ref: ModelRef,
+  info?: ModelInfo,
+  now = Date.now(),
+): Promise<boolean> {
+  if (last.lastRequestAt === null) return false;
+  const holder = last.requestModel;
+  if (holder && (holder.providerID !== ref.providerID || holder.id !== ref.id)) return false;
+  return last.lastRequestAt + (await cacheTtlMs(ctx, ref, info)) > now;
+}

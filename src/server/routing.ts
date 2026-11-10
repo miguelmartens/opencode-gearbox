@@ -13,14 +13,14 @@ import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
 import { applyShaping, pickVariant } from '../core/levels.ts';
 import { classifyPrompt } from '../core/rules.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
-import { buildLadder, routeModel } from '../core/ladder.ts';
+import { buildLadder, preferEffortRungs, routeModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
-import { cacheRemainingMs, contextRatio } from '../core/context.ts';
+import { contextRatio } from '../core/context.ts';
 import { getState, onForget } from './state.ts';
 import type { SessionState } from './state.ts';
 import { loadSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
-import { cacheTtlMs, listModelInfos, toModelLite } from './models.ts';
+import { cacheWarm, listModelInfos, toModelLite } from './models.ts';
 import type { ModelInfo } from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { statusChanged, trackUsage } from './status.ts';
@@ -39,6 +39,11 @@ type Local = {
   /** The manual variant that paused auto; accepted once the user turns auto back on. */
   pausedVariant: string | null;
   statusTurn: number | null;
+  /** Root of a child session's parent chain; `null` until looked up. */
+  rootID: string | null;
+  /** User turn whose main-chat model `resolveModel` is (`null` = keep the model). */
+  resolveTurn: number | null;
+  resolveModel: ModelRef | null;
 };
 
 const SUBAGENT_PREFIX = 'You are a subagent spawned by another session.\n';
@@ -46,6 +51,8 @@ const MANUAL_VARIANT = 'manual variant';
 const NO_EFFORT_CONTROL = 'no effort control';
 const REPLY_TAIL_MAX = 500;
 const NO_MODEL: ModelRef = { providerID: '', id: '' };
+/** Bounds the walk up a child's parent chain. */
+const MAX_DEPTH = 16;
 
 const locals = new Map<string, Local>();
 onForget((sessionID) => locals.delete(sessionID));
@@ -53,7 +60,14 @@ onForget((sessionID) => locals.delete(sessionID));
 function getLocal(sessionID: string): Local {
   let local = locals.get(sessionID);
   if (!local) {
-    local = { replyTail: '', pausedVariant: null, statusTurn: null };
+    local = {
+      replyTail: '',
+      pausedVariant: null,
+      statusTurn: null,
+      rootID: null,
+      resolveTurn: null,
+      resolveModel: null,
+    };
     locals.set(sessionID, local);
   }
   return local;
@@ -87,8 +101,12 @@ function effortVariants(ids: string[]): string[] {
   return ids.filter((id) => (LEVELS as readonly string[]).includes(id));
 }
 
+function sameModel(a: ModelRef, b: ModelRef): boolean {
+  return a.providerID === b.providerID && a.id === b.id;
+}
+
 function findInfo(infos: ModelInfo[], ref: ModelRef): ModelInfo | undefined {
-  return infos.find((m) => m.providerID === ref.providerID && m.id === ref.id);
+  return infos.find((m) => sameModel(m, ref));
 }
 
 function liteModels(infos: ModelInfo[]): ModelLite[] {
@@ -147,6 +165,22 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       state.isSubagent = session.parentID != null;
     }
     return state.isSubagent;
+  }
+
+  /** A child inherits its root session's manual variant (probe §3), so it follows that pause. */
+  async function rootPaused(sessionID: string, parentID?: string | null): Promise<boolean> {
+    const local = getLocal(sessionID);
+    if (local.rootID === null) {
+      let root = parentID ?? (await getSession(sessionID)).parentID ?? null;
+      if (root === null) return false;
+      for (let depth = 0; depth < MAX_DEPTH; depth++) {
+        const parent = (await getSession(root)).parentID;
+        if (parent == null) break;
+        root = parent;
+      }
+      local.rootID = root;
+    }
+    return getState(local.rootID).autoPaused !== null;
   }
 
   async function defaultModel(): Promise<ModelRef | null> {
@@ -269,15 +303,33 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
   ): Promise<void> {
     const decision = await turnDecision(state, settings);
     const level = applyShaping(decision.level, settings, Date.now());
-    // The ladder of the model the child started with, so a re-prompted child can climb back up.
+    const infos = await listModelInfos(ctx);
+    const lites = liteModels(infos);
+    // The ladder of the model the child started with, never above it.
     const top = state.firstModel ?? model;
-    const ladder = buildLadder(liteModels(await listModelInfos(ctx)), top, effortRegex(settings));
+    const ladder = preferEffortRungs(buildLadder(lites, top, effortRegex(settings)));
     if (ladder.length === 0) return;
     const target = routeModel(level, ladder);
     const variant = pickVariant(level, effortVariants(target.variants));
     const next: ModelRef = { providerID: target.ref.providerID, id: target.ref.id };
     if (variant) next.variant = variant;
-    if (next.id === model.id && next.variant === model.variant) return;
+    if (sameModel(next, model) && next.variant === model.variant) return;
+    // A child that has made a request holds a cache (anti-goal 1). It keeps its model unless a
+    // switch is cheaper than staying; the effort still follows the level through `context`.
+    if (state.lastRequestAt !== null) {
+      if (sameModel(target.ref, model)) return;
+      const current = lites.find((m) => sameModel(m.ref, model));
+      if (!current) return;
+      const check = shouldSwitch({
+        contextTokens: state.contextTokens ?? 0,
+        cacheWarm: await cacheWarm(ctx, state, model, findInfo(infos, model)),
+        from: current.price,
+        to: target.price,
+        expectedOutput: expectedOutput(level),
+        minSavingRatio: settings.modelSwitch.minSavingRatio,
+      });
+      if (!check.switch) return;
+    }
     await ctx.session.switchModel({ sessionID, model: next } as never);
   }
 
@@ -298,6 +350,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (!settings.auto) return;
       if (model && !effortRegex(settings).test(model.id)) return;
       if (!subagent && model && (await manualVariantPause(sessionID, state, model))) return;
+      if (subagent && (await rootPaused(sessionID, session.parentID))) return;
       if (state.autoPaused) return;
 
       let text: string = typeof event?.prompt?.text === 'string' ? event.prompt.text : '';
@@ -340,6 +393,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (!effortRegex(settings).test(model.id)) return;
       const subagent = await isSubagent(state, sessionID);
       if (!subagent && (await manualVariantPause(sessionID, state, model))) return;
+      if (subagent && (await rootPaused(sessionID))) return;
       if (state.autoPaused) return;
 
       const decision = await turnDecision(state, settings);
@@ -361,6 +415,31 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     }
   }
 
+  /** The cheaper ladder model for this turn, or `null` to keep `model`. */
+  async function mainChatModel(
+    state: SessionState,
+    settings: Settings,
+    model: ModelRef,
+  ): Promise<ModelRef | null> {
+    const decision = await turnDecision(state, settings);
+    const level = applyShaping(decision.level, settings, Date.now());
+    const infos = await listModelInfos(ctx);
+    const ladder = buildLadder(liteModels(infos), model, effortRegex(settings));
+    if (ladder.length < 2) return null;
+    const target = routeModel(level, ladder);
+    const current = ladder[ladder.length - 1];
+    if (target === current) return null;
+    const check = shouldSwitch({
+      contextTokens: state.contextTokens ?? 0,
+      cacheWarm: await cacheWarm(ctx, state, model, findInfo(infos, model)),
+      from: current.price,
+      to: target.price,
+      expectedOutput: expectedOutput(level),
+      minSavingRatio: settings.modelSwitch.minSavingRatio,
+    });
+    return check.switch ? { providerID: target.ref.providerID, id: target.ref.id } : null;
+  }
+
   async function onResolve(event: any): Promise<void> {
     if (event?.kind !== 'primary') return;
     const sessionID: string = event?.sessionID;
@@ -376,30 +455,14 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (await manualVariantPause(sessionID, state, model)) return;
       if (state.autoPaused) return;
 
-      const decision = await turnDecision(state, settings);
-      const level = applyShaping(decision.level, settings, Date.now());
-      const infos = await listModelInfos(ctx);
-      const ladder = buildLadder(liteModels(infos), model, effortRegex(settings));
-      if (ladder.length < 2) return;
-      const target = routeModel(level, ladder);
-      const current = ladder[ladder.length - 1];
-      if (target === current) return;
-      const remaining = cacheRemainingMs(
-        state.lastRequestAt,
-        await cacheTtlMs(ctx, model, findInfo(infos, model)),
-        Date.now(),
-      );
-      const check = shouldSwitch({
-        contextTokens: state.contextTokens ?? 0,
-        cacheWarm: (remaining ?? 0) > 0,
-        from: current.price,
-        to: target.price,
-        expectedOutput: expectedOutput(level),
-        minSavingRatio: settings.modelSwitch.minSavingRatio,
-      });
-      if (!check.switch) return;
+      // Decided once per turn: a growing context must not flip the model between requests.
+      const local = getLocal(sessionID);
+      if (local.resolveTurn !== state.userTurn) {
+        local.resolveModel = await mainChatModel(state, settings, model);
+        local.resolveTurn = state.userTurn;
+      }
       // The variant is left to the `context` hook, so it is never mistaken for a manual pick.
-      event.model = { providerID: target.ref.providerID, id: target.ref.id };
+      if (local.resolveModel) event.model = { ...local.resolveModel };
     } catch (error) {
       logOnce(sessionID, 'routing.resolve', error);
     }

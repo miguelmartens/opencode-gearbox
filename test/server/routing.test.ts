@@ -36,6 +36,7 @@ const local = model('local-coder', 0, { providerID: 'local', variants: [] });
 const MODELS = [opus, sonnet, haiku, local];
 
 const OPUS = { providerID: 'anthropic', id: 'claude-opus-5-5' };
+const HAIKU = { providerID: 'anthropic', id: 'claude-haiku-5-5' };
 
 let counter = 0;
 const newSession = () => `ses_routing_${++counter}`;
@@ -270,6 +271,22 @@ test('subagent without an explicit model moves to the cheapest ladder model at l
   assert.ok(!judged.prompt.includes('You are a subagent'), 'prefix stripped');
   assert.match(judged.prompt, /Find the config loader/);
   assert.match(judged.prompt, /subagent/);
+});
+
+test('subagent routing skips cheaper models without effort variants', async () => {
+  const sessionID = newSession();
+  const flash = model('flash', 1, { variants: [] });
+  const fake = await setup({
+    models: [...MODELS, flash],
+    sessions: {
+      [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'general', model: OPUS },
+    },
+    agents: [{ id: 'general' }],
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}low effort: list files`));
+  const [call] = fake.callsTo('session.switchModel');
+  assert.deepEqual((call.input as any).model, { ...HAIKU, variant: 'low' });
 });
 
 test('subagent model switching off keeps the model', async () => {
@@ -511,7 +528,53 @@ test('subagent with an empty ladder gets effort only', async () => {
   assert.equal(event.options.effort, 'low');
 });
 
-test('a re-prompted subagent climbs back up the ladder of its first model', async () => {
+/** One finished request of `sessionID` on `ref`, with `cached` context tokens read from cache. */
+async function request(
+  fake: Awaited<ReturnType<typeof setup>>,
+  sessionID: string,
+  ref: object,
+  cached: number,
+) {
+  fake.publish({ type: 'session.step.started', data: { sessionID, model: ref } });
+  fake.publish({
+    type: 'session.step.ended',
+    data: { sessionID, tokens: { input: 0, output: 10, cache: { read: cached, write: 0 } } },
+  });
+  await tick();
+}
+
+async function resumedSubagent(cached: number, second: string) {
+  const sessionID = newSession();
+  const sessions: Record<string, any> = {
+    [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'general', model: OPUS },
+  };
+  const fake = await setup({
+    sessions,
+    agents: [{ id: 'general' }],
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}max effort: plan it`));
+  // The switch persists on the session.
+  sessions[sessionID].model = { ...OPUS, variant: 'max' };
+  await request(fake, sessionID, { ...OPUS, variant: 'max' }, cached);
+  await fake.fire('prompt', promptEvent(sessionID, second));
+  return fake.callsTo('session.switchModel').map((call) => (call.input as any).model);
+}
+
+test('a resumed subagent with a warm large context keeps its model', async () => {
+  const models = await resumedSubagent(150_000, 'low effort: list the files');
+  assert.deepEqual(models, [{ ...OPUS, variant: 'max' }]);
+});
+
+test('a resumed subagent with no context moves down when that is cheaper', async () => {
+  const models = await resumedSubagent(0, 'low effort: list the files');
+  assert.deepEqual(models, [
+    { ...OPUS, variant: 'max' },
+    { ...HAIKU, variant: 'low' },
+  ]);
+});
+
+test('a resumed subagent never switches to a pricier model', async () => {
   const sessionID = newSession();
   const sessions: Record<string, any> = {
     [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'general', model: OPUS },
@@ -522,12 +585,76 @@ test('a re-prompted subagent climbs back up the ladder of its first model', asyn
     generateText: async () => ({ text: 'LEVEL: low' }),
   });
   await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}low effort: list files`));
-  // The switch persists on the session.
-  sessions[sessionID].model = { providerID: 'anthropic', id: 'claude-haiku-5-5', variant: 'low' };
+  sessions[sessionID].model = { ...HAIKU, variant: 'low' };
+  await request(fake, sessionID, { ...HAIKU, variant: 'low' }, 0);
   await fake.fire('prompt', promptEvent(sessionID, 'max effort: now redesign the module'));
   const switches = fake.callsTo('session.switchModel');
-  assert.equal(switches.length, 2);
-  assert.deepEqual((switches[1].input as any).model, { ...OPUS, variant: 'max' });
+  assert.equal(switches.length, 1, 'only the first prompt switched');
+  // The level still rises through effort.
+  const event = await fake.fire('context', contextEvent(sessionID, { ...HAIKU, variant: 'low' }));
+  assert.equal(event.options.effort, 'max');
+});
+
+test('a subagent of a session paused by a manual variant is left alone', async () => {
+  const root = newSession();
+  const mid = newSession();
+  const child = newSession();
+  const fake = await setup({
+    sessions: {
+      [root]: { id: root, model: { ...OPUS, variant: 'high' } },
+      [mid]: { id: mid, parentID: root, agent: 'general', model: { ...OPUS, variant: 'high' } },
+      [child]: { id: child, parentID: mid, agent: 'general', model: { ...OPUS, variant: 'high' } },
+    },
+    agents: [{ id: 'build' }, { id: 'general' }],
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await fake.fire('prompt', promptEvent(root, 'Refactor the auth module'));
+  assert.equal(getState(root).autoPaused, 'manual variant');
+  for (const sessionID of [mid, child]) {
+    await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}Find the config loader`));
+    const event = await fake.fire('context', contextEvent(sessionID, { ...OPUS, variant: 'high' }));
+    assert.deepEqual(event.options, { maxTokens: 32000 });
+  }
+  assert.equal(fake.callsTo('session.switchModel').length, 0);
+  assert.equal(fake.callsTo('generate.text').length, 0);
+});
+
+test('resolve decides the main-chat model once per turn', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  const resolve = () =>
+    fake.fire('experimental.model.resolve', {
+      sessionID,
+      agent: 'build',
+      kind: 'primary',
+      model: { ...OPUS },
+    });
+  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
+  assert.deepEqual((await resolve()).model, HAIKU);
+  // The context grows within the turn; the turn keeps its model.
+  await request(fake, sessionID, HAIKU, 150_000);
+  assert.deepEqual((await resolve()).model, HAIKU);
+});
+
+test('resolve counts the cache warm only for the model that holds it', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  // The last request ran on Haiku, so Opus has no warm cache to lose.
+  await request(fake, sessionID, HAIKU, 150_000);
+  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
+  const event = await fake.fire('experimental.model.resolve', {
+    sessionID,
+    agent: 'build',
+    kind: 'primary',
+    model: { ...OPUS },
+  });
+  assert.deepEqual(event.model, HAIKU);
 });
 
 test('subagent without an agent on its Session.Info keeps its model', async () => {

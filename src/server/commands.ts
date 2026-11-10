@@ -3,37 +3,30 @@
 // toast API and a command must not start a model turn.
 
 import type { Plugin } from '@opencode/plugin';
-import type { Decision, Level, ModelRef, Settings, Stats } from '../core/types.ts';
+import type { Level, ModelRef } from '../core/types.ts';
 import { mergeSettings, parseSetCommand } from '../core/settings.ts';
-import { addTurn, emptyStats, summarize } from '../core/stats.ts';
-import { budgetState } from '../core/context.ts';
+import { summarize } from '../core/stats.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
-import { getState } from './state.ts';
+import { getState, onForget } from './state.ts';
 import { loadSettings, saveSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
+import { compactNow, handoff } from './care.ts';
+import { readSpend, readStats, recordStep, saveModeActive, usd } from './ledger.ts';
+import { findModelInfo } from './models.ts';
+import { buildStatus, statusChanged, toModelRef, trackUsage } from './status.ts';
+import { watchEvents } from './lifecycle.ts';
 import { logOnce, toast } from './notify.ts';
-import * as care from './care.ts';
 import bench from '../../bench/judge-cases.json' with { type: 'json' };
 
 type Ctx = Plugin.Context;
 
-type Handoff = (
-  ctx: Ctx,
-  sessionID: string,
-  mode: 'quick' | 'full',
-) => Promise<{ newSessionID: string; file?: string }>;
-type CompactNow = (ctx: Ctx, sessionID: string, note?: string) => Promise<void>;
-
 export type CommandDeps = {
   runJudge: typeof runJudge;
   resolveJudgeModel: typeof resolveJudgeModel;
-  handoff: Handoff | undefined;
-  compactNow: CompactNow | undefined;
+  handoff: typeof handoff;
+  compactNow: typeof compactNow;
   now: () => number;
 };
-
-// `handoff` and `compactNow` come from Task 7; looked up by name so this file works before it lands.
-const careApi = care as unknown as { handoff?: Handoff; compactNow?: CompactNow };
 
 type BenchCase = {
   id: string;
@@ -58,7 +51,7 @@ const HELP = [
   '/gearbox bench [p/m]     score the judge model on the 75 labelled prompts',
   '/gearbox handoff [full]  continue in a fresh session with a summary',
   '/gearbox compact [note]  compact now, keeping the note in mind',
-  '/gearbox debug           last decision and request model',
+  '/gearbox debug           last decision, judge answer and request model',
 ].join('\n');
 
 const MAIN_SWITCH_NOTE =
@@ -69,19 +62,11 @@ const isObject = (v: unknown): v is Record<string, any> =>
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
-const usd = (v: number): string => `$${v.toFixed(4)}`;
-
 const clip = (text: string): string =>
   text.length > MAX_FIELD ? `${text.slice(0, MAX_FIELD - 1)}…` : text;
 
-const formatModel = (m: ModelRef | undefined): string =>
+const formatModel = (m: ModelRef | null | undefined): string =>
   m ? `${m.providerID}/${m.id}${m.variant ? `#${m.variant}` : ''}` : 'unknown';
-
-function dayKey(now: number): string {
-  const d = new Date(now);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `spend/${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
 
 function parseModelRef(text: string): ModelRef | null {
   const match = /^([^/\s]+)\/([^#\s]+)(?:#(\S+))?$/.exec(text);
@@ -90,32 +75,13 @@ function parseModelRef(text: string): ModelRef | null {
   return variant ? { providerID, id, variant } : { providerID, id };
 }
 
-function saveModeActive(s: Settings, now: number): boolean {
-  return s.saveMode.until !== null && s.saveMode.until > now;
-}
-
-type Spend = { usd: number; warned: boolean };
-
-async function readSpend(ctx: Ctx, now: number): Promise<Spend> {
-  const stored = await ctx.storage.get(dayKey(now));
-  return isObject(stored)
-    ? { usd: num(stored.usd), warned: stored.warned === true }
-    : { usd: 0, warned: false };
-}
-
-async function readStats(ctx: Ctx, sessionID: string): Promise<Stats> {
-  const stored = await ctx.storage.get(`stats/${sessionID}`);
-  return isObject(stored) ? (stored as unknown as Stats) : emptyStats();
-}
-
 /** USD for a request from its tokens and the model's base-tier price (docs/api-probe.md §2, §8). */
 async function priceTokens(
   ctx: Ctx,
   model: ModelRef,
   t: { input: number; output: number; cacheRead: number; cacheWrite: number },
 ): Promise<number> {
-  const { data } = (await ctx.model.list()) as unknown as { data: any[] };
-  const info = data.find((m) => m?.providerID === model.providerID && m?.id === model.id);
+  const info = (await findModelInfo(ctx, model)) as any;
   const base = Array.isArray(info?.cost) ? info.cost.find((c: any) => !c?.tier) : undefined;
   if (!base) return 0;
   return (
@@ -127,10 +93,7 @@ async function priceTokens(
   );
 }
 
-const countedDecisions = new WeakSet<Decision>();
-const overToastTurn = new Map<string, number>();
-
-async function recordStep(
+async function onStepEnded(
   ctx: Ctx,
   deps: CommandDeps,
   data: any,
@@ -145,101 +108,47 @@ async function recordStep(
     cacheRead: num(tokens.cache?.read),
     cacheWrite: num(tokens.cache?.write),
   };
-  let costUSD = num(data.cost);
-  if (costUSD === 0 && model) costUSD = await priceTokens(ctx, model, t);
-
-  // A decision covers every request of its turn; its judge cost counts once.
-  const decision = state.lastDecision;
-  const judged =
-    decision !== null && decision.source === 'judge' && !countedDecisions.has(decision);
-  if (decision) countedDecisions.add(decision);
-  const judgeCostUSD = judged ? num(decision.judgeCostUSD) : 0;
-
-  const stats = addTurn(await readStats(ctx, sessionID), {
-    level: decision?.level ?? state.lastLevel ?? 'medium',
-    input: t.input,
-    output: t.output,
-    cacheRead: t.cacheRead,
-    costUSD,
-    judgeCostUSD,
-    judged,
-  });
-  await ctx.storage.set(`stats/${sessionID}`, stats as never);
-  state.stats = stats;
-
-  await checkBudget(ctx, deps, sessionID, costUSD + judgeCostUSD);
-}
-
-async function checkBudget(
-  ctx: Ctx,
-  deps: CommandDeps,
-  sessionID: string,
-  addUSD: number,
-): Promise<void> {
-  const now = deps.now();
-  const spend = await readSpend(ctx, now);
-  spend.usd += addUSD;
-  const settings = await loadSettings(ctx);
-  const daily = settings.budget.dailyUSD;
-  const level = budgetState(spend.usd, daily);
-  if ((level === 'warn' || level === 'over') && !spend.warned) {
-    spend.warned = true;
-    if (!saveModeActive(settings, now)) {
-      settings.saveMode.until = now + settings.saveMode.hours * HOUR_MS;
-      await saveSettings(ctx, settings);
-    }
-    if (level === 'warn') {
-      await toast({
-        sessionID,
-        title: 'Gearbox',
-        message: `Gearbox: ${usd(spend.usd)} of the ${usd(daily ?? 0)} daily budget spent; save mode on for ${settings.saveMode.hours} h.`,
-        variant: 'warning',
-      });
-    }
-  }
-  await ctx.storage.set(dayKey(now), spend as never);
-  if (level === 'over') {
-    const turn = getState(sessionID).userTurn;
-    if (overToastTurn.get(sessionID) !== turn) {
-      overToastTurn.set(sessionID, turn);
-      await toast({
-        sessionID,
-        title: 'Gearbox',
-        message: `Gearbox: over the daily budget (${usd(spend.usd)} of ${usd(daily ?? 0)}).`,
-        variant: 'error',
-      });
-    }
-  }
+  // Trust the reported cost, 0 included (subscriptions); price tokens only when it is missing.
+  const reported = typeof data.cost === 'number' && Number.isFinite(data.cost);
+  const costUSD = reported ? data.cost : model ? await priceTokens(ctx, model, t) : 0;
+  // Judge calls are recorded by `runJudge` when they settle, never per step.
+  await recordStep(
+    ctx,
+    sessionID,
+    {
+      level: state.lastDecision?.level ?? state.lastLevel ?? 'medium',
+      input: t.input,
+      output: t.output,
+      cacheRead: t.cacheRead,
+      costUSD,
+    },
+    deps.now(),
+  );
 }
 
 /** Feeds `session.step.*` events into stats and the budget (docs/api-probe.md §8). */
 function watchUsage(ctx: Ctx, deps: CommandDeps, requestModels: Map<string, ModelRef>): void {
-  const events = ctx.event.subscribe({
-    types: ['session.step.started', 'session.step.ended'],
-  } as never) as AsyncIterable<{ type: string; data: any }>;
-  void (async () => {
-    try {
-      for await (const event of events) {
-        const sessionID: string = event.data?.sessionID ?? 'unknown';
-        try {
-          if (event.type === 'session.step.started') {
-            if (isObject(event.data?.model)) requestModels.set(sessionID, event.data.model);
-          } else if (event.type === 'session.step.ended') {
-            await recordStep(ctx, deps, event.data, requestModels.get(sessionID));
-          }
-        } catch (error) {
-          logOnce(sessionID, 'usage', error);
-        }
+  watchEvents(
+    ctx,
+    ['session.step.started', 'session.step.ended'],
+    async (event) => {
+      const sessionID = event.data?.sessionID;
+      if (typeof sessionID !== 'string') return;
+      if (event.type === 'session.step.started') {
+        const model = toModelRef(event.data?.model);
+        if (model) requestModels.set(sessionID, model);
+      } else {
+        await onStepEnded(ctx, deps, event.data, requestModels.get(sessionID));
       }
-    } catch (error) {
-      logOnce('global', 'usage stream', error);
-    }
-  })();
+    },
+    'usage',
+  );
 }
 
 async function runBench(
   ctx: Ctx,
   deps: CommandDeps,
+  sessionID: string,
   model: ModelRef,
   timeoutMs: number,
 ): Promise<string> {
@@ -256,7 +165,9 @@ async function runBench(
         contextRatio: null,
         isSubagent: false,
       });
-      const answer = await deps.runJudge(ctx, model, prompt, timeoutMs).catch(() => null);
+      const answer = await deps
+        .runJudge(ctx, model, prompt, timeoutMs, { sessionID })
+        .catch(() => null);
       results[index] = {
         c,
         got: answer ? (parseJudgeAnswer(answer.text)?.level ?? null) : null,
@@ -317,12 +228,13 @@ export async function registerCommands(
   const deps: CommandDeps = {
     runJudge,
     resolveJudgeModel,
-    handoff: careApi.handoff,
-    compactNow: careApi.compactNow,
+    handoff,
+    compactNow,
     now: Date.now,
     ...overrides,
   };
   const requestModels = new Map<string, ModelRef>();
+  onForget((sessionID) => requestModels.delete(sessionID));
 
   const say = (
     sessionID: string,
@@ -333,17 +245,21 @@ export async function registerCommands(
   const subcommands: Record<string, (sessionID: string, arg: string) => Promise<void>> = {
     async status(sessionID) {
       const s = await loadSettings(ctx);
-      const state = getState(sessionID);
+      const status = await buildStatus(ctx, sessionID);
       const now = deps.now();
-      const mode = !s.auto
+      const mode = !status.auto
         ? 'Manual (auto off)'
-        : state.autoPaused
-          ? `Paused: ${state.autoPaused}`
+        : status.paused
+          ? `Paused: ${status.paused}`
           : 'Auto';
       const lines = [
-        `Gearbox: ${state.lastLevel ?? 'no level yet'} · ${formatModel(requestModels.get(sessionID))} · ${mode}`,
+        `Gearbox: ${status.level ?? 'no level yet'} · ${formatModel(status.model)} · ${mode}`,
       ];
-      if (state.lastDecision?.reason) lines.push(`Why: ${state.lastDecision.reason}`);
+      if (status.judgeReason) lines.push(`Why: ${status.judgeReason}`);
+      if (status.contextRatio !== null)
+        lines.push(`Context: ${Math.round(status.contextRatio * 100)}%`);
+      if (status.advice === 'handoff') lines.push('Advice: /gearbox handoff to start fresh');
+      if (status.advice === 'swamped') lines.push('Advice: swamped; /gearbox handoff or compact');
       if (saveModeActive(s, now))
         lines.push(
           `Save mode: cap ${s.saveMode.cap} until ${new Date(s.saveMode.until as number).toLocaleTimeString()}`,
@@ -363,6 +279,7 @@ export async function registerCommands(
       s.auto = arg === 'on';
       await saveSettings(ctx, s);
       if (s.auto) getState(sessionID).autoPaused = null;
+      await statusChanged(ctx, sessionID);
       await say(sessionID, `Gearbox: auto ${arg}`);
     },
     async set(sessionID, arg) {
@@ -420,16 +337,16 @@ export async function registerCommands(
         sessionID,
         `Gearbox: benching ${formatModel(model)} on ${bench.cases.length} prompts…`,
       );
-      await say(sessionID, await runBench(ctx, deps, model, s.judge.timeoutMs));
+      await say(sessionID, await runBench(ctx, deps, sessionID, model, s.judge.timeoutMs));
     },
     async handoff(sessionID, arg) {
-      if (!deps.handoff) return say(sessionID, 'Gearbox: handoff is not available', 'error');
+      if (arg !== '' && arg !== 'quick' && arg !== 'full')
+        return say(sessionID, 'Usage: /gearbox handoff [full]', 'error');
       const result = await deps.handoff(ctx, sessionID, arg === 'full' ? 'full' : 'quick');
       const file = result.file ? `; wrote ${result.file}` : '';
       await say(sessionID, `Gearbox: handoff to session ${result.newSessionID}${file}`);
     },
     async compact(sessionID, arg) {
-      if (!deps.compactNow) return say(sessionID, 'Gearbox: compact is not available', 'error');
       await deps.compactNow(ctx, sessionID, arg || undefined);
       await say(sessionID, 'Gearbox: compaction queued');
     },
@@ -447,6 +364,7 @@ export async function registerCommands(
           `Last decision: ${decision}`,
           `Last level: ${state.lastLevel ?? 'none'}`,
           `Auto paused: ${state.autoPaused ?? 'no'}`,
+          `Judge answer: ${state.judgeAnswer === null ? 'none' : clip(state.judgeAnswer.replace(/\s+/g, ' ').trim())}`,
           `Judge pending: ${state.pending ? 'yes' : 'no'}`,
           `User turn: ${state.userTurn}`,
           `Request model: ${formatModel(requestModels.get(sessionID))}`,
@@ -479,5 +397,6 @@ export async function registerCommands(
     } as never);
   });
 
+  trackUsage(ctx);
   watchUsage(ctx, deps, requestModels);
 }

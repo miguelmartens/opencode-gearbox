@@ -9,19 +9,21 @@
 
 import type { Plugin } from '@opencode/plugin';
 import { LEVELS } from '../core/types.ts';
-import type { Decision, Level, ModelLite, ModelRef, Settings } from '../core/types.ts';
+import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
 import { applyShaping, pickVariant } from '../core/levels.ts';
 import { classifyPrompt } from '../core/rules.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
 import { buildLadder, routeModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
 import { cacheRemainingMs, contextRatio } from '../core/context.ts';
-import { getState } from './state.ts';
+import { getState, onForget } from './state.ts';
 import type { SessionState } from './state.ts';
 import { loadSettings } from './settings-store.ts';
-import { listModelInfos, resolveJudgeModel, runJudge, toModelLite } from './judge-model.ts';
-import type { ModelInfo } from './judge-model.ts';
-import { emitStatus, logOnce, toast } from './notify.ts';
+import { resolveJudgeModel, runJudge } from './judge-model.ts';
+import { cacheTtlMs, listModelInfos, toModelLite } from './models.ts';
+import type { ModelInfo } from './models.ts';
+import { logOnce, toast } from './notify.ts';
+import { statusChanged, trackUsage } from './status.ts';
 
 type Ctx = Plugin.Context;
 
@@ -34,7 +36,6 @@ type SessionInfo = { parentID?: string | null; agent?: string; model?: unknown }
 /** Routing data that `SessionState` does not hold. */
 type Local = {
   replyTail: string;
-  contextTokens: number | null;
   /** The manual variant that paused auto; accepted once the user turns auto back on. */
   pausedVariant: string | null;
   statusTurn: number | null;
@@ -43,23 +44,16 @@ type Local = {
 const SUBAGENT_PREFIX = 'You are a subagent spawned by another session.\n';
 const MANUAL_VARIANT = 'manual variant';
 const NO_EFFORT_CONTROL = 'no effort control';
-const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
 const REPLY_TAIL_MAX = 500;
 const NO_MODEL: ModelRef = { providerID: '', id: '' };
-const TTL_UNITS: Record<string, number> = {
-  ms: 1,
-  s: 1000,
-  m: 60_000,
-  h: 3_600_000,
-  d: 86_400_000,
-};
 
 const locals = new Map<string, Local>();
+onForget((sessionID) => locals.delete(sessionID));
 
 function getLocal(sessionID: string): Local {
   let local = locals.get(sessionID);
   if (!local) {
-    local = { replyTail: '', contextTokens: null, pausedVariant: null, statusTurn: null };
+    local = { replyTail: '', pausedVariant: null, statusTurn: null };
     locals.set(sessionID, local);
   }
   return local;
@@ -78,10 +72,12 @@ function isManualVariant(variant: string | undefined): variant is string {
   return variant !== undefined && variant !== '' && variant !== 'default';
 }
 
+/** The `effortModels` pattern; an invalid one is logged once and matches every model. */
 function effortRegex(settings: Settings): RegExp {
   try {
     return new RegExp(settings.effortModels);
-  } catch {
+  } catch (error) {
+    logOnce('*', 'routing.effortModels', error);
     return /.*/;
   }
 }
@@ -97,12 +93,6 @@ function findInfo(infos: ModelInfo[], ref: ModelRef): ModelInfo | undefined {
 
 function liteModels(infos: ModelInfo[]): ModelLite[] {
   return infos.map(toModelLite).filter((lite): lite is ModelLite => lite !== null);
-}
-
-function cacheTtlMs(info: ModelInfo | undefined): number {
-  const ttl = info?.settings?.cache?.ttl;
-  const match = typeof ttl === 'string' ? /^(\d+(?:\.\d+)?)(ms|s|m|h|d)$/.exec(ttl.trim()) : null;
-  return match ? Number(match[1]) * TTL_UNITS[match[2]] : DEFAULT_CACHE_TTL_MS;
 }
 
 function messageText(message: any): string {
@@ -159,6 +149,15 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     return state.isSubagent;
   }
 
+  async function defaultModel(): Promise<ModelRef | null> {
+    try {
+      const result = (await ctx.model.default()) as unknown as { data?: unknown };
+      return toRef(result?.data);
+    } catch {
+      return null;
+    }
+  }
+
   /** An agent file with `model` keeps it. Unknown agents count as explicit: never override. */
   async function hasExplicitModel(agentID: string | undefined): Promise<boolean> {
     if (!agentID) return false;
@@ -181,23 +180,24 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     sessionID: string,
   ): Promise<Decision> {
     try {
-      const model = await resolveJudgeModel(ctx, sessionModel ?? NO_MODEL, settings);
+      // A session without a model runs on OpenCode's default model; unknown → the judge is skipped.
+      const chat = sessionModel ?? (await defaultModel()) ?? NO_MODEL;
+      const model = await resolveJudgeModel(ctx, chat, settings);
       const local = getLocal(sessionID);
-      const info = sessionModel
-        ? findInfo(await listModelInfos(ctx).catch(() => []), sessionModel)
-        : undefined;
+      const info = chat.id ? findInfo(await listModelInfos(ctx).catch(() => []), chat) : undefined;
       const lite = info ? toModelLite(info) : null;
       const prompt = buildJudgePrompt({
         prompt: text,
         lastReplyTail: subagent ? '' : local.replyTail,
         contextRatio:
-          lite && local.contextTokens !== null
-            ? contextRatio(local.contextTokens, lite.contextLimit)
+          lite && state.contextTokens !== null
+            ? contextRatio(state.contextTokens, lite.contextLimit)
             : null,
         isSubagent: subagent,
       });
-      const result = await runJudge(ctx, model, prompt, settings.judge.timeoutMs);
+      const result = await runJudge(ctx, model, prompt, settings.judge.timeoutMs, { sessionID });
       if (!result) return fallbackDecision(state, 'judge timed out or failed');
+      state.judgeAnswer = result.text;
       const parsed = parseJudgeAnswer(result.text);
       if (!parsed) return fallbackDecision(state, 'judge answer unreadable');
       const decision: Decision = {
@@ -228,7 +228,6 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
   async function manualVariantPause(
     sessionID: string,
     state: SessionState,
-    settings: Settings,
     model: ModelRef,
   ): Promise<boolean> {
     const variant = model.variant;
@@ -244,37 +243,18 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       message: `You picked the "${variant}" variant, so Gearbox stopped choosing effort. Run /gearbox auto on to resume.`,
       variant: 'info',
     });
-    await publishStatus(sessionID, state, settings, model, null, null, MANUAL_VARIANT);
+    await statusChanged(ctx, sessionID);
     return true;
   }
 
-  async function publishStatus(
-    sessionID: string,
-    state: SessionState,
-    settings: Settings,
-    model: ModelRef,
-    info: ModelInfo | undefined,
-    level: Level | null,
-    paused: string | null,
-  ): Promise<void> {
+  /** Emits the status once per turn, or at once when the effort pause changes. */
+  async function publishStatus(sessionID: string, state: SessionState, paused: string | null) {
     const local = getLocal(sessionID);
-    if (local.statusTurn === state.userTurn) return;
+    const changed = state.effortPaused !== paused;
+    state.effortPaused = paused;
+    if (!changed && local.statusTurn === state.userTurn) return;
     local.statusTurn = state.userTurn;
-    const lite = info ? toModelLite(info) : null;
-    await emitStatus({
-      sessionID,
-      level,
-      model,
-      auto: settings.auto,
-      paused: state.autoPaused ?? paused,
-      contextRatio:
-        lite && local.contextTokens !== null
-          ? contextRatio(local.contextTokens, lite.contextLimit)
-          : null,
-      cacheRemainingMs: cacheRemainingMs(state.lastRequestAt, cacheTtlMs(info), Date.now()),
-      judgeReason: state.lastDecision?.reason ?? null,
-      advice: null,
-    });
+    await statusChanged(ctx, sessionID);
   }
 
   async function routeSubagentModel(
@@ -285,7 +265,9 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
   ): Promise<void> {
     const decision = await turnDecision(state, settings);
     const level = applyShaping(decision.level, settings, Date.now());
-    const ladder = buildLadder(liteModels(await listModelInfos(ctx)), model, effortRegex(settings));
+    // The ladder of the model the child started with, so a re-prompted child can climb back up.
+    const top = state.firstModel ?? model;
+    const ladder = buildLadder(liteModels(await listModelInfos(ctx)), top, effortRegex(settings));
     if (ladder.length === 0) return;
     const target = routeModel(level, ladder);
     const variant = pickVariant(level, effortVariants(target.variants));
@@ -306,11 +288,12 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const subagent = session.parentID != null;
       state.isSubagent = subagent;
       const model = toRef(session.model);
+      if (subagent && model && !state.firstModel)
+        state.firstModel = { providerID: model.providerID, id: model.id };
 
       if (!settings.auto) return;
       if (model && !effortRegex(settings).test(model.id)) return;
-      if (!subagent && model && (await manualVariantPause(sessionID, state, settings, model)))
-        return;
+      if (!subagent && model && (await manualVariantPause(sessionID, state, model))) return;
       if (state.autoPaused) return;
 
       let text: string = typeof event?.prompt?.text === 'string' ? event.prompt.text : '';
@@ -346,14 +329,13 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const settings = await load(ctx);
       const state = getState(sessionID);
       const local = getLocal(sessionID);
-      state.lastRequestAt = Date.now();
       local.replyTail = lastReplyTail(event?.messages) ?? local.replyTail;
 
       const model = toRef(event?.model);
       if (!settings.auto || !model) return;
       if (!effortRegex(settings).test(model.id)) return;
       const subagent = await isSubagent(state, sessionID);
-      if (!subagent && (await manualVariantPause(sessionID, state, settings, model))) return;
+      if (!subagent && (await manualVariantPause(sessionID, state, model))) return;
       if (state.autoPaused) return;
 
       const decision = await turnDecision(state, settings);
@@ -366,16 +348,10 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
 
       const options = effort ? structuredClone(effort) : null;
       if (options) Object.assign(event.options, options);
-      const shown = variantID ? { ...model, variant: variantID } : model;
-      await publishStatus(
-        sessionID,
-        state,
-        settings,
-        shown,
-        info,
-        level,
-        options ? null : NO_EFFORT_CONTROL,
-      );
+      state.requestModel = variantID
+        ? { providerID: model.providerID, id: model.id, variant: variantID }
+        : { providerID: model.providerID, id: model.id };
+      await publishStatus(sessionID, state, options ? null : NO_EFFORT_CONTROL);
     } catch (error) {
       logOnce(sessionID, 'routing.context', error);
     }
@@ -391,7 +367,9 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const model = toRef(event?.model);
       if (!model || !effortRegex(settings).test(model.id)) return;
       if (await isSubagent(state, sessionID)) return;
-      if (await manualVariantPause(sessionID, state, settings, model)) return;
+      // Anti-goal 2: an agent with an explicit model (or an unknown agent) keeps its model.
+      if (typeof event?.agent !== 'string' || (await hasExplicitModel(event.agent))) return;
+      if (await manualVariantPause(sessionID, state, model)) return;
       if (state.autoPaused) return;
 
       const decision = await turnDecision(state, settings);
@@ -404,11 +382,11 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (target === current) return;
       const remaining = cacheRemainingMs(
         state.lastRequestAt,
-        cacheTtlMs(findInfo(infos, model)),
+        await cacheTtlMs(ctx, model, findInfo(infos, model)),
         Date.now(),
       );
       const check = shouldSwitch({
-        contextTokens: getLocal(sessionID).contextTokens ?? 0,
+        contextTokens: state.contextTokens ?? 0,
         cacheWarm: (remaining ?? 0) > 0,
         from: current.price,
         to: target.price,
@@ -423,24 +401,6 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     }
   }
 
-  /** Context size and request time from each finished model request (probe §8). */
-  function watchUsage(): void {
-    const subscribe = (ctx as any).event?.subscribe;
-    if (typeof subscribe !== 'function') return;
-    void (async () => {
-      for await (const bus of subscribe.call((ctx as any).event, {
-        types: ['session.step.ended'],
-      })) {
-        const data = (bus as any)?.data;
-        if (typeof data?.sessionID !== 'string') continue;
-        const tokens = data.tokens ?? {};
-        getLocal(data.sessionID).contextTokens =
-          (tokens.input ?? 0) + (tokens.cache?.read ?? 0) + (tokens.cache?.write ?? 0);
-        getState(data.sessionID).lastRequestAt = Date.now();
-      }
-    })().catch((error) => logOnce('*', 'routing.usage', error));
-  }
-
   await hook('prompt', onPrompt);
   await hook('context', onContext);
   try {
@@ -449,5 +409,6 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
   } catch (error) {
     logOnce('*', 'routing.resolve.register', error);
   }
-  watchUsage();
+  // Context size and request time come from `session.step.ended` (probe §8, §11).
+  trackUsage(ctx);
 }

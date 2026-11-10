@@ -14,6 +14,15 @@ export function setEmitter(next: Emitter | null): void {
   emitter = next;
 }
 
+/** Removes `current` if it is still the emitter (a later registration may have replaced it). */
+export function clearEmitter(current: Emitter): void {
+  if (emitter === current) emitter = null;
+}
+
+export function hasEmitter(): boolean {
+  return emitter !== null;
+}
+
 async function emit(name: string, payload: Record<string, unknown>): Promise<void> {
   if (!emitter) return;
   try {

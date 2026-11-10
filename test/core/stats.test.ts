@@ -103,4 +103,6 @@ test('summarize shows turns and model requests separately', () => {
   const s = addRequest(addRequest(emptySessionStats(), request), request);
   const total = summarize(s).split('\n').at(-1) ?? '';
   assert.match(total, /1 turn, 2 requests/);
+  assert.match(total, /\(0 calls\)/);
+  assert.match(summarize({ ...s, judgeCalls: 1 }), /\(1 call\)/);
 });

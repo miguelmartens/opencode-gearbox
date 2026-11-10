@@ -89,7 +89,7 @@ export function summarize(s: Stats & { requests?: number }): string {
       ? plural(s.turns, 'turn')
       : `${plural(s.turns, 'turn')}, ${plural(s.requests, 'request')}`;
   const tokens = `in ${s.tokens.input}, out ${s.tokens.output}, cache read ${s.tokens.cacheRead}`;
-  const judge = `judge $${s.judgeCostUSD.toFixed(4)} (${s.judgeCalls} calls)`;
+  const judge = `judge $${s.judgeCostUSD.toFixed(4)} (${plural(s.judgeCalls, 'call')})`;
   lines.push(`total  ${turns}; tokens ${tokens}; cost $${s.costUSD.toFixed(4)}; ${judge}`);
   return lines.join('\n');
 }

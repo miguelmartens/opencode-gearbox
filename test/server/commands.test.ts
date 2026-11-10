@@ -163,7 +163,7 @@ test('stats prints summarize output built from step events', async () => {
   assert.deepEqual(getState('ses_stats').stats, expected);
 });
 
-test('stats counts the judge cost of a decision once', async () => {
+test('steps never count judge cost: judge calls are recorded when they settle', async () => {
   resetState('ses_judge');
   getState('ses_judge').lastDecision = {
     level: 'low',
@@ -176,11 +176,11 @@ test('stats counts the judge cost of a decision once', async () => {
   fake.publish(stepEnded('ses_judge', 0));
   await waitFor(() => (fake.storage.get('stats/ses_judge') as any)?.turns === 2);
   const stats = fake.storage.get('stats/ses_judge') as any;
-  assert.equal(stats.judgeCalls, 1);
-  assert.equal(stats.judgeCostUSD, 0.001);
+  assert.equal(stats.judgeCalls, 0);
+  assert.equal(stats.judgeCostUSD, 0);
 });
 
-test('a zero-cost step is priced from tokens and the model price', async () => {
+test('a step without a cost is priced from tokens and the model price', async () => {
   resetState('ses_price');
   const model = {
     id: 'm',
@@ -192,11 +192,36 @@ test('a zero-cost step is priced from tokens and the model price', async () => {
     type: 'session.step.started',
     data: { sessionID: 'ses_price', model: { providerID: 'p', id: 'm', variant: 'low' } },
   });
-  fake.publish(stepEnded('ses_price', 0, 1_000_000, 100_000));
+  const step = stepEnded('ses_price', 0, 1_000_000, 100_000) as any;
+  delete step.data.cost;
+  fake.publish(step);
   await waitFor(() => (fake.storage.get('stats/ses_price') as any)?.turns === 1);
   const stats = fake.storage.get('stats/ses_price') as any;
   // 1M input × $1 + 100k output × $10 + 10 cache-read tokens × $0.1 per 1M.
   assert.ok(Math.abs(stats.costUSD - (1 + 1 + 0.000001)) < 1e-9);
+});
+
+test('a reported zero cost (subscription) is trusted, not priced', async () => {
+  resetState('ses_sub');
+  const model = { id: 'm', providerID: 'p', cost: [{ input: 1, output: 10 }] };
+  const fake = await setup({ models: [model], storage: { settings: { budget: { dailyUSD: 1 } } } });
+  fake.publish({
+    type: 'session.step.started',
+    data: { sessionID: 'ses_sub', model: { providerID: 'p', id: 'm' } },
+  });
+  fake.publish(stepEnded('ses_sub', 0, 1_000_000, 100_000));
+  await waitFor(() => (fake.storage.get('stats/ses_sub') as any)?.turns === 1);
+  assert.equal((fake.storage.get('stats/ses_sub') as any).costUSD, 0);
+  assert.equal(fake.toasts.filter((t) => /budget/i.test(t.message)).length, 0);
+});
+
+test('stored stats with the wrong shape fall back to empty stats', async () => {
+  resetState('ses_bad');
+  const fake = await setup({ storage: { 'stats/ses_bad': { turns: 'many' } } });
+  await fake.runCommand('gearbox', 'stats', 'ses_bad');
+  assert.equal(fake.lastMessage(), summarize(emptyStats()));
+  fake.publish(stepEnded('ses_bad', 0.01));
+  await waitFor(() => (fake.storage.get('stats/ses_bad') as any)?.turns === 1);
 });
 
 test('budget warn shows one toast and turns save mode on', async () => {
@@ -302,6 +327,23 @@ test('handoff full calls handoff with mode full and reports the new session', as
   assert.match(fake.lastMessage(), /HANDOFF\.md/);
 });
 
+test('handoff rejects unknown arguments', async () => {
+  const seen: unknown[] = [];
+  const fake = await setup(
+    {},
+    {
+      handoff: async (_ctx, sessionID, mode) => {
+        seen.push([sessionID, mode]);
+        return { newSessionID: 'ses_new' };
+      },
+    },
+  );
+  await fake.runCommand('gearbox', 'handoff fulll', 'ses_h');
+  assert.deepEqual(seen, []);
+  assert.match(fake.lastMessage(), /Usage: \/gearbox handoff \[full\]/);
+  assert.equal(fake.toasts.at(-1)?.variant, 'error');
+});
+
 test('compact passes the note to compactNow', async () => {
   const seen: unknown[] = [];
   const fake = await setup(
@@ -330,6 +372,24 @@ test('debug shows the last decision and the request model', async () => {
   assert.match(fake.lastMessage(), /xhigh/);
   assert.match(fake.lastMessage(), /hard bug/);
   assert.match(fake.lastMessage(), /p\/m#xhigh/);
+});
+
+test('debug shows the raw judge answer', async () => {
+  resetState('ses_dbg2');
+  getState('ses_dbg2').judgeAnswer = 'I think xhigh, maybe';
+  const fake = await setup();
+  await fake.runCommand('gearbox', 'debug', 'ses_dbg2');
+  assert.match(fake.lastMessage(), /Judge answer: I think xhigh, maybe/);
+});
+
+test('status shows the effort pause of a model without effort control', async () => {
+  resetState('ses_st2');
+  getState('ses_st2').lastLevel = 'high';
+  getState('ses_st2').effortPaused = 'no effort control';
+  const fake = await setup();
+  await fake.runCommand('gearbox', '', 'ses_st2');
+  assert.match(fake.lastMessage(), /Paused: no effort control/);
+  assert.doesNotMatch(fake.lastMessage(), /· Auto/);
 });
 
 test('status with no arguments shows level and auto state', async () => {

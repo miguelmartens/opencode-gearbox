@@ -151,3 +151,33 @@ test('runJudge returns null when the generator throws or is missing', async () =
   const missing = makeFakeCtx({ overrides: { experimental: { generate: null } } });
   assert.equal(await runJudge(missing.ctx, chat, 'p', 1000), null);
 });
+
+test('resolveJudgeModel lightens the session model when it is the last resort', async () => {
+  const fake = makeFakeCtx({ models: [model('claude-agent-opus', 0, { cost: [] })] });
+  const session = { providerID: 'anthropic', id: 'claude-agent-opus' };
+  assert.deepEqual(await resolveJudgeModel(fake.ctx, session, DEFAULT_SETTINGS), {
+    ...session,
+    variant: 'none',
+  });
+});
+
+test('an unknown session model skips the judge instead of calling generate without a model', async () => {
+  const fake = makeFakeCtx({ generateText: async () => ({ text: 'LEVEL: low' }) });
+  const judge = await resolveJudgeModel(fake.ctx, { providerID: '', id: '' }, DEFAULT_SETTINGS);
+  assert.equal(await runJudge(fake.ctx, judge, 'p', 1000), null);
+  assert.equal(fake.callsTo('generate.text').length, 0);
+});
+
+test('runJudge logs a provider error once and still returns null', async (t) => {
+  const errors = t.mock.method(console, 'error', () => {});
+  const fake = makeFakeCtx({
+    generateText: async () => {
+      throw new Error('Insufficient balance');
+    },
+  });
+  const meta = { sessionID: 'ses_judge_err' };
+  assert.equal(await runJudge(fake.ctx, chat, 'p', 1000, meta), null);
+  assert.equal(await runJudge(fake.ctx, chat, 'p', 1000, meta), null);
+  const logged = errors.mock.calls.filter((c) => /Insufficient balance/.test(String(c.arguments)));
+  assert.equal(logged.length, 1);
+});

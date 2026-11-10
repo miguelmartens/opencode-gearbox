@@ -2,60 +2,29 @@
 
 import type { Plugin } from '@opencode/plugin';
 import type { ModelLite, ModelRef, Settings } from '../core/types.ts';
+import { findModelInfo, listModelInfos, toModelLite } from './models.ts';
+import type { ModelInfo } from './models.ts';
+import { recordJudgeCall } from './ledger.ts';
+import { logOnce } from './notify.ts';
+
+export { listModelInfos, toModelLite } from './models.ts';
+export type { ModelInfo } from './models.ts';
 
 type Ctx = Plugin.Context;
 
 export type JudgeResult = { text: string; ms: number; costUSD?: number };
 
-type CostTier = {
-  tier?: unknown;
-  input?: number;
-  output?: number;
-  cache?: { read?: number; write?: number };
-};
+/** Who the call is for: its cost goes into that session's stats and today's spend. */
+export type JudgeMeta = { sessionID?: string };
 
-/** The subset of the runtime `Model.Info` that Gearbox reads. */
-export type ModelInfo = {
-  id: string;
-  providerID: string;
-  variants?: Array<{ id: string; settings?: Record<string, unknown> }>;
-  cost?: CostTier[];
-  capabilities?: { tools?: boolean };
-  enabled?: boolean;
-  limit?: { context?: number; input?: number };
-  settings?: { cache?: { ttl?: unknown } };
-};
+/** No model known: `runJudge` skips the call. */
+const NO_MODEL: ModelRef = { providerID: '', id: '' };
 
 // Cheap variants for the judge: thinking off first.
 const LIGHT_VARIANTS = ['none', 'minimal', 'low'];
 
 // Rough token estimate for judge cost: about 4 characters per token.
 const CHARS_PER_TOKEN = 4;
-
-/** `ctx.model.list()` returns `{ location, data }`; read it inside hooks, never at setup. */
-export async function listModelInfos(ctx: Ctx): Promise<ModelInfo[]> {
-  const result = (await ctx.model.list()) as unknown as { data?: ModelInfo[] };
-  return Array.isArray(result?.data) ? result.data : [];
-}
-
-/** Maps `Model.Info` to `ModelLite`; `null` when the model has no base-tier price. */
-export function toModelLite(info: ModelInfo): ModelLite | null {
-  const base = info.cost?.find((tier) => tier.tier === undefined);
-  if (!base) return null;
-  return {
-    ref: { providerID: info.providerID, id: info.id },
-    price: {
-      input: base.input ?? 0,
-      output: base.output ?? 0,
-      cacheRead: base.cache?.read ?? 0,
-      cacheWrite: base.cache?.write ?? 0,
-    },
-    variants: (info.variants ?? []).map((variant) => variant.id),
-    tools: info.capabilities?.tools === true,
-    enabled: info.enabled !== false,
-    contextLimit: info.limit?.input ?? info.limit?.context ?? 0,
-  };
-}
 
 /** `provider/model[#variant]`; the model part may contain slashes. */
 function parseModelString(value: string): ModelRef | null {
@@ -92,7 +61,11 @@ async function titleModel(ctx: Ctx): Promise<ModelRef | null> {
   }
 }
 
-/** `settings.judge.model` → title agent model (V1 `small_model`) → cheapest tool-capable model of the provider. */
+/**
+ * `settings.judge.model` → title agent model (V1 `small_model`) → cheapest tool-capable model of
+ * the provider → the session's own model, lightened. An unknown session model yields an empty ref,
+ * which `runJudge` skips.
+ */
 export async function resolveJudgeModel(
   ctx: Ctx,
   sessionModel: ModelRef,
@@ -104,6 +77,7 @@ export async function resolveJudgeModel(
   const infos = await listModelInfos(ctx).catch(() => [] as ModelInfo[]);
   const small = await titleModel(ctx);
   if (small) return lighten(small, infos);
+  if (!sessionModel.providerID || !sessionModel.id) return NO_MODEL;
 
   let cheapest: ModelLite | null = null;
   for (const info of infos) {
@@ -113,7 +87,7 @@ export async function resolveJudgeModel(
     if (!cheapest || lite.price.output < cheapest.price.output) cheapest = lite;
   }
   if (cheapest) return lighten({ ...cheapest.ref }, infos);
-  return { providerID: sessionModel.providerID, id: sessionModel.id };
+  return lighten({ providerID: sessionModel.providerID, id: sessionModel.id }, infos);
 }
 
 type GenerateText = (input: { model?: ModelRef; prompt: string }) => Promise<{ text?: unknown }>;
@@ -132,9 +106,7 @@ async function estimateCost(
   answer: string,
 ): Promise<number | undefined> {
   try {
-    const info = (await listModelInfos(ctx)).find(
-      (m) => m.providerID === model.providerID && m.id === model.id,
-    );
+    const info = await findModelInfo(ctx, model);
     const lite = info ? toModelLite(info) : null;
     if (!lite) return undefined;
     const input = Math.ceil(prompt.length / CHARS_PER_TOKEN);
@@ -146,32 +118,41 @@ async function estimateCost(
 }
 
 /**
- * Runs the judge, raced against `timeoutMs`. Returns `null` on timeout or error.
- * `generate.text` ignores abort signals, so a late call finishes in the background.
+ * Runs the judge, raced against `timeoutMs`. Returns `null` on timeout, error or a missing model.
+ * `generate.text` ignores abort signals, so a late call finishes in the background. Every call is
+ * recorded in the ledger once, when it settles, whether it won the race or not.
  */
 export async function runJudge(
   ctx: Ctx,
   model: ModelRef,
   prompt: string,
   timeoutMs: number,
+  meta: JudgeMeta = {},
 ): Promise<JudgeResult | null> {
   const generate = generator(ctx);
-  if (!generate) return null;
+  if (!generate || !model.providerID || !model.id) return null;
+  const sessionID = meta.sessionID ?? null;
   const start = Date.now();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), timeoutMs);
   });
   const call = Promise.resolve()
-    // An empty ref means "no session model known": let OpenCode use its default model.
-    .then(() => generate(model.id ? { model, prompt } : { prompt }))
+    .then(() => generate({ model, prompt }))
     .then((output) => (typeof output?.text === 'string' ? output.text : null))
-    .catch(() => null);
+    .catch((error) => {
+      logOnce(sessionID ?? '*', 'judge call', error);
+      return null;
+    });
+  const cost = call.then((text) =>
+    text === null ? undefined : estimateCost(ctx, model, prompt, text),
+  );
+  void cost.then((usd) => recordJudgeCall(ctx, sessionID, usd ?? 0));
   try {
     const text = await Promise.race([call, timeout]);
     if (text === null) return null;
     const ms = Date.now() - start;
-    const costUSD = await estimateCost(ctx, model, prompt, text);
+    const costUSD = await cost;
     return costUSD === undefined ? { text, ms } : { text, ms, costUSD };
   } finally {
     clearTimeout(timer);

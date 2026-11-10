@@ -44,7 +44,10 @@ type Setup = FakeCtxOptions & { settings?: Partial<Settings> };
 
 async function setup(opts: Setup = {}) {
   const settings: Settings = { ...structuredClone(DEFAULT_SETTINGS), ...opts.settings };
-  const fake = makeFakeCtx({ models: MODELS, agents: [{ id: 'build' }], ...opts });
+  // Sessions without a model run on OpenCode's default model: Opus here.
+  const overrides: Record<string, any> = { ...opts.overrides };
+  overrides.model = { default: async () => ({ data: opus }), ...overrides.model };
+  const fake = makeFakeCtx({ models: MODELS, agents: [{ id: 'build' }], ...opts, overrides });
   await registerRouting(fake.ctx, { loadSettings: async () => settings });
   return fake;
 }
@@ -90,7 +93,7 @@ test('prompt hook returns before the judge resolves; context applies the judged 
   assert.equal(getState(sessionID).lastLevel, 'high');
   assert.equal(getState(sessionID).lastDecision?.source, 'judge');
   assert.equal(getState(sessionID).lastDecision?.reason, 'multi-file refactor');
-  assert.ok(getState(sessionID).lastRequestAt);
+  assert.equal(getState(sessionID).lastRequestAt, null, 'stamped from session.step.ended only');
   const status = fake.events.filter((e) => e.name === 'status').at(-1)?.payload as any;
   assert.equal(status.level, 'high');
   assert.equal(status.paused, null);
@@ -367,4 +370,160 @@ test('auto off or a model outside effortModels changes nothing and skips the jud
     assert.deepEqual(event.options, { maxTokens: 32000 });
     assert.equal(fake.callsTo('generate.text').length, 0);
   }
+});
+
+const tick = () => new Promise((resolve) => setTimeout(resolve, 10));
+
+test('lastRequestAt is stamped from session.step.ended', async () => {
+  const sessionID = newSession();
+  const fake = await setup({ generateText: async () => ({ text: 'LEVEL: low' }) });
+  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
+  await fake.fire('context', contextEvent(sessionID));
+  assert.equal(getState(sessionID).lastRequestAt, null);
+  fake.publish({
+    type: 'session.step.ended',
+    data: { sessionID, tokens: { input: 10, output: 1, cache: { read: 0, write: 0 } } },
+  });
+  await tick();
+  assert.ok(getState(sessionID).lastRequestAt);
+});
+
+test('resolve never switches the model of an agent with an explicit model', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
+    agents: [{ id: 'build' }, { id: 'pinned', model: OPUS }],
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
+  const event = await fake.fire('experimental.model.resolve', {
+    sessionID,
+    agent: 'pinned',
+    kind: 'primary',
+    model: { ...OPUS },
+  });
+  assert.deepEqual(event.model, OPUS);
+});
+
+test('resolve treats an unknown agent as explicit and keeps the model', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
+  const event = await fake.fire('experimental.model.resolve', {
+    sessionID,
+    agent: 'ghost',
+    kind: 'primary',
+    model: { ...OPUS },
+  });
+  assert.deepEqual(event.model, OPUS);
+});
+
+test('an invalid effortModels pattern is logged once and fails open', async (t) => {
+  const errors = t.mock.method(console, 'error', () => {});
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { effortModels: '(' },
+    generateText: async () => ({ text: 'LEVEL: high' }),
+  });
+  await fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module'));
+  const first = await fake.fire('context', contextEvent(sessionID));
+  await fake.fire('context', contextEvent(sessionID));
+  assert.equal(first.options.effort, 'high');
+  const logged = errors.mock.calls.filter((call) => /effortModels/.test(String(call.arguments[0])));
+  assert.equal(logged.length, 1);
+});
+
+test('a target without effort variants stores the effort pause in state', async () => {
+  const sessionID = newSession();
+  const fake = await setup({ generateText: async () => ({ text: 'LEVEL: high' }) });
+  await fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module'));
+  await fake.fire('context', contextEvent(sessionID, { providerID: 'local', id: 'local-coder' }));
+  assert.equal(getState(sessionID).effortPaused, 'no effort control');
+  await fake.fire('prompt', promptEvent(sessionID, 'ok'));
+  await fake.fire('context', contextEvent(sessionID));
+  assert.equal(getState(sessionID).effortPaused, null);
+});
+
+test('the raw judge answer is kept for /gearbox debug', async () => {
+  const sessionID = newSession();
+  const fake = await setup({ generateText: async () => ({ text: 'banana' }) });
+  await fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module'));
+  await fake.fire('context', contextEvent(sessionID));
+  assert.equal(getState(sessionID).judgeAnswer, 'banana');
+});
+
+test('model.list is read once per step across judge, routing and status', async () => {
+  const sessionID = newSession();
+  const fake = await setup({ generateText: async () => ({ text: 'LEVEL: high' }) });
+  await fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module'));
+  await fake.fire('context', contextEvent(sessionID));
+  await fake.fire('context', contextEvent(sessionID));
+  assert.equal(fake.callsTo('model.list').length, 1);
+});
+
+test('subagent prompt hook with a hanging judge returns within timeoutMs + 50 ms', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { judge: { timeoutMs: 100 } },
+    sessions: {
+      [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'general', model: OPUS },
+    },
+    agents: [{ id: 'general' }],
+    generateText: () => new Promise(() => {}),
+  });
+  const start = Date.now();
+  await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}Refactor the auth module`));
+  assert.ok(Date.now() - start <= 150, `took ${Date.now() - start} ms`);
+});
+
+test('subagent with an unknown agent keeps its model', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    sessions: {
+      [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'ghost', model: OPUS },
+    },
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}Find the config loader`));
+  assert.equal(fake.callsTo('session.switchModel').length, 0);
+});
+
+test('subagent with an empty ladder gets effort only', async () => {
+  const sessionID = newSession();
+  const flat = model('flat', 0, { providerID: 'sub', cost: [] });
+  const ref = { providerID: 'sub', id: 'flat' };
+  const fake = await setup({
+    models: [flat],
+    sessions: {
+      [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'general', model: ref },
+    },
+    agents: [{ id: 'general' }],
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}low effort: list files`));
+  assert.equal(fake.callsTo('session.switchModel').length, 0);
+  const event = await fake.fire('context', contextEvent(sessionID, ref));
+  assert.equal(event.options.effort, 'low');
+});
+
+test('a re-prompted subagent climbs back up the ladder of its first model', async () => {
+  const sessionID = newSession();
+  const sessions: Record<string, any> = {
+    [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'general', model: OPUS },
+  };
+  const fake = await setup({
+    sessions,
+    agents: [{ id: 'general' }],
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}low effort: list files`));
+  // The switch persists on the session.
+  sessions[sessionID].model = { providerID: 'anthropic', id: 'claude-haiku-5-5', variant: 'low' };
+  await fake.fire('prompt', promptEvent(sessionID, 'max effort: now redesign the module'));
+  const switches = fake.callsTo('session.switchModel');
+  assert.equal(switches.length, 2);
+  assert.deepEqual((switches[1].input as any).model, { ...OPUS, variant: 'max' });
 });

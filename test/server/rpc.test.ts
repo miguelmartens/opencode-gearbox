@@ -1,8 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeFakeCtx } from '../fake-ctx.ts';
-import { getState, resetState } from '../../src/server/state.ts';
-import { emitStatus, toast } from '../../src/server/notify.ts';
+import { getCare, getState, resetState } from '../../src/server/state.ts';
+import { toast } from '../../src/server/notify.ts';
+import { statusChanged } from '../../src/server/status.ts';
+import { registerRouting } from '../../src/server/routing.ts';
+import { registerContextCare } from '../../src/server/care.ts';
 import { parseTtlMs, registerRpc } from '../../src/server/rpc.ts';
 import { Gearbox, STATUS_EVENT, TOAST_EVENT } from '../../src/rpc.ts';
 import type { GearboxStatus } from '../../src/core/types.ts';
@@ -136,9 +139,11 @@ test('cache defaults to 5 minutes and prefers limit.input', async () => {
   assert.ok(s.cacheRemainingMs <= 300_000);
 });
 
-test('a sibling status keeps its extra fields and gets the tracked data added', async () => {
+test('every status emit is built from the shared state, whatever the emitter', async () => {
   resetState('ses_rpc_sibling');
   getState('ses_rpc_sibling').lastLevel = 'low';
+  getState('ses_rpc_sibling').effortPaused = 'no effort control';
+  getCare('ses_rpc_sibling').advice = 'swamped';
   const { fake, emitted } = setup({ models: [haiku] });
   await registerRpc(fake.ctx);
   fake.publish({
@@ -149,22 +154,53 @@ test('a sibling status keeps its extra fields and gets the tracked data added', 
     },
   });
   await tick();
-  await emitStatus({
-    sessionID: 'ses_rpc_sibling',
-    level: 'low',
-    model: null,
-    auto: true,
-    paused: 'no effort control',
-    contextRatio: null,
-    cacheRemainingMs: null,
-    judgeReason: null,
-    advice: 'swamped',
-  });
+  await statusChanged(fake.ctx, 'ses_rpc_sibling');
   const sent = emitted.filter((e) => e.name === STATUS_EVENT);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].payload.paused, 'no effort control');
   assert.equal(sent[0].payload.advice, 'swamped');
   assert.deepEqual(sent[0].payload.model, { providerID: 'anthropic', id: 'claude-haiku-5-5' });
+});
+
+test('no effort control survives a care emit; advice survives a routing emit', async () => {
+  const sessionID = 'ses_rpc_merge';
+  resetState(sessionID);
+  const local = {
+    id: 'local-coder',
+    providerID: 'local',
+    capabilities: { tools: true },
+    variants: [],
+    cost: [{ input: 0, output: 0 }],
+    enabled: true,
+    limit: { context: 1000 },
+  };
+  const ref = { providerID: 'local', id: 'local-coder' };
+  const { fake, emitted } = setup({
+    models: [local],
+    sessions: { [sessionID]: { id: sessionID, model: ref } },
+    generateText: async () => ({ text: 'NO' }),
+  });
+  await registerRouting(fake.ctx);
+  await registerContextCare(fake.ctx);
+  await registerRpc(fake.ctx);
+  const last = () => emitted.filter((e) => e.name === STATUS_EVENT).at(-1)?.payload;
+
+  await fake.fire('prompt', { sessionID, prompt: { text: 'ok' } });
+  await fake.fire('context', { sessionID, agent: 'build', model: ref, messages: [], options: {} });
+  assert.equal(last().paused, 'no effort control');
+
+  fake.publish({
+    type: 'session.step.ended',
+    data: { sessionID, finish: 'stop', tokens: { input: 800, cache: { read: 0, write: 0 } } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(last().advice, 'swamped');
+  assert.equal(last().paused, 'no effort control');
+
+  await fake.fire('prompt', { sessionID, prompt: { text: 'continue' } });
+  await fake.fire('context', { sessionID, agent: 'build', model: ref, messages: [], options: {} });
+  assert.equal(last().advice, 'swamped');
+  assert.equal(last().paused, 'no effort control');
 });
 
 test('status survives a failing model list', async () => {
@@ -204,4 +240,15 @@ test('parseTtlMs reads OpenCode TTL strings', () => {
   assert.equal(parseTtlMs('1d'), 86_400_000);
   assert.equal(parseTtlMs('soon'), null);
   assert.equal(parseTtlMs(undefined), null);
+});
+
+test('session.deleted forgets the session state', async () => {
+  resetState('ses_rpc_deleted');
+  getState('ses_rpc_deleted').lastLevel = 'max';
+  const { fake } = setup();
+  await registerRpc(fake.ctx);
+  fake.publish({ type: 'session.deleted', data: { sessionID: 'ses_rpc_deleted', info: {} } });
+  await tick();
+  await tick();
+  assert.equal(getState('ses_rpc_deleted').lastLevel, null);
 });

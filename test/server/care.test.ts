@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import type { FakeCtxOptions } from '../fake-ctx.ts';
 import { compactNow, getCareState, handoff, registerContextCare } from '../../src/server/care.ts';
@@ -307,4 +307,107 @@ test('compactNow compacts and passes the note into the next compaction prompt', 
   await fake.fire('compaction', compactionEvent('ses_n1'));
   const second = fake.callsTo('generate.text')[1];
   assert.doesNotMatch((second.input as { prompt: string }).prompt, /keep the API decisions/);
+});
+
+test('a compactNow note is kept while compactWith is "session"', async () => {
+  const fake = fakeWith(
+    {
+      storage: { settings: { compactWith: 'session' } },
+      generateText: async () => ({ text: 's' }),
+    },
+    ['ses_n2'],
+  );
+  await registerContextCare(fake.ctx);
+  await compactNow(fake.ctx, 'ses_n2', 'keep the API decisions');
+  await fake.fire('compaction', compactionEvent('ses_n2'));
+  assert.equal(fake.callsTo('generate.text').length, 0);
+  fake.storage.delete('settings');
+  await fake.fire('compaction', compactionEvent('ses_n2'));
+  const [gen] = fake.callsTo('generate.text');
+  assert.match((gen.input as { prompt: string }).prompt, /keep the API decisions/);
+});
+
+test('compaction summary calls are recorded as judge calls', async () => {
+  const fake = fakeWith({ generateText: async () => ({ text: 'summary' }) });
+  await registerContextCare(fake.ctx);
+  await fake.fire('compaction', compactionEvent('ses_c6'));
+  await settle();
+  const stats = fake.storage.get('stats/ses_c6') as { judgeCalls: number; judgeCostUSD: number };
+  assert.equal(stats.judgeCalls, 1);
+  assert.ok(stats.judgeCostUSD > 0);
+});
+
+test('handoff full never overwrites an existing HANDOFF.md', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gearbox-handoff-'));
+  try {
+    await writeFile(join(dir, 'HANDOFF.md'), 'older notes', 'utf8');
+    const fake = fakeWith(
+      {
+        generateText: async () => ({ text: 'SUMMARY: second handoff' }),
+        overrides: { location: { project: { directory: dir } } },
+      },
+      ['ses_h4'],
+    );
+    const result = await handoff(fake.ctx, 'ses_h4', 'full');
+    assert.equal(await readFile(join(dir, 'HANDOFF.md'), 'utf8'), 'older notes');
+    assert.ok(result.file);
+    assert.match(result.file, /HANDOFF-.+\.md$/);
+    assert.match(await readFile(result.file, 'utf8'), /second handoff/);
+    const [prompt] = fake.callsTo('session.prompt');
+    assert.ok((prompt.input as { text: string }).text.includes(basename(result.file)));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('handoff full writes no file when session.create fails', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gearbox-handoff-'));
+  try {
+    const fake = fakeWith(
+      {
+        generateText: async () => ({ text: 'SUMMARY: x' }),
+        overrides: {
+          location: { project: { directory: dir } },
+          session: {
+            create: async () => {
+              throw new Error('create failed');
+            },
+          },
+        },
+      },
+      ['ses_h5'],
+    );
+    await assert.rejects(handoff(fake.ctx, 'ses_h5', 'full'), /create failed/);
+    assert.deepEqual(await readdir(dir), []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('handoff full uses location.directory when there is no project directory', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'gearbox-handoff-'));
+  try {
+    const fake = fakeWith(
+      {
+        generateText: async () => ({ text: 'SUMMARY: x' }),
+        overrides: { location: { directory: dir, project: null } },
+      },
+      ['ses_h6'],
+    );
+    const result = await handoff(fake.ctx, 'ses_h6', 'full');
+    assert.equal(result.file, join(dir, 'HANDOFF.md'));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a care status emit keeps the routing effort pause', async () => {
+  const fake = fakeWith({ generateText: async () => ({ text: 'NO' }) }, ['ses_s3']);
+  await registerContextCare(fake.ctx);
+  getState('ses_s3').effortPaused = 'no effort control';
+  fake.publish(step('ses_s3', 750));
+  await settle();
+  const status = fake.events.filter((e) => e.name === 'status').at(-1)?.payload as any;
+  assert.equal(status.advice, 'swamped');
+  assert.equal(status.paused, 'no effort control');
 });

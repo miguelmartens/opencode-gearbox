@@ -1,0 +1,108 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { makeFakeCtx } from '../fake-ctx.ts';
+import { registerRouting } from '../../src/server/routing.ts';
+import { registerCommands } from '../../src/server/commands.ts';
+import { runJudge } from '../../src/server/judge-model.ts';
+import { DEFAULT_SETTINGS, LEVELS } from '../../src/core/types.ts';
+
+const NOW = new Date(2026, 10, 10, 12, 0, 0).getTime();
+
+function model(id: string, output: number) {
+  return {
+    id,
+    providerID: 'anthropic',
+    capabilities: { tools: true },
+    variants: LEVELS.map((level) => ({ id: level, settings: { effort: level } })),
+    cost: [{ input: output / 5, output, cache: { read: output / 50, write: output / 4 } }],
+    enabled: true,
+    limit: { context: 200000 },
+  };
+}
+
+const MODELS = [model('claude-opus-5-5', 25), model('claude-haiku-5-5', 5)];
+const OPUS = { providerID: 'anthropic', id: 'claude-opus-5-5' };
+
+async function waitFor(check: () => boolean): Promise<void> {
+  for (let i = 0; i < 300; i++) {
+    if (check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+  throw new Error('condition not met');
+}
+
+function contextEvent(sessionID: string) {
+  return { sessionID, agent: 'build', model: OPUS, messages: [], options: {} as any };
+}
+
+function stepEnded(sessionID: string) {
+  return {
+    type: 'session.step.ended',
+    data: {
+      sessionID,
+      finish: 'stop',
+      cost: 0,
+      tokens: { input: 100, output: 10, reasoning: 0, cache: { read: 0, write: 0 } },
+    },
+  };
+}
+
+test('one judge call over three context steps counts once, in stats and daily spend', async () => {
+  const sessionID = 'ses_ledger_steps';
+  const fake = makeFakeCtx({
+    models: MODELS,
+    agents: [{ id: 'build' }],
+    sessions: { [sessionID]: { id: sessionID, model: OPUS } },
+    generateText: async () => ({ text: 'LEVEL: high\nWHY: refactor' }),
+  });
+  await registerRouting(fake.ctx, { loadSettings: async () => structuredClone(DEFAULT_SETTINGS) });
+  await registerCommands(fake.ctx, { now: () => NOW });
+  await fake.fire('prompt', { sessionID, prompt: { text: 'Refactor the auth module' } });
+  for (let i = 0; i < 3; i++) {
+    await fake.fire('context', contextEvent(sessionID));
+    fake.publish(stepEnded(sessionID));
+  }
+  await waitFor(() => (fake.storage.get(`stats/${sessionID}`) as any)?.turns === 3);
+  const stats = fake.storage.get(`stats/${sessionID}`) as any;
+  assert.equal(stats.judgeCalls, 1);
+  assert.ok(stats.judgeCostUSD > 0);
+  const spend = [...fake.storage.entries()].find(([key]) => key.startsWith('spend/'));
+  assert.ok(spend, 'daily spend recorded');
+  const total = [...fake.storage.entries()]
+    .filter(([key]) => key.startsWith('spend/'))
+    .reduce((sum, [, value]) => sum + (value as any).usd, 0);
+  assert.ok(Math.abs(total - stats.judgeCostUSD) < 1e-12, 'spend = judge cost (steps cost 0)');
+});
+
+test("a timed-out judge's cost is still recorded once when it finishes", async () => {
+  let open!: () => void;
+  const gate = new Promise<void>((resolve) => (open = resolve));
+  const fake = makeFakeCtx({
+    models: MODELS,
+    generateText: async () => {
+      await gate;
+      return { text: 'LEVEL: low' };
+    },
+  });
+  const ref = { providerID: 'anthropic', id: 'claude-haiku-5-5' };
+  const sessionID = 'ses_ledger_late';
+  assert.equal(await runJudge(fake.ctx, ref, 'x'.repeat(400), 20, { sessionID }), null);
+  assert.equal(fake.storage.get(`stats/${sessionID}`), undefined);
+  open();
+  await waitFor(() => (fake.storage.get(`stats/${sessionID}`) as any)?.judgeCalls === 1);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const stats = fake.storage.get(`stats/${sessionID}`) as any;
+  assert.equal(stats.judgeCalls, 1);
+  assert.equal(stats.turns, 0);
+  // 100 input tokens at $1/M + 3 output tokens at $5/M.
+  assert.ok(Math.abs(stats.judgeCostUSD - (100 * 1 + 3 * 5) / 1e6) < 1e-12);
+});
+
+test('a garbage judge answer is still counted with its cost', async () => {
+  const fake = makeFakeCtx({ models: MODELS, generateText: async () => ({ text: 'banana' }) });
+  const ref = { providerID: 'anthropic', id: 'claude-haiku-5-5' };
+  const sessionID = 'ses_ledger_garbage';
+  await runJudge(fake.ctx, ref, 'x'.repeat(40), 1000, { sessionID });
+  await waitFor(() => (fake.storage.get(`stats/${sessionID}`) as any)?.judgeCalls === 1);
+  assert.ok((fake.storage.get(`stats/${sessionID}`) as any).judgeCostUSD > 0);
+});

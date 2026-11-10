@@ -1,14 +1,55 @@
-// Settings persistence. Stub from Task 0; Task 8 implements it.
+// Settings persistence: plugin `options` merged with user overrides stored at `ctx.storage` key
+// `settings`. Only the overrides are stored, so later changes to the plugin options still apply.
 
 import type { Plugin } from '@opencode/plugin';
 import { DEFAULT_SETTINGS } from '../core/types.ts';
 import type { Settings } from '../core/types.ts';
+import { mergeSettings } from '../core/settings.ts';
 
 type Ctx = Plugin.Context;
 
-/** Plugin `options` merged with user overrides from `ctx.storage` key `settings`. */
-export async function loadSettings(_ctx: Ctx): Promise<Settings> {
-  return structuredClone(DEFAULT_SETTINGS);
+const SETTINGS_KEY = 'settings';
+
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Defaults with the plugin options applied: what the user overrides are relative to. */
+function baseSettings(ctx: Ctx): Settings {
+  return mergeSettings(DEFAULT_SETTINGS, ctx.options ?? {});
 }
 
-export async function saveSettings(_ctx: Ctx, _s: Settings): Promise<void> {}
+/** Leaves of `next` that differ from `base`; a leaf removed from `next` becomes `null`. */
+function diff(
+  base: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of new Set([...Object.keys(base), ...Object.keys(next)])) {
+    const a = base[key];
+    const b = next[key];
+    if (isObject(a) && isObject(b)) {
+      const nested = diff(a, b);
+      if (Object.keys(nested).length > 0) out[key] = nested;
+    } else if (b === undefined) {
+      if (a !== undefined) out[key] = null;
+    } else if (a !== b) {
+      out[key] = b;
+    }
+  }
+  return out;
+}
+
+/** Plugin `options` merged with user overrides from `ctx.storage` key `settings`. */
+export async function loadSettings(ctx: Ctx): Promise<Settings> {
+  const stored = await ctx.storage.get(SETTINGS_KEY);
+  return mergeSettings(baseSettings(ctx), stored ?? {});
+}
+
+export async function saveSettings(ctx: Ctx, s: Settings): Promise<void> {
+  const overrides = diff(
+    baseSettings(ctx) as unknown as Record<string, unknown>,
+    s as unknown as Record<string, unknown>,
+  );
+  if (Object.keys(overrides).length === 0) await ctx.storage.remove(SETTINGS_KEY);
+  else await ctx.storage.set(SETTINGS_KEY, overrides as never);
+}

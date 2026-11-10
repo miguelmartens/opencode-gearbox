@@ -1,0 +1,11 @@
+# Legal text and vendored data stay verbatim.
+LICENSE
+NOTICE.md
+bench/judge-cases.json
+
+# release-please generates this file; reformatting it would fail the release PR's CI
+CHANGELOG.md
+
+node_modules/
+package-lock.json
+*.tgz

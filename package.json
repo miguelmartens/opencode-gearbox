@@ -1,0 +1,57 @@
+{
+  "name": "opencode-gearbox",
+  "version": "0.0.0",
+  "description": "Gearbox for OpenCode: picks the reasoning effort and model for every prompt and every subagent.",
+  "keywords": [
+    "opencode-plugin",
+    "opencode",
+    "reasoning-effort",
+    "model-routing",
+    "ai-agents",
+    "llm",
+    "token-efficiency"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Miguel Martens",
+    "url": "https://github.com/miguelmartens"
+  },
+  "homepage": "https://github.com/miguelmartens/opencode-gearbox",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/miguelmartens/opencode-gearbox.git"
+  },
+  "bugs": {
+    "url": "https://github.com/miguelmartens/opencode-gearbox/issues"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/server/index.ts",
+    "./tui": "./src/tui/index.tsx",
+    "./rpc": "./src/rpc.ts"
+  },
+  "files": [
+    "src",
+    "bench",
+    "NOTICE.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@opencode/plugin": "latest"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.7"
+  }
+}

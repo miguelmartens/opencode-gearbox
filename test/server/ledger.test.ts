@@ -62,8 +62,9 @@ test('one judge call over three context steps counts once, in stats and daily sp
     await fake.fire('context', contextEvent(sessionID));
     fake.publish(stepEnded(sessionID));
   }
-  await waitFor(() => (fake.storage.get(`stats/${sessionID}`) as any)?.turns === 3);
+  await waitFor(() => (fake.storage.get(`stats/${sessionID}`) as any)?.requests === 3);
   const stats = fake.storage.get(`stats/${sessionID}`) as any;
+  assert.equal(stats.turns, 1, 'one user turn');
   assert.equal(stats.judgeCalls, 1);
   assert.ok(stats.judgeCostUSD > 0);
   const spend = [...fake.storage.entries()].find(([key]) => key.startsWith('spend/'));

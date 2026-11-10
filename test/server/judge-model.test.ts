@@ -210,3 +210,30 @@ test('a won race returns within timeoutMs even when the cost estimate is slow', 
   assert.equal(result?.costUSD, undefined);
   assert.ok(Date.now() - start <= 150, `took ${Date.now() - start} ms`);
 });
+
+async function settle(check: () => boolean): Promise<void> {
+  for (let i = 0; i < 200 && !check(); i++) await new Promise((r) => setImmediate(r));
+}
+
+test('runJudge records the call in session stats and daily spend by default', async () => {
+  const fake = makeFakeCtx({ models: [haiku], generateText: async () => ({ text: 'LEVEL: low' }) });
+  const ref = { providerID: 'anthropic', id: 'claude-haiku-5-5' };
+  await runJudge(fake.ctx, ref, 'x'.repeat(400), 1000, { sessionID: 'ses_jm_stats' });
+  await settle(() => fake.storage.get('stats/ses_jm_stats') !== undefined);
+  assert.equal((fake.storage.get('stats/ses_jm_stats') as any)?.judgeCalls, 1);
+  const spend = [...fake.storage.entries()].find(([k]) => k.startsWith('spend/'));
+  assert.ok((spend?.[1] as any)?.usd > 0);
+});
+
+test('runJudge with sessionStats false records daily spend only', async () => {
+  const fake = makeFakeCtx({ models: [haiku], generateText: async () => ({ text: 'LEVEL: low' }) });
+  const ref = { providerID: 'anthropic', id: 'claude-haiku-5-5' };
+  await runJudge(fake.ctx, ref, 'x'.repeat(400), 1000, {
+    sessionID: 'ses_jm_bench',
+    sessionStats: false,
+  });
+  await settle(() => [...fake.storage.keys()].some((k) => k.startsWith('spend/')));
+  const spend = [...fake.storage.entries()].find(([k]) => k.startsWith('spend/'));
+  assert.ok((spend?.[1] as any)?.usd > 0);
+  assert.equal(fake.storage.get('stats/ses_jm_bench'), undefined);
+});

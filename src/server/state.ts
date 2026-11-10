@@ -1,6 +1,8 @@
 // Per-session in-memory state. Lost on restart by design.
 
-import type { Decision, GearboxStatus, Level, ModelRef, Stats } from '../core/types.ts';
+import type { Decision, GearboxStatus, Level, ModelRef } from '../core/types.ts';
+import { emptySessionStats } from '../core/stats.ts';
+import type { SessionStats } from '../core/stats.ts';
 
 export type SessionState = {
   lastLevel: Level | null;
@@ -8,7 +10,7 @@ export type SessionState = {
   autoPaused: string | null;
   lastRequestAt: number | null;
   userTurn: number;
-  stats: Stats;
+  stats: SessionStats;
   isSubagent: boolean | null;
   lastDecision: Decision | null;
   /** Set by routing when the request's model has no effort control; not a sticky pause. */
@@ -21,6 +23,8 @@ export type SessionState = {
   judgeAnswer: string | null;
   /** The model a subagent started with: its ladder is built from it. */
   firstModel: ModelRef | null;
+  /** Judge calls for this session's routing that have not settled yet. */
+  judging: number;
 };
 
 /** Context care's view of a session: what the status bar shows as context ratio and advice. */
@@ -36,17 +40,6 @@ const sessions = new Map<string, SessionState>();
 const cares = new Map<string, CareState>();
 const forgetters = new Set<(sessionID: string) => void>();
 
-function freshStats(): Stats {
-  return {
-    turns: 0,
-    byLevel: { low: 0, medium: 0, high: 0, xhigh: 0, max: 0 },
-    tokens: { input: 0, output: 0, cacheRead: 0 },
-    costUSD: 0,
-    judgeCostUSD: 0,
-    judgeCalls: 0,
-  };
-}
-
 function freshState(): SessionState {
   return {
     lastLevel: null,
@@ -54,7 +47,7 @@ function freshState(): SessionState {
     autoPaused: null,
     lastRequestAt: null,
     userTurn: 0,
-    stats: freshStats(),
+    stats: emptySessionStats(),
     isSubagent: null,
     lastDecision: null,
     effortPaused: null,
@@ -62,6 +55,7 @@ function freshState(): SessionState {
     contextTokens: null,
     judgeAnswer: null,
     firstModel: null,
+    judging: 0,
   };
 }
 

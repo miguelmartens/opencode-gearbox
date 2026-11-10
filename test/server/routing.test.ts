@@ -85,8 +85,10 @@ test('prompt hook returns before the judge resolves; context applies the judged 
   const fake = await setup({ generateText: () => judge.promise });
   await fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module'));
   assert.ok(getState(sessionID).pending, 'judge started');
+  assert.equal(getState(sessionID).judging, 1, 'judge call running');
   judge.open('LEVEL: high\nWHY: multi-file refactor');
   const event = await fake.fire('context', contextEvent(sessionID));
+  assert.equal(getState(sessionID).judging, 0, 'judge call settled');
   assert.equal(event.options.effort, 'high');
   assert.deepEqual(event.options.thinking, { type: 'adaptive' });
   assert.equal(event.options.maxTokens, 32000);

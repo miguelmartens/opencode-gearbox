@@ -179,6 +179,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     subagent: boolean,
     sessionID: string,
   ): Promise<Decision> {
+    state.judging += 1;
     try {
       // A session without a model runs on OpenCode's default model; unknown → the judge is skipped.
       const chat = sessionModel ?? (await defaultModel()) ?? NO_MODEL;
@@ -211,6 +212,8 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     } catch (error) {
       logOnce(sessionID, 'routing.judge', error);
       return fallbackDecision(state, 'judge failed');
+    } finally {
+      state.judging -= 1;
     }
   }
 

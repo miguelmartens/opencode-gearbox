@@ -14,8 +14,11 @@ type Ctx = Plugin.Context;
 
 export type JudgeResult = { text: string; ms: number; costUSD?: number };
 
-/** Who the call is for: its cost goes into that session's stats and today's spend. */
-export type JudgeMeta = { sessionID?: string };
+/**
+ * Who the call is for: its cost goes into today's spend and, unless `sessionStats` is false
+ * (bench), into that session's stats.
+ */
+export type JudgeMeta = { sessionID?: string; sessionStats?: boolean };
 
 /** No model known: `runJudge` skips the call. */
 const NO_MODEL: ModelRef = { providerID: '', id: '' };
@@ -150,7 +153,9 @@ export async function runJudge(
   const cost = call.then((text) =>
     text === null ? undefined : estimateCost(ctx, model, prompt, text),
   );
-  void cost.then((usd) => recordJudgeCall(ctx, sessionID, usd ?? 0));
+  void cost.then((usd) =>
+    recordJudgeCall(ctx, sessionID, usd ?? 0, Date.now(), { sessionStats: meta.sessionStats }),
+  );
   try {
     const text = await Promise.race([call, timeout]);
     if (text === null) return null;

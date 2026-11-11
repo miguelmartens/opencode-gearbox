@@ -5,6 +5,7 @@ import {
   isLongMessage,
   retryDelayMs,
   shortModel,
+  statusSegments,
   toastKind,
 } from '../../src/tui/format.ts';
 import type { GearboxStatus } from '../../src/core/types.ts';
@@ -81,6 +82,25 @@ test('formatStatus shows the variant sent when the model lacks the judged level'
   expect(formatStatus({ ...sentHigh, auto: false })).toBe(
     '⚙ XHigh · opus-5-5 · ◔ 38% · cache 4:12 · Manual',
   );
+});
+
+test('statusSegments colors each level with the site palette', () => {
+  const sentHigh = { ...full, level: 'xhigh' as const, model: { ...full.model!, variant: 'high' } };
+  expect(statusSegments(sentHigh)).toEqual([
+    { text: '⚙ ' },
+    { text: 'XHigh', fg: '#FF9A3C' },
+    { text: '→' },
+    { text: 'High', fg: '#B69CFF' },
+    { text: ' · opus-5-5 · ◔ 38% · cache 4:12 · Auto' },
+  ]);
+  expect(statusSegments({ ...empty, level: 'low' })[1]).toEqual({ text: 'Low', fg: '#8BE48B' });
+  expect(statusSegments({ ...empty, level: 'medium' })[1]).toEqual({
+    text: 'Medium',
+    fg: '#66C7FF',
+  });
+  expect(statusSegments({ ...empty, level: 'max' })[1]).toEqual({ text: 'Max', fg: '#FF4F4F' });
+  // No level: nothing colored.
+  expect(statusSegments(empty)).toEqual([{ text: '⚙ ' }, { text: 'Auto' }]);
 });
 
 test('shortModel strips the provider path and a leading claude-', () => {

@@ -3,11 +3,12 @@
 // and this part shows them (docs/api-probe.md §9).
 
 import { Plugin } from '@opencode/plugin/tui';
-import { Show, createSignal } from 'solid-js';
+import { For, Show, createSignal } from 'solid-js';
 import type { GearboxStatus } from '../core/types.ts';
 import { Gearbox, STATUS_EVENT, TOAST_EVENT } from '../rpc.ts';
 import type { ToastEvent } from '../rpc.ts';
-import { ageStatus, formatStatus, retryDelayMs, toastKind } from './format.ts';
+import { ageStatus, retryDelayMs, statusSegments, toastKind } from './format.ts';
+import type { Segment } from './format.ts';
 
 type Seen = { status: GearboxStatus; at: number };
 
@@ -48,14 +49,14 @@ export default Plugin.define({
       return route.type === 'session' ? route.sessionID : undefined;
     };
 
-    const line = (sessionID: string | undefined): string => {
-      if (!sessionID) return '';
+    const line = (sessionID: string | undefined): Segment[] | undefined => {
+      if (!sessionID) return undefined;
       // Read the clock first: the 1 s tick re-renders the bar, so a fetch is retried once its
       // backoff expires even when no status event arrives.
       const at = now();
       fetchOnce(sessionID, at);
       const seen = statuses()[sessionID];
-      return seen ? formatStatus(ageStatus(seen.status, at - seen.at)) : '';
+      return seen ? statusSegments(ageStatus(seen.status, at - seen.at)) : undefined;
     };
 
     const showToast = (t: ToastEvent) => {
@@ -83,7 +84,15 @@ export default Plugin.define({
     const unslot = context.ui.slot({
       append: 'prompt.footer.status',
       render: (input) => (
-        <Show when={line(input.sessionID)}>{(text) => <text>{text()}</text>}</Show>
+        <Show when={line(input.sessionID)}>
+          {(segments) => (
+            <text>
+              <For each={segments()}>
+                {(segment) => <span fg={segment.fg}>{segment.text}</span>}
+              </For>
+            </text>
+          )}
+        </Show>
       ),
     });
 

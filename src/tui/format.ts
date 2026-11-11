@@ -28,21 +28,46 @@ function sentLevel(s: GearboxStatus): Level | null {
   return (LEVELS as readonly string[]).includes(variant) ? (variant as Level) : null;
 }
 
+/** Level colors, the same as the site palette (`site/index.html`). */
+const COLORS: Record<Level, string> = {
+  low: '#8BE48B',
+  medium: '#66C7FF',
+  high: '#B69CFF',
+  xhigh: '#FF9A3C',
+  max: '#FF4F4F',
+};
+
+/** A run of bar text; `fg` is set only on a level label. */
+export type Segment = { text: string; fg?: string };
+
 /**
  * `⚙ <Level>[→<Sent>] · <short model> · ◔ <pct>% · cache <m:ss> · <Auto|Manual|Paused: reason>`.
- * `→<Sent>` shows the variant used when the model lacks the judged level.
+ * `→<Sent>` shows the variant used when the model lacks the judged level. Each level label is
+ * its own segment, colored by level.
  */
-export function formatStatus(s: GearboxStatus): string {
-  const parts: string[] = [];
+export function statusSegments(s: GearboxStatus): Segment[] {
+  const segments: Segment[] = [{ text: '⚙ ' }];
   const sent = sentLevel(s);
-  if (s.level) parts.push(LABELS[s.level] + (sent ? `→${LABELS[sent]}` : ''));
+  if (s.level) {
+    segments.push({ text: LABELS[s.level], fg: COLORS[s.level] });
+    if (sent) segments.push({ text: '→' }, { text: LABELS[sent], fg: COLORS[sent] });
+  }
+  const parts: string[] = [];
   if (s.model) parts.push(shortModel(s.model.id));
   if (s.contextRatio !== null) parts.push(`◔ ${Math.round(s.contextRatio * 100)}%`);
   if (s.cacheRemainingMs !== null) parts.push(`cache ${clock(s.cacheRemainingMs)}`);
   parts.push(s.paused ? `Paused: ${s.paused}` : s.auto ? 'Auto' : 'Manual');
   if (s.advice === 'handoff') parts.push('↻ handoff?');
   if (s.advice === 'swamped') parts.push('⚠ swamped');
-  return `⚙ ${parts.join(' · ')}`;
+  segments.push({ text: (s.level ? ' · ' : '') + parts.join(' · ') });
+  return segments;
+}
+
+/** The bar as plain text. */
+export function formatStatus(s: GearboxStatus): string {
+  return statusSegments(s)
+    .map((segment) => segment.text)
+    .join('');
 }
 
 /** The status `elapsedMs` after it was received, so the cache timer counts down between events. */

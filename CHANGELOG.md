@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/miguelmartens/opencode-gearbox/compare/v0.1.1...v0.1.2) (2026-11-11)
+
+
+### Bug Fixes
+
+* **tui:** show effort levels in lowercase in the status bar ([#12](https://github.com/miguelmartens/opencode-gearbox/issues/12)) ([bbeb97e](https://github.com/miguelmartens/opencode-gearbox/commit/bbeb97e8cfecc84ec3664c14cfb592b39e2dd4d4))
+
 ## [0.1.1](https://github.com/miguelmartens/opencode-gearbox/compare/v0.1.0...v0.1.1) (2026-11-11)
 
 

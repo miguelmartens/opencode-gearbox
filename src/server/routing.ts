@@ -99,14 +99,9 @@ function isManualVariant(variant: string | undefined): variant is string {
   return variant !== undefined && variant !== '' && variant !== 'default';
 }
 
-/** The `effortModels` pattern; an invalid one is logged once and matches every model. */
+/** The `effortModels` pattern; `mergeSettings` drops an invalid one. */
 function effortRegex(settings: Settings): RegExp {
-  try {
-    return new RegExp(settings.effortModels);
-  } catch (error) {
-    logOnce('*', 'routing.effortModels', error);
-    return /.*/;
-  }
+  return new RegExp(settings.effortModels);
 }
 
 /** Variant IDs that are effort levels; `none`, `minimal`, `thinking` are dropped. */

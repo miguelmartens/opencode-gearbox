@@ -312,6 +312,30 @@ test('handoff quick creates a session and prompts it with the summary', async ()
   expect(fake.callsTo('vcs.status').length).toBe(0);
 });
 
+test('handoff keeps only the newest transcript that fits the judge model', async () => {
+  const fake = fakeWith(
+    {
+      generateText: async () => ({ text: 'SUMMARY' }),
+      overrides: {
+        session: {
+          context: async () => [
+            { id: 'u0', type: 'user', text: `OLD-TOPIC ${'x'.repeat(8000)}` },
+            { id: 'u1', type: 'user', text: 'Fix the parser' },
+          ],
+        },
+      },
+    },
+    ['ses_hfit'],
+  );
+  await handoff(fake.ctx, 'ses_hfit', 'quick');
+  const [gen] = fake.callsTo('generate.text');
+  const prompt = (gen.input as { prompt: string }).prompt;
+  // The judge (`small`) has a 1000-token context: about 4000 characters.
+  expect(prompt.length).toBeLessThanOrEqual(4000);
+  expect(prompt).toMatch(/Fix the parser/);
+  expect(prompt).not.toMatch(/OLD-TOPIC/);
+});
+
 test('handoff fails without creating a session when the summary fails', async () => {
   const fake = fakeWith(
     {

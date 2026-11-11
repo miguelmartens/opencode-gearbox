@@ -351,7 +351,13 @@ export async function handoff(
   const settings = await loadSettings(ctx);
   const messages = dataOf<SessionMessage>(await ctx.session.context({ sessionID }));
   const judge = await resolveJudgeModel(ctx, ref, settings);
-  const prompt = summaryPrompt(formatSessionMessages(messages));
+  // A handoff is advised when the context is full: keep the newest part that fits the judge.
+  let transcript = formatSessionMessages(messages);
+  const limit = contextLimit(await findModelInfo(ctx, judge));
+  const room = limit * CHARS_PER_TOKEN - summaryPrompt('').length;
+  if (limit > 0 && transcript.length > room)
+    transcript = transcript.slice(transcript.length - Math.max(0, room));
+  const prompt = summaryPrompt(transcript);
   const summary = await generate(ctx, sessionID, judge, prompt, HANDOFF_TIMEOUT_MS);
   if (!summary) throw new Error('handoff summary failed');
   const changes = mode === 'full' ? dataOf<FileStatus>(await ctx.vcs.status()) : [];

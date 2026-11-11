@@ -88,6 +88,33 @@ function serial<T>(ctx: Ctx, task: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/** Removes a deleted session's stored stats, after any ledger write still queued for it. */
+export function forgetStats(ctx: Ctx, sessionID: string): Promise<void> {
+  return serial(ctx, () => ctx.storage.remove(`stats/${sessionID}`)).catch((error) =>
+    logOnce(sessionID, 'forget stats', error),
+  );
+}
+
+/** Daily spend kept for `/gearbox` and the budget; older days are removed. */
+const SPEND_KEEP_DAYS = 30;
+const DAY_MS = 24 * HOUR_MS;
+/** The day spend was last pruned, per context: pruning runs once a day. */
+const prunedOn = new WeakMap<object, string>();
+
+async function pruneSpend(ctx: Ctx, now: number): Promise<void> {
+  const today = dayKey(now);
+  if (prunedOn.get(ctx) === today) return;
+  prunedOn.set(ctx, today);
+  // `spend/YYYY-MM-DD` keys sort by date.
+  const oldest = dayKey(now - SPEND_KEEP_DAYS * DAY_MS);
+  let after: string | undefined;
+  do {
+    const page = await ctx.storage.scan({ prefix: 'spend/', ...(after ? { after } : {}) });
+    for (const { key } of page.entries) if (key < oldest) await ctx.storage.remove(key);
+    after = page.next;
+  } while (after);
+}
+
 async function writeStats(ctx: Ctx, sessionID: string, stats: SessionStats): Promise<void> {
   await ctx.storage.set(`stats/${sessionID}`, stats as never);
 }
@@ -117,6 +144,7 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
     }
   }
   await ctx.storage.set(dayKey(now), spend as never);
+  await pruneSpend(ctx, now);
   if (level === 'over' && sessionID) {
     const turn = getState(sessionID).userTurn;
     if (overToastTurn.get(sessionID) !== turn) {

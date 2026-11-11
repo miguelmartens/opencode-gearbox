@@ -3,6 +3,7 @@ import { makeFakeCtx } from '../fake-ctx.ts';
 import { registerRouting } from '../../src/server/routing.ts';
 import { registerCommands } from '../../src/server/commands.ts';
 import { runJudge } from '../../src/server/judge-model.ts';
+import { recordJudgeCall, recordStep } from '../../src/server/ledger.ts';
 import { DEFAULT_SETTINGS, LEVELS } from '../../src/core/types.ts';
 
 const NOW = new Date(2026, 10, 10, 12, 0, 0).getTime();
@@ -108,4 +109,48 @@ test('a garbage judge answer is still counted with its cost', async () => {
   await runJudge(fake.ctx, ref, 'x'.repeat(40), 1000, { sessionID });
   await waitFor(() => (fake.storage.get(`stats/${sessionID}`) as any)?.judgeCalls === 1);
   expect((fake.storage.get(`stats/${sessionID}`) as any).judgeCostUSD > 0).toBeTruthy();
+});
+
+test('a deleted session’s stored stats are removed', async () => {
+  const fake = makeFakeCtx({
+    models: MODELS,
+    storage: { 'stats/ses_gone': { turns: 1 }, 'stats/ses_kept': { turns: 2 } },
+  });
+  await registerCommands(fake.ctx);
+  fake.publish({ type: 'session.deleted', data: { sessionID: 'ses_gone' } });
+  await waitFor(() => !fake.storage.has('stats/ses_gone'));
+  expect(fake.storage.has('stats/ses_kept')).toBe(true);
+});
+
+test('daily spend older than 30 days is pruned when spend is recorded', async () => {
+  const fake = makeFakeCtx({
+    models: MODELS,
+    storage: {
+      'spend/2026-09-01': { usd: 1, warned: false },
+      'spend/2026-10-20': { usd: 2, warned: false },
+    },
+  });
+  await recordJudgeCall(fake.ctx, 'ses_prune', 0.01, NOW);
+  expect(fake.storage.has('spend/2026-09-01')).toBe(false);
+  expect(fake.storage.has('spend/2026-10-20')).toBe(true);
+  expect((fake.storage.get('spend/2026-11-10') as any).usd).toBe(0.01);
+});
+
+test('a step and a judge call finishing together are both counted (writes run one at a time)', async () => {
+  const fake = makeFakeCtx({ models: MODELS });
+  // Slow reads widen the read-then-write window, so unserialized writes would lose an update.
+  const read = fake.ctx.storage.get;
+  fake.ctx.storage.get = async (key: string) => {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    return read(key);
+  };
+  const step = { level: 'high' as const, input: 1, output: 1, cacheRead: 0, costUSD: 0.5, turn: 1 };
+  await Promise.all([
+    recordStep(fake.ctx, 'ses_race', step, NOW),
+    recordJudgeCall(fake.ctx, 'ses_race', 0.25, NOW),
+  ]);
+  const stats = fake.storage.get('stats/ses_race') as any;
+  expect(stats.costUSD).toBe(0.5);
+  expect(stats.judgeCalls).toBe(1);
+  expect((fake.storage.get('spend/2026-11-10') as any).usd).toBe(0.75);
 });

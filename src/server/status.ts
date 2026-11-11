@@ -9,6 +9,7 @@ import { loadSettings } from './settings-store.ts';
 import { cacheTtlMs, contextLimit, findModelInfo, DEFAULT_CACHE_TTL_MS } from './models.ts';
 import { emitStatus, hasEmitter, logOnce } from './notify.ts';
 import { onDispose, watchEvents } from './lifecycle.ts';
+import { forgetStats } from './ledger.ts';
 
 type Ctx = Plugin.Context;
 
@@ -105,6 +106,7 @@ export function trackUsage(ctx: Ctx): void {
       if (typeof sessionID !== 'string') return;
       if (event.type === 'session.deleted') {
         resetState(sessionID);
+        await forgetStats(ctx, sessionID);
         return;
       }
       const state = getState(sessionID);

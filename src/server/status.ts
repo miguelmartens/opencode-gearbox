@@ -4,7 +4,7 @@
 import type { Plugin } from '@opencode/plugin';
 import type { GearboxStatus, ModelRef } from '../core/types.ts';
 import { cacheRemainingMs, contextRatio } from '../core/context.ts';
-import { getState, peekCare, resetState } from './state.ts';
+import { getState, peekCare, resetState, sweepIdle } from './state.ts';
 import { loadSettings } from './settings-store.ts';
 import { cacheTtlMs, contextLimit, findModelInfo, DEFAULT_CACHE_TTL_MS } from './models.ts';
 import { emitStatus, hasEmitter, logOnce } from './notify.ts';
@@ -112,6 +112,7 @@ export function trackUsage(ctx: Ctx): void {
         state.requestModel = toModelRef(data.model) ?? state.requestModel;
         return;
       }
+      sweepIdle(Date.now(), sessionID);
       const tokens = data.tokens ?? {};
       state.contextTokens =
         (tokens.input ?? 0) + (tokens.cache?.read ?? 0) + (tokens.cache?.write ?? 0);

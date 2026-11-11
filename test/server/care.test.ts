@@ -81,6 +81,53 @@ test('compaction with the small model sets result.summary', async () => {
   assert.equal(input.model.providerID, 'p');
 });
 
+/** A ~100k-token transcript, on models whose context fits it. */
+const LONG = 'x'.repeat(400_000);
+const roomy = models.map((m) => ({ ...m, limit: { context: 1_000_000 } }));
+
+function longCompaction(sessionID: string) {
+  const event = compactionEvent(sessionID);
+  event.messages[0].content = [{ type: 'text', text: LONG }];
+  return event;
+}
+
+test('compaction with a cold session cache uses the cheaper small model', async () => {
+  const fake = fakeWith({ models: roomy, generateText: async () => ({ text: 'summary' }) });
+  await registerContextCare(fake.ctx);
+  const event = await fake.fire('compaction', longCompaction('ses_cost1'));
+  assert.deepEqual(event.result, { summary: 'summary' });
+});
+
+test('compaction is left to OpenCode when the warm session cache is cheaper', async () => {
+  const fake = fakeWith({ models: roomy, generateText: async () => ({ text: 'summary' }) });
+  await registerContextCare(fake.ctx);
+  const state = getState('ses_cost2');
+  state.lastRequestAt = Date.now();
+  state.requestModel = MODEL;
+  const event = await fake.fire('compaction', longCompaction('ses_cost2'));
+  assert.equal(event.result, undefined);
+  assert.equal(fake.callsTo('generate.text').length, 0);
+});
+
+test('compaction is left to OpenCode when the transcript does not fit the small model', async () => {
+  const fake = fakeWith({ generateText: async () => ({ text: 'summary' }) });
+  await registerContextCare(fake.ctx);
+  const event = compactionEvent('ses_fit');
+  event.messages[0].content = [{ type: 'text', text: 'x'.repeat(10_000) }];
+  await fake.fire('compaction', event);
+  assert.equal(event.result, undefined);
+  assert.equal(fake.callsTo('generate.text').length, 0);
+});
+
+test('compaction is left to OpenCode when a price is unknown', async () => {
+  const unpriced = models.map((m) => (m.id === 'big' ? { ...m, cost: [] } : m));
+  const fake = fakeWith({ models: unpriced, generateText: async () => ({ text: 'summary' }) });
+  await registerContextCare(fake.ctx);
+  const event = await fake.fire('compaction', compactionEvent('ses_unpriced'));
+  assert.equal(event.result, undefined);
+  assert.equal(fake.callsTo('generate.text').length, 0);
+});
+
 test('compaction leaves result unset when the generator throws', async () => {
   const fake = fakeWith({
     generateText: async () => {
@@ -212,6 +259,17 @@ test('subagent sessions get no context advice', async () => {
   assert.equal(fake.callsTo('generate.text').length, 0);
 });
 
+test('a root session with parentID null gets context advice', async () => {
+  const fake = fakeWith({
+    generateText: async () => ({ text: 'NO' }),
+    sessions: { ses_null: { id: 'ses_null', parentID: null, model: MODEL } },
+  });
+  await registerContextCare(fake.ctx);
+  fake.publish(step('ses_null', 900));
+  await settle();
+  assert.equal(getCareState('ses_null').advice, 'swamped');
+});
+
 test('handoff quick creates a session and prompts it with the summary', async () => {
   const fake = fakeWith(
     {
@@ -309,7 +367,7 @@ test('compactNow compacts and passes the note into the next compaction prompt', 
   assert.doesNotMatch((second.input as { prompt: string }).prompt, /keep the API decisions/);
 });
 
-test('a compactNow note is kept while compactWith is "session"', async () => {
+test('a compactNow note goes into OpenCode\'s compaction while compactWith is "session"', async () => {
   const fake = fakeWith(
     {
       storage: { settings: { compactWith: 'session' } },
@@ -319,10 +377,52 @@ test('a compactNow note is kept while compactWith is "session"', async () => {
   );
   await registerContextCare(fake.ctx);
   await compactNow(fake.ctx, 'ses_n2', 'keep the API decisions');
-  await fake.fire('compaction', compactionEvent('ses_n2'));
+  const event = await fake.fire('compaction', compactionEvent('ses_n2'));
   assert.equal(fake.callsTo('generate.text').length, 0);
+  assert.equal(event.result, undefined);
+  // `system` holds SystemPart objects; a bare string breaks OpenCode's compaction.
+  assert.deepEqual(event.system.at(-1), {
+    type: 'text',
+    text: 'Extra instructions from the user: keep the API decisions',
+  });
+  // The note is used once.
   fake.storage.delete('settings');
   await fake.fire('compaction', compactionEvent('ses_n2'));
+  const [gen] = fake.callsTo('generate.text');
+  assert.doesNotMatch((gen.input as { prompt: string }).prompt, /keep the API decisions/);
+});
+
+test("a compactNow note goes into OpenCode's compaction when the judge is not cheaper", async () => {
+  const unpriced = models.map((m) => (m.id === 'big' ? { ...m, cost: [] } : m));
+  const fake = fakeWith({ models: unpriced, generateText: async () => ({ text: 's' }) }, [
+    'ses_n3',
+  ]);
+  await registerContextCare(fake.ctx);
+  await compactNow(fake.ctx, 'ses_n3', 'keep the API decisions');
+  const event = await fake.fire('compaction', compactionEvent('ses_n3'));
+  assert.equal(event.result, undefined);
+  // `system` holds SystemPart objects; a bare string breaks OpenCode's compaction.
+  assert.deepEqual(event.system.at(-1), {
+    type: 'text',
+    text: 'Extra instructions from the user: keep the API decisions',
+  });
+});
+
+test('a compactNow note is kept for the next compaction when the event has no system list', async () => {
+  const fake = fakeWith(
+    {
+      storage: { settings: { compactWith: 'session' } },
+      generateText: async () => ({ text: 's' }),
+    },
+    ['ses_n4'],
+  );
+  await registerContextCare(fake.ctx);
+  await compactNow(fake.ctx, 'ses_n4', 'keep the API decisions');
+  const event = compactionEvent('ses_n4');
+  delete event.system;
+  await fake.fire('compaction', event);
+  fake.storage.delete('settings');
+  await fake.fire('compaction', compactionEvent('ses_n4'));
   const [gen] = fake.callsTo('generate.text');
   assert.match((gen.input as { prompt: string }).prompt, /keep the API decisions/);
 });

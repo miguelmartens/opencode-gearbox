@@ -5,6 +5,7 @@
 import type { GearboxStatus } from '../core/types.ts';
 import { STATUS_EVENT, TOAST_EVENT } from '../rpc.ts';
 import type { ToastEvent } from '../rpc.ts';
+import { onForget } from './state.ts';
 
 export type Emitter = (name: string, payload: Record<string, unknown>) => Promise<void> | void;
 
@@ -40,12 +41,18 @@ export async function emitStatus(status: GearboxStatus): Promise<void> {
   await emit(STATUS_EVENT, { ...status });
 }
 
-const logged = new Set<string>();
+/** Scopes already logged, per session; forgotten with the session. */
+const logged = new Map<string, Set<string>>();
+onForget((sessionID) => logged.delete(sessionID));
 
 /** Logs an error once per session and scope, so a failing hook does not flood the log. */
 export function logOnce(sessionID: string, scope: string, error: unknown): void {
-  const key = `${sessionID}:${scope}`;
-  if (logged.has(key)) return;
-  logged.add(key);
+  let scopes = logged.get(sessionID);
+  if (!scopes) {
+    scopes = new Set();
+    logged.set(sessionID, scopes);
+  }
+  if (scopes.has(scope)) return;
+  scopes.add(scope);
   console.error(`[gearbox] ${scope} failed for session ${sessionID}:`, error);
 }

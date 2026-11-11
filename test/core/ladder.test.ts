@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildLadder, routeModel } from '../../src/core/ladder.ts';
+import { buildLadder, preferEffortRungs, routeModel } from '../../src/core/ladder.ts';
 import type { ModelLite } from '../../src/core/types.ts';
 
 function model(providerID: string, id: string, output: number, extra: Partial<ModelLite> = {}) {
@@ -98,4 +98,24 @@ test('routeModel on a one-model ladder always returns that model', () => {
 test('routeModel medium rounds down on an even ladder', () => {
   const ladder = [haiku, sonnet, model('anthropic', 'mid', 20), opus];
   assert.equal(routeModel('medium', ladder), sonnet);
+});
+
+test('preferEffortRungs drops cheaper rungs without effort variants', () => {
+  const flash = model('anthropic', 'flash', 1, { variants: [] });
+  const thinking = model('anthropic', 'thinker', 2, { variants: ['none', 'thinking'] });
+  const ladder = buildLadder([flash, thinking, haiku, opus], opus.ref, any);
+  assert.deepEqual(ids(preferEffortRungs(ladder)), ['claude-haiku', 'claude-opus']);
+});
+
+test('preferEffortRungs keeps the chat model last even without effort variants', () => {
+  const top = model('anthropic', 'top', 30, { variants: [] });
+  const ladder = buildLadder([haiku, top], top.ref, any);
+  assert.deepEqual(ids(preferEffortRungs(ladder)), ['claude-haiku', 'top']);
+});
+
+test('preferEffortRungs keeps the ladder when no rung has effort variants', () => {
+  const flash = model('anthropic', 'flash', 1, { variants: [] });
+  const top = model('anthropic', 'top', 30, { variants: ['none'] });
+  const ladder = buildLadder([flash, top], top.ref, any);
+  assert.deepEqual(ids(preferEffortRungs(ladder)), ['flash', 'top']);
 });

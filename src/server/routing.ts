@@ -13,14 +13,14 @@ import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
 import { applyShaping, pickVariant } from '../core/levels.ts';
 import { classifyPrompt } from '../core/rules.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
-import { buildLadder, routeModel } from '../core/ladder.ts';
+import { buildLadder, preferEffortRungs, routeModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
-import { cacheRemainingMs, contextRatio } from '../core/context.ts';
+import { contextRatio } from '../core/context.ts';
 import { getState, onForget } from './state.ts';
 import type { SessionState } from './state.ts';
 import { loadSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
-import { cacheTtlMs, listModelInfos, toModelLite } from './models.ts';
+import { cacheWarm, listModelInfos, toModelLite } from './models.ts';
 import type { ModelInfo } from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { statusChanged, trackUsage } from './status.ts';
@@ -33,12 +33,26 @@ type HookFn = (name: string, callback: (event: any) => Promise<void>) => Promise
 
 type SessionInfo = { parentID?: string | null; agent?: string; model?: unknown };
 
+/** What a child session gets from its parent chain. */
+type Lineage = {
+  rootID: string;
+  /** The root's own variant (`Session.Info`): a manual pick pauses its children too. */
+  rootVariant: string | undefined;
+  /** The nearest ancestor's model, for a child whose `Session.Info` has none. */
+  model: ModelRef | null;
+};
+
 /** Routing data that `SessionState` does not hold. */
 type Local = {
   replyTail: string;
   /** The manual variant that paused auto; accepted once the user turns auto back on. */
   pausedVariant: string | null;
   statusTurn: number | null;
+  /** A child's parent chain, walked once; `null` until looked up. */
+  lineage: Promise<Lineage> | null;
+  /** User turn whose main-chat model `resolveModel` is (`null` = keep the model). */
+  resolveTurn: number | null;
+  resolveModel: ModelRef | null;
 };
 
 const SUBAGENT_PREFIX = 'You are a subagent spawned by another session.\n';
@@ -46,6 +60,10 @@ const MANUAL_VARIANT = 'manual variant';
 const NO_EFFORT_CONTROL = 'no effort control';
 const REPLY_TAIL_MAX = 500;
 const NO_MODEL: ModelRef = { providerID: '', id: '' };
+/** Bounds the walk up a child's parent chain. */
+const MAX_DEPTH = 16;
+/** The prompt hook returns at most this long after the judge timeout. */
+const PROMPT_MARGIN_MS = 25;
 
 const locals = new Map<string, Local>();
 onForget((sessionID) => locals.delete(sessionID));
@@ -53,7 +71,14 @@ onForget((sessionID) => locals.delete(sessionID));
 function getLocal(sessionID: string): Local {
   let local = locals.get(sessionID);
   if (!local) {
-    local = { replyTail: '', pausedVariant: null, statusTurn: null };
+    local = {
+      replyTail: '',
+      pausedVariant: null,
+      statusTurn: null,
+      lineage: null,
+      resolveTurn: null,
+      resolveModel: null,
+    };
     locals.set(sessionID, local);
   }
   return local;
@@ -87,8 +112,12 @@ function effortVariants(ids: string[]): string[] {
   return ids.filter((id) => (LEVELS as readonly string[]).includes(id));
 }
 
+function sameModel(a: ModelRef, b: ModelRef): boolean {
+  return a.providerID === b.providerID && a.id === b.id;
+}
+
 function findInfo(infos: ModelInfo[], ref: ModelRef): ModelInfo | undefined {
-  return infos.find((m) => m.providerID === ref.providerID && m.id === ref.id);
+  return infos.find((m) => sameModel(m, ref));
 }
 
 function liteModels(infos: ModelInfo[]): ModelLite[] {
@@ -132,6 +161,11 @@ async function bounded<T>(promise: Promise<T>, ms: number, fallback: T): Promise
   }
 }
 
+/** `bounded`, until the absolute time `deadline`. */
+function within<T>(promise: Promise<T>, deadline: number, fallback: T): Promise<T> {
+  return bounded(promise, Math.max(0, deadline - Date.now()), fallback);
+}
+
 export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {}): Promise<void> {
   const load = deps.loadSettings ?? loadSettings;
   const hook = ctx.session.hook as unknown as HookFn;
@@ -147,6 +181,50 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       state.isSubagent = session.parentID != null;
     }
     return state.isSubagent;
+  }
+
+  async function walkUp(parentID: string): Promise<Lineage> {
+    let id = parentID;
+    let model: ModelRef | null = null;
+    for (let depth = 1; ; depth++) {
+      const info = await getSession(id);
+      const ref = toRef(info.model);
+      model ??= ref;
+      if (info.parentID == null || depth >= MAX_DEPTH)
+        return { rootID: id, rootVariant: ref?.variant, model };
+      id = info.parentID;
+    }
+  }
+
+  /** A child's parent chain, walked once per child. `null` when the session is not a child. */
+  async function childLineage(
+    sessionID: string,
+    parentID?: string | null,
+  ): Promise<Lineage | null> {
+    const local = getLocal(sessionID);
+    if (!local.lineage) {
+      const parent = parentID ?? (await getSession(sessionID)).parentID;
+      if (parent == null) return null;
+      if (!local.lineage) {
+        const walk = walkUp(parent);
+        local.lineage = walk;
+        walk.catch(() => {
+          if (local.lineage === walk) local.lineage = null;
+        });
+      }
+    }
+    return local.lineage;
+  }
+
+  /**
+   * A child inherits its root session's manual variant (probe §3), so it follows the root's pause.
+   * A manual variant on the root's `Session.Info` counts too, unless the user accepted it with
+   * `/gearbox auto on`: so the pause survives a plugin reload or an evicted root state.
+   */
+  function pausedByRoot(lineage: Lineage): boolean {
+    if (getState(lineage.rootID).autoPaused !== null) return true;
+    const variant = lineage.rootVariant;
+    return isManualVariant(variant) && locals.get(lineage.rootID)?.pausedVariant !== variant;
   }
 
   async function defaultModel(): Promise<ModelRef | null> {
@@ -217,11 +295,11 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     }
   }
 
-  /** The turn's decision, bounded by the judge timeout; later steps reuse it at once. */
-  async function turnDecision(state: SessionState, settings: Settings): Promise<Decision> {
+  /** The turn's decision, waited for at most `ms`; later steps reuse it at once. */
+  async function turnDecision(state: SessionState, ms: number): Promise<Decision> {
     const fallback = fallbackDecision(state, 'judge timed out');
     const decision = state.pending
-      ? await bounded(state.pending, settings.judge.timeoutMs, fallback)
+      ? await bounded(state.pending, ms, fallback)
       : fallbackDecision(state, 'no prompt seen this turn');
     state.pending = Promise.resolve(decision);
     return decision;
@@ -261,44 +339,97 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     await statusChanged(ctx, sessionID);
   }
 
+  /**
+   * Waits for the level and switches the child to its ladder model. Every read runs alongside the
+   * judge and ends by `deadline`; nothing is switched after `hardDeadline`, when the prompt hook
+   * has already returned.
+   */
   async function routeSubagentModel(
     sessionID: string,
     state: SessionState,
     settings: Settings,
     model: ModelRef,
+    agent: string | undefined,
+    deadline: number,
+    hardDeadline: number,
   ): Promise<void> {
-    const decision = await turnDecision(state, settings);
+    const explicit = hasExplicitModel(agent);
+    const catalog = listModelInfos(ctx);
+    catalog.catch(() => {});
+    const decision = await turnDecision(state, Math.max(0, deadline - Date.now()));
+    if (await within(explicit, deadline, true)) return;
+    const infos = await within(catalog, deadline, null);
+    if (!infos) return;
     const level = applyShaping(decision.level, settings, Date.now());
-    // The ladder of the model the child started with, so a re-prompted child can climb back up.
+    const lites = liteModels(infos);
+    // The ladder of the model the child started with, never above it.
     const top = state.firstModel ?? model;
-    const ladder = buildLadder(liteModels(await listModelInfos(ctx)), top, effortRegex(settings));
+    const ladder = preferEffortRungs(buildLadder(lites, top, effortRegex(settings)));
     if (ladder.length === 0) return;
     const target = routeModel(level, ladder);
     const variant = pickVariant(level, effortVariants(target.variants));
     const next: ModelRef = { providerID: target.ref.providerID, id: target.ref.id };
     if (variant) next.variant = variant;
-    if (next.id === model.id && next.variant === model.variant) return;
+    if (sameModel(next, model) && next.variant === model.variant) return;
+    // A child that has made a request holds a cache (anti-goal 1). It keeps its model unless a
+    // switch is cheaper than staying; the effort still follows the level through `context`.
+    if (state.lastRequestAt !== null) {
+      if (sameModel(target.ref, model)) return;
+      const current = lites.find((m) => sameModel(m.ref, model));
+      if (!current) return;
+      const check = shouldSwitch({
+        contextTokens: state.contextTokens ?? 0,
+        cacheWarm: await within(
+          cacheWarm(ctx, state, model, findInfo(infos, model)),
+          deadline,
+          true,
+        ),
+        from: current.price,
+        to: target.price,
+        expectedOutput: expectedOutput(level),
+        minSavingRatio: settings.modelSwitch.minSavingRatio,
+      });
+      if (!check.switch) return;
+    }
+    if (Date.now() >= hardDeadline) return;
     await ctx.session.switchModel({ sessionID, model: next } as never);
   }
 
-  async function onPrompt(event: any): Promise<void> {
-    const sessionID: string = event?.sessionID;
+  /** Prompt-hook work: reads wait until `deadline`, and nothing changes after `hardDeadline`. */
+  async function admit(
+    event: any,
+    sessionID: string,
+    settings: Settings,
+    deadline: number,
+    hardDeadline: number,
+  ): Promise<void> {
     try {
-      const settings = await load(ctx);
       const state = getState(sessionID);
       state.userTurn += 1;
       state.pending = null;
-      const session = await getSession(sessionID);
+      const session = await within(getSession(sessionID), deadline, null);
+      if (!session) return;
       const subagent = session.parentID != null;
       state.isSubagent = subagent;
-      const model = toRef(session.model);
+      const own = toRef(session.model);
+      const lineage = subagent
+        ? await within(childLineage(sessionID, session.parentID), deadline, null)
+        : null;
+      // An unknown parent chain may hide the user's pick: the child is left alone.
+      if (subagent && !lineage) return;
+      // A child without a model of its own runs on its nearest ancestor's, else on the default.
+      const model = lineage
+        ? (own ?? lineage.model ?? (await within(defaultModel(), deadline, null)))
+        : own;
       if (subagent && model && !state.firstModel)
         state.firstModel = { providerID: model.providerID, id: model.id };
 
       if (!settings.auto) return;
       if (model && !effortRegex(settings).test(model.id)) return;
       if (!subagent && model && (await manualVariantPause(sessionID, state, model))) return;
+      if (lineage && pausedByRoot(lineage)) return;
       if (state.autoPaused) return;
+      if (Date.now() >= hardDeadline) return;
 
       let text: string = typeof event?.prompt?.text === 'string' ? event.prompt.text : '';
       if (subagent && text.startsWith(SUBAGENT_PREFIX)) text = text.slice(SUBAGENT_PREFIX.length);
@@ -320,8 +451,37 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
 
       // Effort stays non-blocking. A subagent model can only change here, so wait for the level.
       if (!subagent || !model || !settings.modelSwitch.subagents) return;
-      if (await hasExplicitModel(session.agent)) return;
-      await routeSubagentModel(sessionID, state, settings, model);
+      // An inherited manual variant is the user's pick: effort only.
+      if (!own && isManualVariant(model.variant)) return;
+      await routeSubagentModel(
+        sessionID,
+        state,
+        settings,
+        model,
+        session.agent,
+        deadline,
+        hardDeadline,
+      );
+    } catch (error) {
+      logOnce(sessionID, 'routing.prompt', error);
+    }
+  }
+
+  async function onPrompt(event: any): Promise<void> {
+    const sessionID: string = event?.sessionID;
+    try {
+      const settings = await load(ctx);
+      const start = Date.now();
+      const limit = settings.judge.timeoutMs + PROMPT_MARGIN_MS;
+      // Admission waits at most the judge timeout plus a margin, whatever read hangs.
+      const work = admit(
+        event,
+        sessionID,
+        settings,
+        start + settings.judge.timeoutMs,
+        start + limit,
+      );
+      await bounded(work, limit, undefined);
     } catch (error) {
       logOnce(sessionID, 'routing.prompt', error);
     }
@@ -340,9 +500,14 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (!effortRegex(settings).test(model.id)) return;
       const subagent = await isSubagent(state, sessionID);
       if (!subagent && (await manualVariantPause(sessionID, state, model))) return;
+      if (subagent) {
+        const lineage = await bounded(childLineage(sessionID), settings.judge.timeoutMs, null);
+        // An unknown parent chain may hide the user's pick: the request is left alone.
+        if (!lineage || pausedByRoot(lineage)) return;
+      }
       if (state.autoPaused) return;
 
-      const decision = await turnDecision(state, settings);
+      const decision = await turnDecision(state, settings.judge.timeoutMs);
       const level = applyShaping(decision.level, settings, Date.now());
       const info = findInfo(await listModelInfos(ctx), model);
       const variantID = pickVariant(level, effortVariants((info?.variants ?? []).map((v) => v.id)));
@@ -361,6 +526,31 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     }
   }
 
+  /** The cheaper ladder model for this turn, or `null` to keep `model`. */
+  async function mainChatModel(
+    state: SessionState,
+    settings: Settings,
+    model: ModelRef,
+  ): Promise<ModelRef | null> {
+    const decision = await turnDecision(state, settings.judge.timeoutMs);
+    const level = applyShaping(decision.level, settings, Date.now());
+    const infos = await listModelInfos(ctx);
+    const ladder = buildLadder(liteModels(infos), model, effortRegex(settings));
+    if (ladder.length < 2) return null;
+    const target = routeModel(level, ladder);
+    const current = ladder[ladder.length - 1];
+    if (target === current) return null;
+    const check = shouldSwitch({
+      contextTokens: state.contextTokens ?? 0,
+      cacheWarm: await cacheWarm(ctx, state, model, findInfo(infos, model)),
+      from: current.price,
+      to: target.price,
+      expectedOutput: expectedOutput(level),
+      minSavingRatio: settings.modelSwitch.minSavingRatio,
+    });
+    return check.switch ? { providerID: target.ref.providerID, id: target.ref.id } : null;
+  }
+
   async function onResolve(event: any): Promise<void> {
     if (event?.kind !== 'primary') return;
     const sessionID: string = event?.sessionID;
@@ -376,30 +566,14 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (await manualVariantPause(sessionID, state, model)) return;
       if (state.autoPaused) return;
 
-      const decision = await turnDecision(state, settings);
-      const level = applyShaping(decision.level, settings, Date.now());
-      const infos = await listModelInfos(ctx);
-      const ladder = buildLadder(liteModels(infos), model, effortRegex(settings));
-      if (ladder.length < 2) return;
-      const target = routeModel(level, ladder);
-      const current = ladder[ladder.length - 1];
-      if (target === current) return;
-      const remaining = cacheRemainingMs(
-        state.lastRequestAt,
-        await cacheTtlMs(ctx, model, findInfo(infos, model)),
-        Date.now(),
-      );
-      const check = shouldSwitch({
-        contextTokens: state.contextTokens ?? 0,
-        cacheWarm: (remaining ?? 0) > 0,
-        from: current.price,
-        to: target.price,
-        expectedOutput: expectedOutput(level),
-        minSavingRatio: settings.modelSwitch.minSavingRatio,
-      });
-      if (!check.switch) return;
+      // Decided once per turn: a growing context must not flip the model between requests.
+      const local = getLocal(sessionID);
+      if (local.resolveTurn !== state.userTurn) {
+        local.resolveModel = await mainChatModel(state, settings, model);
+        local.resolveTurn = state.userTurn;
+      }
       // The variant is left to the `context` hook, so it is never mistaken for a manual pick.
-      event.model = { providerID: target.ref.providerID, id: target.ref.id };
+      if (local.resolveModel) event.model = { ...local.resolveModel };
     } catch (error) {
       logOnce(sessionID, 'routing.resolve', error);
     }

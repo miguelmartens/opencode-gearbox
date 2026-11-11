@@ -13,18 +13,18 @@ Inspired by [HeyCubit/effortless](https://github.com/HeyCubit/effortless) (a Cla
 ## What it does
 
 - **Auto effort.** The judge rates each main-chat prompt `low | medium | high | xhigh | max`. Gearbox applies that level as the model's matching variant settings on every request of the turn.
-- **Subagents.** Each task-tool subagent gets its own level. By default it also gets a model from your provider's price ladder, because a fresh subagent has no cache to lose. A subagent whose agent file sets `model` keeps that model; Gearbox only sets its effort.
+- **Subagents.** Each task-tool subagent gets its own level. By default it also gets a model from your provider's price ladder on its first prompt, because a fresh subagent has no cache to lose. A subagent whose agent file sets `model` keeps that model; Gearbox only sets its effort.
 - **No judge for the obvious cases.** Follow-ups (`ok`, `go`, `yes please`, `continue`) reuse the last level. "max effort", "low effort" and the other level names in a prompt set that level directly.
 - **Never in your way.** If you pick a variant yourself, Gearbox pauses for that session and tells you once. A judge timeout, an unreadable answer or a provider error falls back to the last level, else `medium`. The judge never blocks a prompt.
 - **Context care.**
-  - Compaction summaries are written by the judge model (see [Pick a fast judge](#pick-a-fast-judge)), not by the session's model.
+  - Compaction summaries are written by the judge model (see [Pick a fast judge](#pick-a-fast-judge)) when that is cheaper than the session's own compaction and the conversation fits the judge's context. A warm session cache can make the session's model cheaper; then OpenCode compacts as usual. A judge summary that takes over 30 s also falls back to OpenCode.
   - `/gearbox handoff` starts a fresh session seeded with a summary.
   - A warning when the context gets swamped.
   - Handoff advice when the work has moved on.
 - **Stats, save mode and budget.**
   - Per session: user turns per level, model requests, tokens, cost and judge cost.
   - Save mode caps effort for a few hours.
-  - An optional daily spend budget turns save mode on at 80%.
+  - An optional daily spend budget turns save mode on at 80%. It counts the cost each provider reports per request. A reported cost of 0 (subscriptions) is trusted, so on those providers only judge calls add to the spend.
 - **Benchmark.** `/gearbox bench` scores a judge model on 75 labelled prompts.
 
 Effort works with any model that exposes effort variants. Verified on OpenCode 2.2.6: Anthropic Messages, OpenAI Responses and OpenAI-compatible endpoints (DeepSeek). Google and other providers with effort variants should work the same way but are unverified. A model without effort variants runs unchanged, and the bar says `Paused: no effort control`.
@@ -71,7 +71,7 @@ The judge must answer within `judge.timeoutMs` (4 s by default), or the turn fal
 3. The cheapest tool-capable model of the session's provider.
 4. The session's own model.
 
-Gearbox picks the model's `none`, `minimal` or `low` variant when it has one, so the judge does not think for long.
+For options 2–4, Gearbox picks the model's `none`, `minimal` or `low` variant when it has one, so the judge does not think for long. An explicit `judge.model` is used as given: add the variant yourself, e.g. `#none`.
 
 Run `/gearbox bench` for your judge, and `/gearbox bench provider/model` for a candidate, before you rely on it. In the end-to-end run on `opencode-go`, `claude-haiku-5-5#none` scored 71/75 at about 1 s per answer. `deepseek-v4.1-flash` was often overloaded and missed the 4 s timeout. See `test/e2e/CHECKLIST.md`.
 
@@ -90,7 +90,7 @@ All output appears as a toast or, for long text, as a dialog. No model turn is s
 | `/gearbox stats`          | User turns per level, model requests, tokens, cost and judge cost for this session                     |
 | `/gearbox bench [p/m]`    | Score the judge model (or `provider/model[#variant]`) on the 75 labelled prompts; see below            |
 | `/gearbox handoff [full]` | Continue in a fresh session seeded with a summary. `full` also writes `HANDOFF.md`                     |
-| `/gearbox compact [note]` | Compact now; the judge model's summary keeps `note` in mind                                            |
+| `/gearbox compact [note]` | Compact now; the summary keeps `note` in mind, whether the judge model or OpenCode writes it           |
 | `/gearbox debug`          | Last decision, the judge's raw answer, whether a judge call is running, and the last request's model   |
 
 Plugin commands run from the TUI (or `client.session.command`). `opencode run "/gearbox …"` sends the text as a normal prompt.
@@ -129,7 +129,7 @@ Options from the plugin entry are the base. Changes made with `/gearbox set` are
 | `modelSwitch.main`           | `false`    | Switch the main chat's model per prompt. **No effect on OpenCode 2.2.6** (see below)                       |
 | `modelSwitch.subagents`      | `true`     | Give subagents without an explicit `model` a model from the price ladder                                   |
 | `modelSwitch.minSavingRatio` | `0.2`      | A main-chat switch must save at least this share of the cost of staying                                    |
-| `compactWith`                | `"small"`  | `small`: the judge model writes compaction summaries. `session`: OpenCode compacts as usual                |
+| `compactWith`                | `"small"`  | `small`: the judge model writes compaction summaries when cheaper. `session`: OpenCode compacts as usual   |
 | `swampedAt`                  | `0.7`      | Context ratio for the swamped warning                                                                      |
 | `handoffAdviceFrom`          | `0.3`      | Context ratio from which the judge is asked, every second prompt, whether a handoff would help             |
 | `budget.dailyUSD`            | `null`     | Daily spend budget. At 80% one warning, and save mode turns on. Above 100%, a warning every turn           |
@@ -153,9 +153,19 @@ Gearbox only switches between models of the session's own provider and never pic
 - `medium` → the middle of the ladder.
 - `high`, `xhigh`, `max` → the chat model itself.
 
-**Subagents** (`modelSwitch.subagents`, on by default). A subagent's model can only change before its first request. So in a child session Gearbox waits for the judge in the prompt hook, at most `judge.timeoutMs`. Then it switches the child to the ladder model with the matching variant. An agent with its own `model` keeps it. A free or "contributor" model at the bottom of the ladder may not suit you; leave it out with `effortModels`, e.g. `"^(?!.*free).*$"`.
+**Subagents** (`modelSwitch.subagents`, on by default). A subagent's model can only change in its prompt hook. So in a child session Gearbox waits for the judge there, at most `judge.timeoutMs` in total, session and catalog reads included.
 
-**Main chat** (`modelSwitch.main`, off by default). A model switch throws away the warm prompt cache, so Gearbox estimates both costs:
+- **First prompt:** the child has no cache yet, so Gearbox switches it to the ladder model with the matching variant.
+- **Later prompts** (a resumed subagent): the child holds a warm cache. Gearbox changes its model only when the cost check below (with `minSavingRatio`) says switching is cheaper than staying. So a resumed child never climbs to a pricier model; its effort still follows the level.
+- **Effort rungs first:** the subagent ladder skips cheaper models without effort variants, unless no model on it has any.
+- **Your pick wins:** an agent with its own `model` keeps it. While the root session runs on a variant you picked (and you have not run `/gearbox auto on`), its subagents are left alone too.
+- **No model of its own:** a subagent whose session has no model is routed from its nearest ancestor's model, else from OpenCode's default model. If that ancestor runs on a picked variant, the subagent keeps it.
+
+A free or "contributor" model at the bottom of the ladder may not suit you; leave it out with `effortModels`, e.g. `"^(?!.*free).*$"`.
+
+**Main chat** (`modelSwitch.main`, off by default). A model switch throws away the warm prompt cache, so Gearbox estimates both costs, once per turn. The cache counts as warm only on the model that served the last request.
+
+**The cost check:**
 
 - Staying costs `context × (warm ? cache-read price : input price) + expected output × output price`.
 - Switching costs `context × cache-write price (else input price) + expected output × the target's output price`.

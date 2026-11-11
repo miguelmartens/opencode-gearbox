@@ -8,6 +8,8 @@ Manual end-to-end run of the plan's Task 10 steps and the must-checks from `docs
 - **Runs:**
   - **First run:** 2026-11-10/11 at `f4b669f`.
   - **Second run:** 2026-11-11 at `2f39cb0`/`895c319`, after the follow-up fixes to `/gearbox bench`, `debug` and `stats`. It repeated steps 1–5, 7 and 8.
+  - **Third run:** 2026-11-11 at `d5dc44f`, after the Task 11 review fixes (resumed subagents, root pause, effort rungs, compaction cost check). It repeated steps 4 and 5 in a fresh temp project, `/tmp/gbx-fix11/proj`, with the same `opencode.jsonc` (logging proxy on port 4196) and its own empty `XDG_CONFIG_HOME`.
+  - **Fourth run:** 2026-11-11 at `f47fe76`/`0b39323`, after the review follow-up (model-less subagents, root pause on `Session.Info`, compact note). Same temp project. It repeated step 4 with a root session created without a model, and the compact-note part of step 5.
   - Each block says which run it comes from.
 - **Isolation:** `XDG_CONFIG_HOME` pointed at an empty temp directory, so the global `<home>/.config/opencode` was neither loaded nor edited. Credentials came from the normal data directory.
 - **Temp project** `/tmp/gbx-e2e/proj` (git repo with `x.ts`, `queue.ts`, `worker.ts`, `main.ts`) and its `opencode.jsonc`:
@@ -52,7 +54,7 @@ Manual end-to-end run of the plan's Task 10 steps and the must-checks from `docs
 | 2   | "ok" reuses the level, no judge call         | PASS     |
 | 3   | Manual variant → paused; auto on resumes     | PASS     |
 | 4   | Subagent routing; explicit-model agent kept  | PASS     |
-| 5   | `/compact` summary by the small model        | PASS     |
+| 5   | `/compact`: judge summary only when cheaper  | PASS     |
 | 6   | `/gearbox handoff` → new session + summary   | PASS     |
 | 7   | Coexistence: steps 1–2 with three plugins    | PASS (1) |
 | 8   | `/gearbox bench` prints a score              | PASS     |
@@ -215,61 +217,133 @@ After typing `/gearbox auto on` in the TUI:
 
 ### 4. Subagents — PASS
 
-**Second run.** Main chat on `claude-haiku-5-5`: "Use the task tool twice … subagent "general" … subagent "pinned" …". Child sessions from `session.created`:
+**Third run.** The `opencode-go` catalog had changed since the second run. Offline, from `client.model.list` (`id:input/output/cache-read:variants`):
 
 ```
-{"id":"ses_e38390aecffe1C6u5S2EOD48uu","parentID":"ses_e383921ccffedLW5kW3CkRAd6G","agent":"general","model":{"id":"claude-haiku-5-5","providerID":"opencode-go","variant":"default"}}
-{"id":"ses_e3838d2e9ffePDaxoddNSI1pcR","parentID":"ses_e383921ccffedLW5kW3CkRAd6G","agent":"pinned","model":{"id":"gpt-6-luna","providerID":"opencode-go","variant":"medium"}}
-session.model.selected: [{"sessionID":"ses_e38390aecffe1C6u5S2EOD48uu","model":{"id":"mimo-v2.6-flash","providerID":"opencode-go"},"previous":{"id":"claude-haiku-5-5","providerID":"opencode-go","variant":"default"}}]
+ladder (id:input/output/cacheRead:variants):
+  longcat-2.5-free:0/0/0:
+  iceman-contributor-free:0/0/0:
+  beam-free:0/0/0:low/medium/high/xhigh/max
+  muse-spark-1.3-contributor:0.1/0.2/0.002:minimal/low/medium/high/xhigh
+  muse-spark-1.2-contributor:0.1/0.2/0.002:minimal/low/medium/high/xhigh
+  mimo-v2.6-flash:0.14/0.28/0.0028:
+  mimo-v2.5:0.14/0.28/0.0028:
+  qwen3.8-flash:0.15/0.47/0.016:none/low/medium/xhigh
+  gpt-6-luna:0.1/0.5/0.01:none/low/medium/high/xhigh/max
+  glm-5.3-flash:0.15/0.5/0.03:low/high/max
+  claude-haiku-5-5:0.1/0.5/0.01:none/low/medium/high/xhigh/max
+subagent ladder: beam-free, muse-spark-1.3-contributor, muse-spark-1.2-contributor, qwen3.8-flash, gpt-6-luna, glm-5.3-flash, claude-haiku-5-5
+low → beam-free
+medium → qwen3.8-flash
+high → claude-haiku-5-5
+```
+
+The subagent ladder now leaves out the rungs without effort variants (`longcat`, `iceman`, `mimo`).
+
+**4a. First prompt.** Main chat on `claude-haiku-5-5`: "Use the task tool twice … subagent "general" … subagent "pinned" …". The judge answered `low`:
+
+```
+session.created: [{"id":"ses_e38270bb5ffeuMbxnenFFbIblq","model":{"id":"claude-haiku-5-5","providerID":"opencode-go"}},{"id":"ses_e3826fe4bffefnFGF5a6fdOwZW","parentID":"ses_e38270bb5ffeuMbxnenFFbIblq","agent":"general","model":{"id":"claude-haiku-5-5","providerID":"opencode-go","variant":"default"}},{"id":"ses_e3826ec28ffezR4yiS3CAwHliW","parentID":"ses_e38270bb5ffeuMbxnenFFbIblq","agent":"pinned","model":{"id":"gpt-6-luna","providerID":"opencode-go","variant":"medium"}}]
+session.model.selected: [{"sessionID":"ses_e3826fe4bffefnFGF5a6fdOwZW","model":{"id":"beam-free","providerID":"opencode-go","variant":"low"},"previous":{"id":"claude-haiku-5-5","providerID":"opencode-go","variant":"default"}}]
+```
+
+**4b. Resumed subagent.** Two more main-chat prompts told the model to resume the same `general` session through the task tool's `task_id`. The second one asked for `"max effort: what does main.ts export? One line."`. `/gearbox debug` in the child afterwards:
+
+```
+Last decision: max (named) asked for max effort
+Last level: max
+User turn: 3
+Request model: opencode-go/beam-free#low
+```
+
+There was no second `session.model.selected` for the child. Request bodies over all three prompts (`[session, kind, agent, model, variant, effort]`, with counts):
+
+```
+  6 ["fdOwZW","primary","general","beam-free","low","low"]
+  3 ["fdOwZW","primary","general","beam-free","low","max"]
+  3 ["AwHliW","primary","pinned","gpt-6-luna","medium",{"effort":"medium","summary":"auto"}]
+```
+
+- **`general`** (no `model` in its agent): its first prompt moved it to `beam-free#low`, the cheapest rung with effort variants. Its requests carried `reasoning_effort: "low"`.
+- **Resumed `general`:** it kept `beam-free` on both later prompts. Before the fix, the `max` prompt would have switched it to `claude-haiku-5-5#max`, a cache write on a pricier model. A switch up never passes the cost check, so only the effort rose: the `max` prompt's requests carried `reasoning_effort: "max"`.
+- **`pinned`** (explicit `model: opencode-go/gpt-6-luna#medium`): it kept its model, and Gearbox set the effort.
+
+**4c. Root paused by a manual variant.** A new `claude-haiku-5-5` session, `session.switchModel` to `#high`, then "Use the task tool once: subagent "general" …":
+
+```
+### /gearbox
+Gearbox: no level yet · opencode-go/claude-haiku-5-5#high · Paused: manual variant
+
+session.created: [… {"id":"ses_e3825f97fffe3BTfHdanGFodzS","parentID":"ses_e3825fec5ffeSwvhSIuKzzDvWO","agent":"general","model":{"id":"claude-haiku-5-5","providerID":"opencode-go","variant":"high"}}]
+session.model.selected: [{"sessionID":"ses_e3825fec5ffeSwvhSIuKzzDvWO","model":{"id":"claude-haiku-5-5","providerID":"opencode-go","variant":"high"},…}]   ← the user's pick only
+
+### /gearbox debug   (in the child)
+Last decision: none
+Last level: none
+Request model: opencode-go/claude-haiku-5-5#high
+```
+
+```
+  2 ["zzDvWO","primary","build","claude-haiku-5-5","high",null]
+  3 ["GFodzS","primary","general","claude-haiku-5-5","high",{"effort":"high"}]
+```
+
+The child inherited `#high` and kept it: no model switch, no judge call (the proxy logged none), and the `high` effort in its body is the variant's own setting.
+
+**4d. Root session without a model (fourth run).** `session.create` without `model`, so the root runs on OpenCode's default model, `claude-haiku-5-5`. Same "task tool twice" prompt. The judge timed out, so the turn ran at `medium`:
+
+```
+session.created: [{"id":"ses_e381ac95affe7sqozxKgBnSPj5"},{"id":"ses_e381aaac1ffeCu4petWdMiMQa5","parentID":"ses_e381ac95affe7sqozxKgBnSPj5","agent":"general"},{"id":"ses_e381a7debffeFsvt6iA62j0zVi","parentID":"ses_e381ac95affe7sqozxKgBnSPj5","agent":"pinned","model":{"id":"gpt-6-luna","providerID":"opencode-go","variant":"medium"}}]
+session.model.selected: [{"sessionID":"ses_e381aaac1ffeCu4petWdMiMQa5","model":{"id":"qwen3.8-flash","providerID":"opencode-go","variant":"medium"}}]
 ```
 
 Request bodies (`[session, kind, agent, model, variant, effort]`):
 
 ```
-["OD48uu","primary","general","mimo-v2.6-flash","default",null]                       (×3)
-["SI1pcR","primary","pinned","gpt-6-luna","medium",{"effort":"medium","summary":"auto"}] (×3)
+  3 ["BnSPj5","primary","build","claude-haiku-5-5",null,{"effort":"medium"}]
+  2 ["MiMQa5","primary","general","qwen3.8-flash","medium",{"effort":"medium"}]
+  3 ["2j0zVi","primary","pinned","gpt-6-luna","medium",{"effort":"medium","summary":"auto"}]
 ```
 
-- **`general`** (no `model` in its agent): its turn ran at `medium` (fallback). It was switched to `routeModel("medium")` = `mimo-v2.6-flash`, which has no effort variants.
-- **`pinned`** (explicit `model: opencode-go/gpt-6-luna#medium`): it kept its model, and Gearbox set the effort.
-- **First run:** `pinned`'s judge answered `low`, and its requests carried `{"effort":"low","summary":"auto"}`, overriding the agent's own `#medium` variant:
-
-  ```
-  Last decision: low (judge) Simple lookup of a file's exports; answer is one line.; judge 1346 ms, $0.0000
-  Request model: opencode-go/gpt-6-luna#medium
-  Gearbox: low · opencode-go/gpt-6-luna#medium · Auto
-  ```
-
-The full ladder was **computed offline**: `buildLadder` and `routeModel` ran on the live `opencode-go` catalog from `client.model.list`. No subagent judged `low` during the runs, so the `low` rung was not observed in a request.
-
-```
-low → longcat-2.5-free
-medium → mimo-v2.6-flash
-high → claude-haiku-5-5
-```
+The `general` child had no `model` on its `Session.Info`, and no ancestor had one. Gearbox routed it from the default model: `routeModel("medium")` on the subagent ladder is `qwen3.8-flash`, with its `medium` variant. `pinned` kept its explicit model.
 
 ### 5. `/compact` — PASS
 
-**Second run.** `session.compact` on the step 1 session (second run).
+**Third run.** Compaction now goes to the judge model only when that is cheaper than the session's own compaction and the transcript fits the judge's context. On this catalog the default judge, `deepseek-v4.1-flash` (input $0.15/M), costs more per input token than `claude-haiku-5-5` (input $0.10/M, cache read $0.01/M). So both branches were run.
 
-- The logger's `compaction` hook ran after Gearbox's and saw `event.result` already set (`hasResult: true`).
-- No `compaction`-kind model request went to the session's model.
-- The judge call count went from 2 to 3.
-
-The logging proxy recorded the summary call with its model:
+**5a. Default judge: OpenCode compacts.** A `claude-haiku-5-5` session with two prompts, then `session.compact`:
 
 ```
-{"t":"2026-11-10T23:14:47.305Z","path":"/inference/go/openai/v1/chat/completions","model":"deepseek-v4.1-flash","reasoning_effort":"low","kind":"summary","head":"[{\"role\":\"user\",\"content\":\"<conversation>\\nUSER: rename foo to bar in x.ts\\n\\nASSISTANT: …"}
+{"kind":"compaction.hook","sessionID":"ses_e38258e1bffeO9jCTODjFeaa60","model":{"id":"claude-haiku-5-5","providerID":"opencode-go","variant":"default"},"hasResult":false}
+["Feaa60","compaction","build","claude-haiku-5-5","default"]
+/gearbox stats before: total  2 turns, 6 requests; … judge $0.0001 (2 calls)
+/gearbox stats after:  total  2 turns, 6 requests; … judge $0.0001 (2 calls)
+compaction.ended.text: "## Objective\n- Answer the user's questions about the exports of `x.ts` and `queue.ts` in the project. …"
 ```
 
+Gearbox left `event.result` unset, the compaction request went to the session's model, and the logging proxy recorded no summary call.
+
+**5b. Cheaper judge: the judge writes the summary.** `/gearbox set judge.model opencode-go/muse-spark-1.3-contributor#minimal` (input $0.10/M, output $0.20/M), the same two prompts, then `session.compact`:
+
 ```
-["compaction.hook",null,"claude-haiku-5-5",true]
-/gearbox stats before: total  3 turns, 6 requests; … judge $0.0001 (2 calls)
-/gearbox stats after:  total  3 turns, 6 requests; … judge $0.0002 (3 calls)
-compaction.ended.text: "- **Completed:** Renamed `foo` to `bar` in `/private/tmp/gbx-e2e/proj/x.ts`; updated both occurrences: function declaration and call in `total`.\n- **Blocked:** …"
+{"kind":"compaction.hook","sessionID":"ses_e382529b2ffePhcR0nl0LTXjiJ","model":{"id":"claude-haiku-5-5","providerID":"opencode-go","variant":"default"},"hasResult":true,"summaryHead":"- Decisions made:\n  - None.\n- Open tasks / next step:\n  …"}
+/gearbox stats before: total  2 turns, 6 requests; … judge $0.0000 (2 calls)
+/gearbox stats after:  total  2 turns, 6 requests; … judge $0.0001 (3 calls)
+compaction.ended.text: "- Decisions made:\n  - None.\n- Open tasks / next step:\n  - Continue work; no pending task stated.\n- File paths read or changed:\n  - `x.ts` — read; …"
 ```
 
-So the summary was written by the resolved judge model, `deepseek-v4.1-flash#low`. Here that is the `small_model`.
+No `compaction`-kind request went to `claude-haiku-5-5`. The judge call count went from 2 to 3, and the stored summary is Gearbox's bullet format. `judge.model` was reset to `null` afterwards.
+
+**5c. A `/gearbox compact` note when OpenCode compacts (fourth run).** Default judge, so OpenCode writes the summary. A root session without a model, one prompt, then `/gearbox compact GBXNOTE keep the list of exports`:
+
+```
+Gearbox: compaction queued. The note goes into the summary prompt, whether the judge model or OpenCode writes the summary.
+{"kind":"compaction.hook","sessionID":"ses_e3818a4a9ffelv8QSTikxwHVGA","model":{"id":"claude-haiku-5-5","providerID":"opencode-go"},"hasResult":false,"systemNote":true}
+["xwHVGA","compaction","build","claude-haiku-5-5",noteInBody=true]
+compaction.ended.text: "## Objective\n- Answer the user's question about what `x.ts` exports, in one line.\n\n## Requirements\n- Answer in one line.\n- Extra instruction: \"GBXNOTE keep the list of exports.\"\n…"
+```
+
+The note went into the compaction hook's `system` list and reached the compaction request body. The first attempt pushed a bare string into `event.system`. OpenCode then made no compaction request and emitted no `session.compaction.ended`. `0b39323` pushes a `SystemPart` (`{ type: "text", text }`) instead.
 
 ### 6. `/gearbox handoff` — PASS
 
@@ -511,6 +585,7 @@ Fixed after the first run (second run above):
 Open:
 
 5. **The default judge can be slow or unavailable.** With `small_model = deepseek-v4.1-flash`, the 4 s `judge.timeoutMs` often expired. Prompts were never blocked, but many decisions were `fallback`. `claude-haiku-5-5#none` answered in about 1 s and scored 71/75. The README recommends a fast `judge.model`.
-6. **The bottom of the subagent ladder can be a free or contributor model.** On `opencode-go` a `low` subagent goes to `longcat-2.5-free`. Users can exclude such models with `effortModels`. The README says so.
+6. **The bottom of the subagent ladder can be a free or contributor model.** On `opencode-go` a `low` subagent went to `longcat-2.5-free` in the second run, and to `beam-free` in the third (rungs without effort variants are now skipped). Users can exclude such models with `effortModels`. The README says so.
 7. **A plugin reload (config change, `location.reload`, edited plugin file) resets the in-memory session state.** After the reload, the bar showed `⚙ Auto` without a level until the next prompt. This is expected, but users will see it.
 8. **The coexistence runs sent test sessions through TokenEconomizer's dispatcher**, as the user's normal setup would.
+9. **Fixed:** children of a root session without a model got no subagent model routing (third run). A child without a model is now routed from its nearest ancestor's model, else from OpenCode's default model. Step 4d shows it.

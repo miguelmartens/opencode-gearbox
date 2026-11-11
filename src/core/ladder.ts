@@ -1,5 +1,6 @@
 // Model ladder: the chat provider's models, cheapest first, never above the chat model.
 
+import { LEVELS } from './types.ts';
 import type { Level, ModelLite, ModelRef } from './types.ts';
 
 function sameModel(a: ModelRef, b: ModelRef): boolean {
@@ -30,6 +31,19 @@ export function buildLadder(
     )
     .sort((a, b) => a.price.output - b.price.output);
   return [...cheaper, current];
+}
+
+function hasEffort(model: ModelLite): boolean {
+  return model.variants.some((id) => (LEVELS as readonly string[]).includes(id));
+}
+
+/**
+ * Drops the cheaper rungs whose variants have no effort level, so a subagent lands where its
+ * level can still be set. The chat model stays last. A ladder without any effort rung is kept.
+ */
+export function preferEffortRungs(ladder: ModelLite[]): ModelLite[] {
+  if (!ladder.some(hasEffort)) return ladder;
+  return ladder.filter((model, i) => i === ladder.length - 1 || hasEffort(model));
 }
 
 /** low → cheapest, medium → middle (rounded down), high and above → last. */

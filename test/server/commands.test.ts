@@ -429,6 +429,7 @@ test('compact passes the note to compactNow', async () => {
   );
   await fake.runCommand('gearbox', 'compact keep the parser notes', 'ses_c');
   assert.deepEqual(seen, [['ses_c', 'keep the parser notes']]);
+  assert.match(fake.lastMessage(), /note goes into the summary prompt/);
 });
 
 test('debug shows the last decision and the request model', async () => {
@@ -445,6 +446,14 @@ test('debug shows the last decision and the request model', async () => {
   assert.match(fake.lastMessage(), /xhigh/);
   assert.match(fake.lastMessage(), /hard bug/);
   assert.match(fake.lastMessage(), /p\/m#xhigh/);
+});
+
+test('debug reads the request model from the session state', async () => {
+  resetState('ses_dbg4');
+  getState('ses_dbg4').requestModel = { providerID: 'p', id: 'm', variant: 'low' };
+  const fake = await setup();
+  await fake.runCommand('gearbox', 'debug', 'ses_dbg4');
+  assert.match(fake.lastMessage(), /Request model: p\/m#low/);
 });
 
 test('debug shows the raw judge answer', async () => {

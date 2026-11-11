@@ -338,6 +338,36 @@ test('budget over shows a toast every user turn', async () => {
   expect(overs[0].variant).toBe('error');
 });
 
+test('budget warn fires again after the budget is raised', async () => {
+  resetState('ses_raise');
+  const fake = await setup({ storage: { settings: { budget: { dailyUSD: 10 } } } });
+  fake.publish(stepEnded('ses_raise', 8.5));
+  await waitFor(async () => (await loadSettings(fake.ctx)).saveMode.until !== null);
+  await updateSettings(fake.ctx, (s) => {
+    s.saveMode.until = null;
+    s.budget.dailyUSD = 20;
+  });
+  fake.publish(stepEnded('ses_raise', 8));
+  await waitFor(async () => (await loadSettings(fake.ctx)).saveMode.until !== null);
+  expect(fake.toasts.filter((t) => /budget/i.test(t.message)).length).toBe(2);
+});
+
+test('requests are still recorded when the command cannot register', async () => {
+  resetState('ses_nocmd');
+  const fake = makeFakeCtx({
+    overrides: {
+      command: {
+        transform: async () => {
+          throw new Error('no command API');
+        },
+      },
+    },
+  });
+  await expect(registerCommands(fake.ctx, { now: () => NOW })).rejects.toThrow('no command API');
+  fake.publish(stepEnded('ses_nocmd', 0.01));
+  await waitFor(() => (fake.storage.get('stats/ses_nocmd') as any)?.requests === 1);
+});
+
 test('bench with a fake judge correct on 70 of 75 cases prints 70/75 (93%) and the misses', async () => {
   expect(cases.length).toBe(75);
   // A few cases share a judge prompt (they differ only in `current`, which the judge never

@@ -1,8 +1,7 @@
 // Scatter of tasks solved against cost per task, one marker per arm, with min–max bars over runs.
-// Pure: summary in, SVG string out. Every label is a stroked path (stroke-font.ts).
+// Pure: summary in, SVG string out.
 
 import type { ArmSummary, Summary } from './summary.ts';
-import { textSvg, textWidth } from './stroke-font.ts';
 
 export const LEVEL_COLORS: Record<string, string> = {
   low: '#8BE48B',
@@ -27,6 +26,34 @@ const H = 440;
 const PAD = { left: 74, right: 34, top: 52, bottom: 64 };
 
 const r = (v: number) => Math.round(v * 100) / 100;
+
+// GitHub shows README SVGs as images: web fonts never load, installed system fonts do.
+const FONT = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+/** Cap height and advance of a monospace font, as shares of its font size. */
+const CAP = 0.7;
+const ADVANCE = 0.6;
+
+/** Estimated width of `text` whose cap height is `size` px; label placement uses it. */
+function textWidth(text: string, size: number): number {
+  return [...text].length * (size / CAP) * ADVANCE;
+}
+
+const escapeXml = (text: string) =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/** A `<text>` with cap height `size` px; `(x, y)` is the baseline at the anchor. */
+function textSvg(
+  text: string,
+  x: number,
+  y: number,
+  size: number,
+  color: string,
+  anchor: 'start' | 'middle' | 'end' = 'start',
+  bold = false,
+): string {
+  const weight = bold ? ' font-weight="600"' : '';
+  return `<text x="${r(x)}" y="${r(y)}" font-family="${FONT}" font-size="${r(size / CAP)}" fill="${color}" text-anchor="${anchor}"${weight}>${escapeXml(text)}</text>`;
+}
 
 /** A tick step of 1, 2 or 5 × 10ⁿ giving about `count` ticks up to `max`. */
 export function niceStep(max: number, count = 5): number {
@@ -186,7 +213,7 @@ export function renderChart(summary: Summary, theme: Theme): string {
         `<path d="M${x} ${y}L${r(ex)} ${r(ly - size / 2)}" stroke="${p.text}" stroke-opacity="0.6" stroke-width="1" fill="none"/>`,
       );
     }
-    labels.push(textSvg(tag, lx, ly, size, labelColor, anchor, a.id === 'auto' ? 0.16 : 0.13));
+    labels.push(textSvg(tag, lx, ly, size, labelColor, anchor, a.id === 'auto'));
   }
   out.push(...bars, ...markers, ...labels);
   out.push('</svg>');

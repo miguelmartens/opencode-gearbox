@@ -53,8 +53,7 @@ const HELP = [
   '/gearbox debug           last decision, judge answer and request model',
 ].join('\n');
 
-const MAIN_SWITCH_NOTE =
-  'Note: modelSwitch.main has no effect on OpenCode 2.2.6 (no model resolve hook yet); the main chat gets effort only.';
+const MAIN_SWITCH_NOTE = 'Note: modelSwitch.main has no effect; the main chat gets effort only.';
 
 const clip = (text: string): string =>
   text.length > MAX_FIELD ? `${text.slice(0, MAX_FIELD - 1)}…` : text;
@@ -316,6 +315,9 @@ export async function registerCommands(
     },
   };
 
+  // First: stats and the budget must not depend on the command registering.
+  onStepEnded(ctx, 'usage', (data) => recordRequest(ctx, data, deps.now()));
+
   await ctx.command.transform((editor) => {
     editor.add({
       name: 'gearbox',
@@ -339,6 +341,4 @@ export async function registerCommands(
       },
     } as never);
   });
-
-  onStepEnded(ctx, 'usage', (data) => recordRequest(ctx, data, deps.now()));
 }

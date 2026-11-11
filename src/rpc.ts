@@ -2,6 +2,7 @@
 // Event names are local names: the wire type is `rpc.gearbox.<name>`.
 
 import { Rpc } from '@opencode/plugin/rpc';
+import { LEVELS } from './core/types.ts';
 
 export const RPC_ID = 'gearbox';
 
@@ -20,7 +21,7 @@ export type ToastEvent = {
 
 const nullable = (type: string) => ({ type: [type, 'null'] });
 
-const level = { enum: ['low', 'medium', 'high', 'xhigh', 'max', null] };
+const level = { enum: [...LEVELS, null] };
 
 const modelRef = {
   type: ['object', 'null'],

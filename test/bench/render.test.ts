@@ -10,7 +10,6 @@ import {
   START,
 } from '../../bench/lib/readme.ts';
 import { summarize } from '../../bench/lib/summary.ts';
-import { textPath, textWidth } from '../../bench/lib/stroke-font.ts';
 import { fakeRecord } from './fake-raw.ts';
 
 const records = [1, 2].flatMap((run) => [
@@ -25,10 +24,14 @@ const summary = summarize(records, { date: '2026-01-02' });
 describe('chart', () => {
   for (const theme of ['dark', 'light'] as const) {
     const svg = renderChart(summary, theme);
-    test(`${theme}: an SVG without text elements`, () => {
+    test(`${theme}: an SVG whose labels are text in a system monospace font`, () => {
       expect(svg.startsWith('<svg ')).toBe(true);
       expect(svg.trim().endsWith('</svg>')).toBe(true);
-      expect(svg).not.toContain('<text');
+      expect(svg).toContain(
+        'font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"',
+      );
+      expect(svg).toMatch(/<text [^>]*text-anchor="middle"[^>]*>cost per task \(usd\)<\/text>/);
+      expect(svg).toMatch(/<text [^>]*font-weight="600"[^>]*>gearbox<\/text>/);
       expect(svg).not.toContain('NaN');
     });
     test(`${theme}: level colours for fixed arms, squares for gearbox`, () => {
@@ -50,14 +53,6 @@ describe('chart', () => {
     expect(formatUSD(0.061)).toBe('$0.061');
     expect(formatUSD(0.0052)).toBe('$0.0052');
     expect(formatUSD(1.5)).toBe('$1.50');
-  });
-});
-
-describe('stroke font', () => {
-  test('draws known glyphs, skips spaces', () => {
-    expect(textPath('gearbox 42%', 0, 10, 7)).toMatch(/^M/);
-    expect(textPath(' ', 0, 10, 7)).toBe('');
-    expect(textWidth('ab', 7)).toBeCloseTo(9.6);
   });
 });
 

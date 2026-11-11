@@ -4,8 +4,15 @@ import {
   parseModelString,
   parseTtlMs,
   sessionModelRef,
+  toModelLite,
   toModelRef,
 } from '../../src/server/models.ts';
+
+test('toModelLite treats a missing output price as unknown, not free', () => {
+  const info = { id: 'm', providerID: 'p', cost: [{ input: 1 }] };
+  expect(toModelLite(info)).toBe(null);
+  expect(toModelLite({ ...info, cost: [{ input: 0, output: 0 }] })?.price.output).toBe(0);
+});
 
 test('toModelRef drops the "default" variant, which means no variant was picked', () => {
   expect(toModelRef({ providerID: 'p', id: 'm', variant: 'default' })).toStrictEqual({

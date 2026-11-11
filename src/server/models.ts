@@ -26,6 +26,15 @@ export type ModelInfo = {
   settings?: { cache?: { ttl?: unknown } };
 };
 
+/** The subset of the runtime `Session.Info` that Gearbox reads. */
+export type SessionInfo = {
+  id: string;
+  parentID?: string | null;
+  agent?: string;
+  title?: string;
+  model?: unknown;
+};
+
 /** How long a catalog read is reused: long enough for one step, short enough for config edits. */
 export const MEMO_MS = 3000;
 
@@ -118,15 +127,18 @@ export async function findModelInfo(ctx: Ctx, ref: ModelRef): Promise<ModelInfo 
   return findInfo(await listModelInfos(ctx), ref);
 }
 
-/** Maps `Model.Info` to `ModelLite`; `null` when the model has no base-tier price. */
+/**
+ * Maps `Model.Info` to `ModelLite`; `null` when the model has no base-tier output price. An
+ * unknown output price is not free: it would make the model the cheapest rung.
+ */
 export function toModelLite(info: ModelInfo): ModelLite | null {
   const base = info.cost?.find((tier) => tier.tier === undefined);
-  if (!base) return null;
+  if (typeof base?.output !== 'number') return null;
   return {
     ref: { providerID: info.providerID, id: info.id },
     price: {
       input: base.input ?? 0,
-      output: base.output ?? 0,
+      output: base.output,
       cacheRead: base.cache?.read ?? 0,
       cacheWrite: base.cache?.write ?? 0,
     },

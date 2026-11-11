@@ -488,7 +488,7 @@ footer .brand{font-size:22px;text-decoration:none}
     <div class="faq">
       <details><summary>Which providers work?</summary><p>Any model that exposes effort variants. Verified on OpenCode 2.2.6 with Anthropic Messages, OpenAI Responses and OpenAI-compatible endpoints (DeepSeek). Google and others should work the same way but are unverified. A model without variants runs unchanged and the bar says <code>Paused: no effort control</code>.</p></details>
       <details><summary>Will it override a variant I pick?</summary><p>No. Pick a variant yourself and Gearbox pauses for that session and tells you once. <code>/gearbox auto on</code> resumes it.</p></details>
-      <details><summary>Does it switch the main chat's model too?</summary><p>Not on OpenCode 2.2.6, which doesn't fire the hook it needs, so the main chat gets effort only. The switch is feature-detected and turns on once a later OpenCode fires that hook. Even then it only switches when the cost check says it beats a warm cache.</p></details>
+      <details><summary>Does it switch the main chat's model too?</summary><p>Not on OpenCode 2.2.6, which doesn't fire the hook it needs, so the main chat gets effort only. Main-chat switching will be built for a later OpenCode that fires that hook, and only switch when the cost check says it beats a warm cache.</p></details>
       <details><summary>What if the judge is slow?</summary><p>A turn waits at most <code>judge.timeoutMs</code> (4 s by default), then falls back to the last level, else <code>medium</code>. Pick a fast judge with a <code>#none</code> or <code>low</code> variant.</p></details>
     </div>
   </div>

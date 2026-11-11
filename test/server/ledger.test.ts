@@ -126,14 +126,33 @@ test('daily spend older than 30 days is pruned when spend is recorded', async ()
   const fake = makeFakeCtx({
     models: MODELS,
     storage: {
-      'spend/2026-09-01': { usd: 1, warned: false },
-      'spend/2026-10-20': { usd: 2, warned: false },
+      'spend/2026-09-01': { usd: 1, warnedFor: null },
+      'spend/2026-10-20': { usd: 2, warnedFor: null },
     },
   });
   await recordJudgeCall(fake.ctx, 'ses_prune', 0.01, NOW);
   expect(fake.storage.has('spend/2026-09-01')).toBe(false);
   expect(fake.storage.has('spend/2026-10-20')).toBe(true);
   expect((fake.storage.get('spend/2026-11-10') as any).usd).toBe(0.01);
+});
+
+test('session stats untouched for more than 30 days are pruned when spend is recorded', async () => {
+  const DAY = 86_400_000;
+  const fake = makeFakeCtx({
+    models: MODELS,
+    storage: {
+      'stats/ses_old': { turns: 1, updatedAt: NOW - 31 * DAY },
+      'stats/ses_recent': { turns: 2, updatedAt: NOW - 2 * DAY },
+      // Written before stats carried a time: stamped now, pruned 30 days later.
+      'stats/ses_legacy': { turns: 3 },
+    },
+  });
+  const step = { level: 'low' as const, input: 1, output: 1, cacheRead: 0, costUSD: 0.1, turn: 1 };
+  await recordStep(fake.ctx, 'ses_new', step, NOW);
+  expect(fake.storage.has('stats/ses_old')).toBe(false);
+  expect(fake.storage.has('stats/ses_recent')).toBe(true);
+  expect((fake.storage.get('stats/ses_legacy') as any).updatedAt).toBe(NOW);
+  expect((fake.storage.get('stats/ses_new') as any).updatedAt).toBe(NOW);
 });
 
 test('a step and a judge call finishing together are both counted (writes run one at a time)', async () => {

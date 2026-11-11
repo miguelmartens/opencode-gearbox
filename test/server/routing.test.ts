@@ -384,68 +384,18 @@ test('subagent model switching off keeps the model', async () => {
   expect(fake.callsTo('session.switchModel').length).toBe(0);
 });
 
-test('main chat never switches the model when modelSwitch.main is false', async () => {
+test('main chat never switches the model, even with modelSwitch.main on', async () => {
   const sessionID = newSession();
-  const fake = await setup({ generateText: async () => ({ text: 'LEVEL: low' }) });
-  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
-  const resolve = await fake.fire('experimental.model.resolve', {
-    sessionID,
-    agent: 'build',
-    kind: 'primary',
-    model: { ...OPUS },
+  const fake = await setup({
+    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
+    generateText: async () => ({ text: 'LEVEL: low' }),
   });
+  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
   const event = await fake.fire('context', contextEvent(sessionID));
-  expect(resolve.model).toStrictEqual(OPUS);
   expect(event.model).toStrictEqual({ ...OPUS, variant: 'default' });
+  expect(event.options.effort).toBe('low');
   expect(fake.callsTo('session.switchModel').length).toBe(0);
-});
-
-test('main chat switches through resolve only when shouldSwitch says so', async () => {
-  const sessionID = newSession();
-  const fake = await setup({
-    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
-    generateText: async () => ({ text: 'LEVEL: low' }),
-  });
-  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
-  const fresh = await fake.fire('experimental.model.resolve', {
-    sessionID,
-    agent: 'build',
-    kind: 'primary',
-    model: { ...OPUS },
-  });
-  expect(fresh.model).toStrictEqual({ providerID: 'anthropic', id: 'claude-haiku-5-5' });
-
-  // A warm cache with a big context makes the switch too expensive.
-  await fake.fire('context', contextEvent(sessionID));
-  fake.publish({
-    type: 'session.step.ended',
-    data: { sessionID, tokens: { input: 1000, output: 10, cache: { read: 150_000, write: 0 } } },
-  });
-  await new Promise((resolve) => setImmediate(resolve));
-  await fake.fire('prompt', promptEvent(sessionID, 'use low effort: and the other one?'));
-  const warm = await fake.fire('experimental.model.resolve', {
-    sessionID,
-    agent: 'build',
-    kind: 'primary',
-    model: { ...OPUS },
-  });
-  expect(warm.model).toStrictEqual(OPUS);
-});
-
-test('resolve leaves title requests untouched', async () => {
-  const sessionID = newSession();
-  const fake = await setup({
-    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
-    generateText: async () => ({ text: 'LEVEL: low' }),
-  });
-  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
-  const event = await fake.fire('experimental.model.resolve', {
-    sessionID,
-    agent: 'title',
-    kind: 'title',
-    model: { ...OPUS },
-  });
-  expect(event.model).toStrictEqual(OPUS);
+  expect(fake.hooks.has('experimental.model.resolve')).toBe(false);
 });
 
 test('a target without effort variants gets no variant and shows paused status', async () => {
@@ -487,39 +437,6 @@ test('lastRequestAt is stamped from session.step.ended', async () => {
   });
   await tick();
   expect(getState(sessionID).lastRequestAt).toBeTruthy();
-});
-
-test('resolve never switches the model of an agent with an explicit model', async () => {
-  const sessionID = newSession();
-  const fake = await setup({
-    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
-    agents: [{ id: 'build' }, { id: 'pinned', model: OPUS }],
-    generateText: async () => ({ text: 'LEVEL: low' }),
-  });
-  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
-  const event = await fake.fire('experimental.model.resolve', {
-    sessionID,
-    agent: 'pinned',
-    kind: 'primary',
-    model: { ...OPUS },
-  });
-  expect(event.model).toStrictEqual(OPUS);
-});
-
-test('resolve treats an unknown agent as explicit and keeps the model', async () => {
-  const sessionID = newSession();
-  const fake = await setup({
-    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
-    generateText: async () => ({ text: 'LEVEL: low' }),
-  });
-  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
-  const event = await fake.fire('experimental.model.resolve', {
-    sessionID,
-    agent: 'ghost',
-    kind: 'primary',
-    model: { ...OPUS },
-  });
-  expect(event.model).toStrictEqual(OPUS);
 });
 
 test('a target without effort variants stores the effort pause in state', async () => {
@@ -686,44 +603,6 @@ test('a subagent of a session paused by a manual variant is left alone', async (
   expect(fake.callsTo('generate.text').length).toBe(0);
 });
 
-test('resolve decides the main-chat model once per turn', async () => {
-  const sessionID = newSession();
-  const fake = await setup({
-    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
-    generateText: async () => ({ text: 'LEVEL: low' }),
-  });
-  const resolve = () =>
-    fake.fire('experimental.model.resolve', {
-      sessionID,
-      agent: 'build',
-      kind: 'primary',
-      model: { ...OPUS },
-    });
-  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
-  expect((await resolve()).model).toStrictEqual(HAIKU);
-  // The context grows within the turn; the turn keeps its model.
-  await request(fake, sessionID, HAIKU, 150_000);
-  expect((await resolve()).model).toStrictEqual(HAIKU);
-});
-
-test('resolve counts the cache warm only for the model that holds it', async () => {
-  const sessionID = newSession();
-  const fake = await setup({
-    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
-    generateText: async () => ({ text: 'LEVEL: low' }),
-  });
-  // The last request ran on Haiku, so Opus has no warm cache to lose.
-  await request(fake, sessionID, HAIKU, 150_000);
-  await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));
-  const event = await fake.fire('experimental.model.resolve', {
-    sessionID,
-    agent: 'build',
-    kind: 'primary',
-    model: { ...OPUS },
-  });
-  expect(event.model).toStrictEqual(HAIKU);
-});
-
 test('subagent without an agent on its Session.Info keeps its model', async () => {
   const sessionID = newSession();
   const fake = await setup({
@@ -887,6 +766,29 @@ test('a subagent waits for the judge and its reads at most timeoutMs + 50 ms in 
   const start = Date.now();
   await fake.fire('prompt', promptEvent(child, `${SUBAGENT_PREFIX}Refactor the auth module`));
   expect(Date.now() - start <= 150, `took ${Date.now() - start} ms`).toBeTruthy();
+});
+
+test('a subagent judge answer after the prompt deadline still sets the effort', async () => {
+  const child = newSession();
+  const root = newSession();
+  const slow = (value: unknown) => new Promise((resolve) => setTimeout(() => resolve(value), 30));
+  const sessions: Record<string, any> = {
+    [root]: { id: root, model: OPUS },
+    [child]: { id: child, parentID: root, agent: 'general', model: OPUS },
+  };
+  const fake = await setup({
+    settings: { judge: { timeoutMs: 100 } },
+    agents: [{ id: 'general' }],
+    // Starts after ~60 ms of session reads, answers ~70 ms later: inside its own timeout, but
+    // after the prompt hook's deadline.
+    generateText: () =>
+      new Promise((resolve) => setTimeout(() => resolve({ text: 'LEVEL: low' }), 70)),
+    overrides: { session: { get: (input: any) => slow(sessions[input?.sessionID]) } },
+  });
+  await fake.fire('prompt', promptEvent(child, `${SUBAGENT_PREFIX}Find the config loader`));
+  const event = await fake.fire('context', contextEvent(child, OPUS));
+  expect(event.options.effort).toBe('low');
+  expect(getState(child).lastDecision?.source).toBe('judge');
 });
 
 test('the request turn is the prompt’s message ID, so a restart never repeats it', async () => {

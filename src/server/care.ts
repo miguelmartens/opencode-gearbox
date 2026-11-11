@@ -22,6 +22,7 @@ import {
   sessionModelRef,
   toModelLite,
 } from './models.ts';
+import type { SessionInfo } from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { loadSettings } from './settings-store.ts';
 import { getState, onForget } from './state.ts';
@@ -38,6 +39,8 @@ const COMPACTION_TIMEOUT_MS = 30_000;
 const HANDOFF_TIMEOUT_MS = 120_000;
 /** Expected length of a compaction summary, in tokens. */
 const SUMMARY_TOKENS = 2000;
+/** Characters per token when sizing a prompt for a window: code and JSON run near 3, not 4. */
+const SAFE_CHARS_PER_TOKEN = 3;
 const TOPIC_MAX = 80;
 const TOPICS_MAX = 10;
 const HANDOFF_FILE = 'HANDOFF.md';
@@ -47,14 +50,6 @@ onForget((sessionID) => notes.delete(sessionID));
 
 // ---------------------------------------------------------------------------------------------
 // OpenCode shapes (docs/api-probe.md)
-
-type SessionInfo = {
-  id: string;
-  parentID?: string | null;
-  agent?: string;
-  title?: string;
-  model?: unknown;
-};
 
 type TextPart = { type: string; text?: string };
 
@@ -112,6 +107,11 @@ function summaryPrompt(transcript: string, note?: string): string {
   return `<conversation>\n${transcript}\n</conversation>\n\n${buildCompactionPrompt(note)}`;
 }
 
+/** Most prompt characters a `limit`-token window takes with room left for the summary. */
+function promptRoom(limit: number): number {
+  return Math.max(0, limit - SUMMARY_TOKENS) * SAFE_CHARS_PER_TOKEN;
+}
+
 function formatHookMessages(messages: HookMessage[]): string {
   return messages
     .map((m) => ({ role: m.role, text: textOf(m.content).trim() }))
@@ -155,8 +155,8 @@ async function judgeIsCheaper(
   const own = sessionInfo ? toModelLite(sessionInfo) : null;
   const judge = judgeInfo ? toModelLite(judgeInfo) : null;
   if (!own || !judge) return false;
+  if (prompt.length > promptRoom(judge.contextLimit)) return false;
   const tokens = Math.ceil(prompt.length / CHARS_PER_TOKEN);
-  if (tokens > judge.contextLimit) return false;
   return shouldSwitch({
     contextTokens: tokens,
     cacheWarm: await cacheWarm(ctx, getState(sessionID), sessionRef, sessionInfo),
@@ -361,7 +361,7 @@ export async function handoff(
   // A handoff is advised when the context is full: keep the newest part that fits the judge.
   let transcript = formatSessionMessages(messages);
   const limit = contextLimit(await findModelInfo(ctx, judge));
-  const room = limit * CHARS_PER_TOKEN - summaryPrompt('').length;
+  const room = promptRoom(limit) - summaryPrompt('').length;
   if (limit > 0 && transcript.length > room)
     transcript = transcript.slice(transcript.length - Math.max(0, room));
   const prompt = summaryPrompt(transcript);

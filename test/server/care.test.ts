@@ -35,7 +35,7 @@ const models = [
     enabled: true,
     variants: [],
     cost: [{ input: 1, output: 5, cache: { read: 0.1, write: 1.25 } }],
-    limit: { context: 1000 },
+    limit: { context: 3000 },
   },
 ];
 
@@ -121,7 +121,18 @@ test('compaction is left to OpenCode when the transcript does not fit the small 
   const fake = fakeWith({ generateText: async () => ({ text: 'summary' }) });
   await registerContextCare(fake.ctx);
   const event = compactionEvent('ses_fit');
-  event.messages[0].content = [{ type: 'text', text: 'x'.repeat(10_000) }];
+  event.messages[0].content = [{ type: 'text', text: 'x'.repeat(20_000) }];
+  await fake.fire('compaction', event);
+  expect(event.result).toBe(undefined);
+  expect(fake.callsTo('generate.text').length).toBe(0);
+});
+
+test('compaction is left to OpenCode when the transcript leaves no room for the summary', async () => {
+  const fake = fakeWith({ generateText: async () => ({ text: 'summary' }) });
+  await registerContextCare(fake.ctx);
+  const event = compactionEvent('ses_room');
+  // About 1300 tokens at 4 characters per token: fits 3000, but not with 2000 for the summary.
+  event.messages[0].content = [{ type: 'text', text: 'x'.repeat(5000) }];
   await fake.fire('compaction', event);
   expect(event.result).toBe(undefined);
   expect(fake.callsTo('generate.text').length).toBe(0);
@@ -330,8 +341,9 @@ test('handoff keeps only the newest transcript that fits the judge model', async
   await handoff(fake.ctx, 'ses_hfit', 'quick');
   const [gen] = fake.callsTo('generate.text');
   const prompt = (gen.input as { prompt: string }).prompt;
-  // The judge (`small`) has a 1000-token context: about 4000 characters.
-  expect(prompt.length).toBeLessThanOrEqual(4000);
+  // The judge (`small`) has a 3000-token context. 2000 tokens stay free for the summary, and the
+  // prompt is sized at 3 characters per token so code-dense text still fits: 3000 characters.
+  expect(prompt.length).toBeLessThanOrEqual(3000);
   expect(prompt).toMatch(/Fix the parser/);
   expect(prompt).not.toMatch(/OLD-TOPIC/);
 });

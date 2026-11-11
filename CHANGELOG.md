@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/miguelmartens/opencode-gearbox/compare/v0.1.4...v0.2.0) (2026-11-11)
+
+
+### Features
+
+* **bench:** add token and cost benchmark harness ([#20](https://github.com/miguelmartens/opencode-gearbox/issues/20)) ([0d32108](https://github.com/miguelmartens/opencode-gearbox/commit/0d321080475abea3b7c10870b079d2069dbc2fc8))
+
 ## [0.1.4](https://github.com/miguelmartens/opencode-gearbox/compare/v0.1.3...v0.1.4) (2026-11-11)
 
 

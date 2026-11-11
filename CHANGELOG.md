@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/miguelmartens/opencode-gearbox/compare/v0.2.1...v0.2.2) (2026-11-11)
+
+
+### Bug Fixes
+
+* show alias model versions in the status bar and steady the site demo ([#25](https://github.com/miguelmartens/opencode-gearbox/issues/25)) ([607f83f](https://github.com/miguelmartens/opencode-gearbox/commit/607f83f23e7f418a6cd5578b6bf3a85cf95bf03f))
+
 ## [0.2.1](https://github.com/miguelmartens/opencode-gearbox/compare/v0.2.0...v0.2.1) (2026-11-11)
 
 

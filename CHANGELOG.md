@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/miguelmartens/opencode-gearbox/compare/v0.1.3...v0.1.4) (2026-11-11)
+
+
+### Bug Fixes
+
+* **tui:** color effort levels in the status bar ([#17](https://github.com/miguelmartens/opencode-gearbox/issues/17)) ([b224176](https://github.com/miguelmartens/opencode-gearbox/commit/b2241765ec40d9503fa2eb0d1c508d524c7301c8))
+
 ## [0.1.3](https://github.com/miguelmartens/opencode-gearbox/compare/v0.1.2...v0.1.3) (2026-11-11)
 
 

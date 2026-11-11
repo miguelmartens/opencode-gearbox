@@ -1,4 +1,4 @@
-import { expect, spyOn, test } from 'bun:test';
+import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import {
   listModelInfos,
@@ -7,6 +7,11 @@ import {
   toModelLite,
 } from '../../src/server/judge-model.ts';
 import { DEFAULT_SETTINGS } from '../../src/core/types.ts';
+
+// Restore console spies even when a test fails: all test files share one Bun process.
+afterEach(() => {
+  mock.restore();
+});
 
 function model(
   id: string,
@@ -178,7 +183,6 @@ test('runJudge logs a provider error once and still returns null', async () => {
   expect(await runJudge(fake.ctx, chat, 'p', 1000, meta)).toBe(null);
   const logged = errors.mock.calls.filter((c) => /Insufficient balance/.test(String(c)));
   expect(logged.length).toBe(1);
-  errors.mockRestore();
 });
 
 test('runJudge calls generate.text as a method, so a host that needs `this` works', async () => {

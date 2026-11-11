@@ -1,7 +1,12 @@
-import { expect, spyOn, test } from 'bun:test';
+import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import { setup } from '../../src/server/index.ts';
 import { lifecycleConfig, watchEvents } from '../../src/server/lifecycle.ts';
+
+// Restore console spies even when a test fails: all test files share one Bun process.
+afterEach(() => {
+  mock.restore();
+});
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -63,5 +68,4 @@ test('a stream that ends is re-subscribed and logged', async () => {
   controller.abort();
   await wait(20);
   expect(calls, 'no re-subscribe after abort').toBe(3);
-  errors.mockRestore();
 });

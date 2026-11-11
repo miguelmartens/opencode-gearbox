@@ -11,7 +11,8 @@ async function tempDir(): Promise<string> {
   return dir;
 }
 
-const listDir = (dir: string) => Array.fromAsync(new Bun.Glob('*').scan({ cwd: dir, dot: true }));
+const listDir = (dir: string) =>
+  Array.fromAsync(new Bun.Glob('*').scan({ cwd: dir, dot: true, onlyFiles: false }));
 const removeDir = (dir: string) => Bun.$`rm -rf ${dir}`;
 const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 

@@ -1,10 +1,15 @@
-import { expect, spyOn, test } from 'bun:test';
+import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import type { FakeCtxOptions } from '../fake-ctx.ts';
 import { registerRouting } from '../../src/server/routing.ts';
 import { getState } from '../../src/server/state.ts';
 import { DEFAULT_SETTINGS, LEVELS } from '../../src/core/types.ts';
 import type { Settings } from '../../src/core/types.ts';
+
+// Restore console spies even when a test fails: all test files share one Bun process.
+afterEach(() => {
+  mock.restore();
+});
 
 const SUBAGENT_PREFIX = 'You are a subagent spawned by another session.\n';
 
@@ -452,7 +457,6 @@ test('an invalid effortModels pattern is logged once and fails open', async () =
   expect(first.options.effort).toBe('high');
   const logged = errors.mock.calls.filter((call) => /effortModels/.test(String(call[0])));
   expect(logged.length).toBe(1);
-  errors.mockRestore();
 });
 
 test('a target without effort variants stores the effort pause in state', async () => {

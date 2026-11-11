@@ -1,6 +1,11 @@
-import { expect, spyOn, test } from 'bun:test';
+import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import { evictIdle, getState, onForget, sweepIdle } from '../../src/server/state.ts';
 import { logOnce } from '../../src/server/notify.ts';
+
+// Restore console spies even when a test fails: all test files share one Bun process.
+afterEach(() => {
+  mock.restore();
+});
 
 const HOUR = 3_600_000;
 
@@ -61,5 +66,4 @@ test('logOnce logs again after its session is evicted', () => {
   evictIdle(Date.now() + 25 * HOUR);
   logOnce('ses_log', 'scope', new Error('x'));
   expect(errors.mock.calls.length).toBe(2);
-  errors.mockRestore();
 });

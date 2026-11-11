@@ -342,9 +342,10 @@ function fileName(path: string): string {
 }
 
 /**
- * Writes `HANDOFF.md`, or `HANDOFF-<timestamp>.md` when it exists: never overwrites an existing
- * file. Bun has no exclusive-create write, so this checks first; a file created between the check
- * and the write would be overwritten. A missing directory fails instead of being created.
+ * Writes `HANDOFF.md`, or `HANDOFF-<timestamp>.md` when it exists, so existing notes are kept.
+ * Bun has no exclusive-create write, so this is best-effort: a file created between the check and
+ * the write, or two handoffs in the same millisecond, would be overwritten. A missing directory
+ * fails instead of being created.
  */
 async function writeHandoff(directory: string, content: string): Promise<string> {
   let file = inDirectory(directory, HANDOFF_FILE);

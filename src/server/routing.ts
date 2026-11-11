@@ -16,11 +16,19 @@ import { buildJudgePrompt, parseJudgeAnswer, REPLY_TAIL_MAX } from '../core/judg
 import { buildLadder, preferEffortRungs, routeModel, sameModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
 import { contextRatio } from '../core/context.ts';
+import { textOf } from '../core/guards.ts';
 import { getState, onForget } from './state.ts';
 import type { SessionState } from './state.ts';
 import { loadSettings } from './settings-store.ts';
-import { resolveJudgeModel, runJudge } from './judge-model.ts';
-import { cacheWarm, defaultModelRef, listModelInfos, toModelLite, toModelRef } from './models.ts';
+import { NO_MODEL, resolveJudgeModel, runJudge } from './judge-model.ts';
+import {
+  cacheWarm,
+  defaultModelRef,
+  findInfo,
+  listModelInfos,
+  toModelLite,
+  toModelRef,
+} from './models.ts';
 import type { ModelInfo } from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { statusChanged, trackUsage } from './status.ts';
@@ -66,7 +74,6 @@ type Local = {
 const SUBAGENT_PREFIX = 'You are a subagent spawned by another session.\n';
 const MANUAL_VARIANT = 'manual variant';
 const NO_EFFORT_CONTROL = 'no effort control';
-const NO_MODEL: ModelRef = { providerID: '', id: '' };
 /** Bounds the walk up a child's parent chain. */
 const MAX_DEPTH = 16;
 /** Admitted prompts kept per session: the running turn and a few queued ones. */
@@ -109,22 +116,8 @@ function effortVariants(ids: string[]): string[] {
   return ids.filter((id) => (LEVELS as readonly string[]).includes(id));
 }
 
-function findInfo(infos: ModelInfo[], ref: ModelRef): ModelInfo | undefined {
-  return infos.find((m) => sameModel(m, ref));
-}
-
 function liteModels(infos: ModelInfo[]): ModelLite[] {
   return infos.map(toModelLite).filter((lite): lite is ModelLite => lite !== null);
-}
-
-function messageText(message: any): string {
-  const content = message?.content;
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content
-    .filter((part: any) => part?.type === 'text' && typeof part.text === 'string')
-    .map((part: any) => part.text)
-    .join('\n');
 }
 
 /** ID of the last user message of a request: the prompt this request answers. */
@@ -148,7 +141,7 @@ function lastReplyTail(messages: unknown): string | null {
   if (!Array.isArray(messages)) return null;
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]?.role !== 'assistant') continue;
-    const text = messageText(messages[i]);
+    const text = textOf(messages[i].content);
     // Stored per session: keep only what the judge prompt uses.
     if (text) return text.slice(-REPLY_TAIL_MAX);
   }

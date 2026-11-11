@@ -4,6 +4,7 @@ import type { Plugin } from '@opencode/plugin';
 import type { ModelLite, ModelRef, Settings } from '../core/types.ts';
 import {
   CHARS_PER_TOKEN,
+  findInfo,
   findModelInfo,
   listModelInfos,
   parseModelString,
@@ -25,15 +26,14 @@ export type JudgeResult = { text: string; ms: number; costUSD?: number };
 export type JudgeMeta = { sessionID?: string; sessionStats?: boolean };
 
 /** No model known: `runJudge` skips the call. */
-const NO_MODEL: ModelRef = { providerID: '', id: '' };
+export const NO_MODEL: ModelRef = { providerID: '', id: '' };
 
 // Cheap variants for the judge: thinking off first.
 const LIGHT_VARIANTS = ['none', 'minimal', 'low'];
 
 function lighten(ref: ModelRef, infos: ModelInfo[]): ModelRef {
   if (ref.variant) return ref;
-  const info = infos.find((m) => m.providerID === ref.providerID && m.id === ref.id);
-  const ids = (info?.variants ?? []).map((variant) => variant.id);
+  const ids = (findInfo(infos, ref)?.variants ?? []).map((variant) => variant.id);
   const variant = LIGHT_VARIANTS.find((id) => ids.includes(id));
   return variant ? { ...ref, variant } : ref;
 }

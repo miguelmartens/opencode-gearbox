@@ -5,14 +5,15 @@
 import type { Plugin } from '@opencode/plugin';
 import type { Level, ModelRef } from '../core/types.ts';
 import { mergeSettings, parseSetCommand } from '../core/settings.ts';
-import { summarize } from '../core/stats.ts';
+import { summarize, usd } from '../core/stats.ts';
+import { saveModeActive } from '../core/levels.ts';
 import { isObject, num } from '../core/guards.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
 import { getState } from './state.ts';
 import { loadSettings, updateSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
 import { compactNow, handoff } from './care.ts';
-import { readSpend, readStats, recordStep, saveModeActive, usd } from './ledger.ts';
+import { HOUR_MS, readSpend, readStats, recordStep } from './ledger.ts';
 import { findModelInfo, parseModelString, sessionModelRef, toModelLite } from './models.ts';
 import { buildStatus, onStepEnded, statusChanged } from './status.ts';
 import { logOnce, toast } from './notify.ts';
@@ -36,7 +37,6 @@ type BenchCase = {
   holdout?: boolean;
 };
 
-const HOUR_MS = 3_600_000;
 const BENCH_CONCURRENCY = 4;
 const MAX_FIELD = 60;
 

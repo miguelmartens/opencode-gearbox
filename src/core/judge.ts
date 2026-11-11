@@ -16,7 +16,7 @@ const TEMPLATE_RE = /<\s*low\s*\|/i;
 const WHY_LINE_RE = /^[\s*_#>-]*why[\s*_]*:[\s*_]*(.*)$/im;
 const YES_NO_RE = /\b(yes|no)\b/i;
 
-const percent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
+export const percent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
 
 const tail = (text: string, max: number): string =>
   text.length > max ? text.slice(text.length - max) : text;

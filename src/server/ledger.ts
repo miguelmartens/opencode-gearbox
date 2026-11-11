@@ -4,8 +4,9 @@
 
 import type { Plugin } from '@opencode/plugin';
 import { LEVELS } from '../core/types.ts';
-import type { Level, Settings } from '../core/types.ts';
-import { addRequest, emptySessionStats } from '../core/stats.ts';
+import type { Level } from '../core/types.ts';
+import { addRequest, emptySessionStats, usd } from '../core/stats.ts';
+import { saveModeActive } from '../core/levels.ts';
 import type { SessionStats } from '../core/stats.ts';
 import { budgetState } from '../core/context.ts';
 import { isNumber, isObject, num } from '../core/guards.ts';
@@ -15,18 +16,12 @@ import { logOnce, toast } from './notify.ts';
 
 type Ctx = Plugin.Context;
 
-const HOUR_MS = 3_600_000;
-
-export const usd = (v: number): string => `$${v.toFixed(4)}`;
+export const HOUR_MS = 3_600_000;
 
 export function dayKey(now: number): string {
   const d = new Date(now);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `spend/${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-export function saveModeActive(s: Settings, now: number): boolean {
-  return s.saveMode.until !== null && s.saveMode.until > now;
 }
 
 export type Spend = { usd: number; warned: boolean };

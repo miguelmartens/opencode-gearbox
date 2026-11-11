@@ -3,7 +3,13 @@
 import { writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { Plugin } from '@opencode/plugin';
-import { buildCompactionPrompt, buildHandoffAdvicePrompt, parseYesNo } from '../core/judge.ts';
+import {
+  buildCompactionPrompt,
+  buildHandoffAdvicePrompt,
+  parseYesNo,
+  percent,
+} from '../core/judge.ts';
+import { textOf } from '../core/guards.ts';
 import { contextRatio, shouldAskHandoff, shouldWarnSwamped } from '../core/context.ts';
 import { shouldSwitch } from '../core/cost.ts';
 import type { ModelRef, Settings } from '../core/types.ts';
@@ -32,7 +38,6 @@ const COMPACTION_TIMEOUT_MS = 30_000;
 const HANDOFF_TIMEOUT_MS = 120_000;
 /** Expected length of a compaction summary, in tokens. */
 const SUMMARY_TOKENS = 2000;
-/** Rough token estimate: about 4 characters per token. */
 const TOPIC_MAX = 80;
 const TOPICS_MAX = 10;
 const HANDOFF_FILE = 'HANDOFF.md';
@@ -73,16 +78,6 @@ const dataOf = <T>(result: unknown): T[] => {
   const data = (result as { data?: unknown } | null | undefined)?.data;
   return Array.isArray(data) ? (data as T[]) : [];
 };
-
-const textOf = (content: TextPart[] | string | undefined): string =>
-  typeof content === 'string'
-    ? content
-    : (content ?? [])
-        .filter((part) => part.type === 'text' && typeof part.text === 'string')
-        .map((part) => part.text)
-        .join('\n');
-
-const percent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
 
 async function sessionModel(ctx: Ctx, session: SessionInfo): Promise<ModelRef> {
   const ref = await sessionModelRef(ctx, session);

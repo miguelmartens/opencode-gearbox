@@ -42,8 +42,16 @@ type Lineage = {
   model: ModelRef | null;
 };
 
+/** An admitted prompt: its user turn and its effort decision. */
+type Admitted = { turn: number; decision: Promise<Decision> };
+
 /** Routing data that `SessionState` does not hold. */
 type Local = {
+  /**
+   * Admitted prompts by message ID. A prompt queued while a turn runs is admitted at once (its
+   * hook fires before the running turn ends), so each request uses its own prompt's decision.
+   */
+  admitted: Map<string, Admitted>;
   replyTail: string;
   /** The manual variant that paused auto; accepted once the user turns auto back on. */
   pausedVariant: string | null;
@@ -62,6 +70,8 @@ const REPLY_TAIL_MAX = 500;
 const NO_MODEL: ModelRef = { providerID: '', id: '' };
 /** Bounds the walk up a child's parent chain. */
 const MAX_DEPTH = 16;
+/** Admitted prompts kept per session: the running turn and a few queued ones. */
+const ADMITTED_MAX = 8;
 /** The prompt hook returns at most this long after the judge timeout. */
 const PROMPT_MARGIN_MS = 25;
 
@@ -72,6 +82,7 @@ function getLocal(sessionID: string): Local {
   let local = locals.get(sessionID);
   if (!local) {
     local = {
+      admitted: new Map(),
       replyTail: '',
       pausedVariant: null,
       statusTurn: null,
@@ -132,6 +143,23 @@ function messageText(message: any): string {
     .filter((part: any) => part?.type === 'text' && typeof part.text === 'string')
     .map((part: any) => part.text)
     .join('\n');
+}
+
+/** ID of the last user message of a request: the prompt this request answers. */
+function lastUserMessageID(messages: unknown): string | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === 'user' && typeof messages[i].id === 'string') return messages[i].id;
+  }
+  return undefined;
+}
+
+function rememberAdmitted(local: Local, messageID: unknown, entry: Admitted): void {
+  if (typeof messageID !== 'string') return;
+  local.admitted.set(messageID, entry);
+  if (local.admitted.size > ADMITTED_MAX) {
+    local.admitted.delete(local.admitted.keys().next().value as string);
+  }
 }
 
 function lastReplyTail(messages: unknown): string | null {
@@ -295,13 +323,23 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     }
   }
 
-  /** The turn's decision, waited for at most `ms`; later steps reuse it at once. */
-  async function turnDecision(state: SessionState, ms: number): Promise<Decision> {
+  /**
+   * The decision of `entry` (the request's own prompt), else of the latest admitted prompt,
+   * waited for at most `ms`; later steps reuse it at once.
+   */
+  async function turnDecision(
+    state: SessionState,
+    ms: number,
+    entry?: Admitted,
+  ): Promise<Decision> {
+    const pending = entry ? entry.decision : state.pending;
     const fallback = fallbackDecision(state, 'judge timed out');
-    const decision = state.pending
-      ? await bounded(state.pending, ms, fallback)
+    const decision = pending
+      ? await bounded(pending, ms, fallback)
       : fallbackDecision(state, 'no prompt seen this turn');
-    state.pending = Promise.resolve(decision);
+    const settled = Promise.resolve(decision);
+    if (entry) entry.decision = settled;
+    if (state.pending === pending) state.pending = settled;
     return decision;
   }
 
@@ -350,13 +388,14 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     settings: Settings,
     model: ModelRef,
     agent: string | undefined,
+    entry: Admitted,
     deadline: number,
     hardDeadline: number,
   ): Promise<void> {
     const explicit = hasExplicitModel(agent);
     const catalog = listModelInfos(ctx);
     catalog.catch(() => {});
-    const decision = await turnDecision(state, Math.max(0, deadline - Date.now()));
+    const decision = await turnDecision(state, Math.max(0, deadline - Date.now()), entry);
     if (await within(explicit, deadline, true)) return;
     const infos = await within(catalog, deadline, null);
     if (!infos) return;
@@ -448,6 +487,8 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
           reason: `asked for ${kind.level} effort`,
         });
       else state.pending = judge(settings, state, model, text, subagent, sessionID);
+      const entry: Admitted = { turn: state.userTurn, decision: state.pending };
+      rememberAdmitted(getLocal(sessionID), event?.messageID, entry);
 
       // Effort stays non-blocking. A subagent model can only change here, so wait for the level.
       if (!subagent || !model || !settings.modelSwitch.subagents) return;
@@ -459,6 +500,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
         settings,
         model,
         session.agent,
+        entry,
         deadline,
         hardDeadline,
       );
@@ -494,6 +536,11 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const state = getState(sessionID);
       const local = getLocal(sessionID);
       local.replyTail = lastReplyTail(event?.messages) ?? local.replyTail;
+      const promptID = lastUserMessageID(event?.messages);
+      const entry = promptID === undefined ? undefined : local.admitted.get(promptID);
+      state.requestTurn = entry?.turn ?? state.userTurn;
+      // Set below only when Gearbox applies an effort level to this request.
+      state.requestLevel = null;
 
       const model = toRef(event?.model);
       if (!settings.auto || !model) return;
@@ -507,7 +554,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       }
       if (state.autoPaused) return;
 
-      const decision = await turnDecision(state, settings.judge.timeoutMs);
+      const decision = await turnDecision(state, settings.judge.timeoutMs, entry);
       const level = applyShaping(decision.level, settings, Date.now());
       const info = findInfo(await listModelInfos(ctx), model);
       const variantID = pickVariant(level, effortVariants((info?.variants ?? []).map((v) => v.id)));
@@ -517,6 +564,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
 
       const options = effort ? structuredClone(effort) : null;
       if (options) Object.assign(event.options, options);
+      state.requestLevel = options ? level : null;
       state.requestModel = variantID
         ? { providerID: model.providerID, id: model.id, variant: variantID }
         : { providerID: model.providerID, id: model.id };

@@ -1,8 +1,6 @@
 // Per-session in-memory state. Lost on restart by design.
 
 import type { Decision, GearboxStatus, Level, ModelRef } from '../core/types.ts';
-import { emptySessionStats } from '../core/stats.ts';
-import type { SessionStats } from '../core/stats.ts';
 
 export type SessionState = {
   lastLevel: Level | null;
@@ -10,13 +8,16 @@ export type SessionState = {
   autoPaused: string | null;
   lastRequestAt: number | null;
   userTurn: number;
-  stats: SessionStats;
   isSubagent: boolean | null;
   lastDecision: Decision | null;
   /** Set by routing when the request's model has no effort control; not a sticky pause. */
   effortPaused: string | null;
   /** Model and variant of the last request (`session.step.started`, or routing's choice). */
   requestModel: ModelRef | null;
+  /** User turn the last request belongs to (a queued prompt does not move it early). */
+  requestTurn: number;
+  /** Effort level Gearbox set on the last request; `null` when it left the request alone. */
+  requestLevel: Level | null;
   /** Context size of the last request (`session.step.ended`). */
   contextTokens: number | null;
   /** Raw text of the last judge answer, for `/gearbox debug`. */
@@ -54,11 +55,12 @@ function freshState(): SessionState {
     autoPaused: null,
     lastRequestAt: null,
     userTurn: 0,
-    stats: emptySessionStats(),
     isSubagent: null,
     lastDecision: null,
     effortPaused: null,
     requestModel: null,
+    requestTurn: 0,
+    requestLevel: null,
     contextTokens: null,
     judgeAnswer: null,
     firstModel: null,

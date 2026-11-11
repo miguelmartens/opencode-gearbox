@@ -67,10 +67,11 @@ function isStats(v: unknown): v is Stats {
 export async function readStats(ctx: Ctx, sessionID: string): Promise<SessionStats> {
   const stored = await ctx.storage.get(`stats/${sessionID}`);
   if (!isStats(stored)) return emptySessionStats();
-  const extra = stored as Stats & { requests?: unknown; lastTurn?: unknown };
+  const extra = stored as Stats & { requests?: unknown; manual?: unknown; lastTurn?: unknown };
   return {
     ...stored,
     requests: isNum(extra.requests) ? extra.requests : stored.turns,
+    manual: isNum(extra.manual) ? extra.manual : 0,
     lastTurn: isNum(extra.lastTurn) ? extra.lastTurn : null,
   };
 }
@@ -89,7 +90,6 @@ function serial<T>(ctx: Ctx, task: () => Promise<T>): Promise<T> {
 
 async function writeStats(ctx: Ctx, sessionID: string, stats: SessionStats): Promise<void> {
   await ctx.storage.set(`stats/${sessionID}`, stats as never);
-  getState(sessionID).stats = stats;
 }
 
 const overToastTurn = new Map<string, number>();
@@ -132,7 +132,8 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
 }
 
 export type StepUsage = {
-  level: Level;
+  /** Effort level Gearbox set on the request; `null` when it left the request alone. */
+  level: Level | null;
   input: number;
   output: number;
   cacheRead: number;

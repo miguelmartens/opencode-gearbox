@@ -116,12 +116,12 @@ async function onStepEnded(
     ctx,
     sessionID,
     {
-      level: state.lastDecision?.level ?? state.lastLevel ?? 'medium',
+      level: state.requestLevel,
       input: t.input,
       output: t.output,
       cacheRead: t.cacheRead,
       costUSD,
-      turn: state.userTurn,
+      turn: state.requestTurn,
     },
     deps.now(),
   );

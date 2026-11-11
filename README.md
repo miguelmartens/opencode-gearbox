@@ -83,9 +83,26 @@ The "typical prompt" column is a guide; the judge decides.
 
 ## Benchmark
 
+> [!WARNING]
+> **Partial run, not comparable across setups.** The 2026-11-11 run was stopped after 30 of 432 planned task runs. Each setup ran a different 3 to 7 of the 24 tasks, so a row reflects its own tasks as much as its effort control. One of the two failures (always max, `m07`) ended with a transport error after 324 s, well before the 15-minute task limit; its cause is not yet known. A full run will replace these numbers. Raw data and coverage: [bench/README.md](bench/README.md#published-runs).
+
 <!-- bench:start -->
 
-Benchmark results are coming. See [bench/README.md](bench/README.md) for the method.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/bench/chart-dark.svg">
+  <img src="assets/bench/chart-light.svg" width="720" alt="Tasks solved vs cost per task for each setup">
+</picture>
+
+| Setup                 |   Solved | Output tokens / task | Cost / task | Time / task | Cost vs always-high |
+| --------------------- | -------: | -------------------: | ----------: | ----------: | ------------------: |
+| always medium         |     100% |                 1.8k |     $0.0053 |        16 s |                −66% |
+| always high           |     100% |                13.6k |      $0.016 |        68 s |            baseline |
+| always xhigh          |     100% |                19.1k |      $0.019 |        93 s |                +23% |
+| always max            |      67% |                37.2k |       $0.03 |       207 s |                +94% |
+| gearbox · effort only |      83% |                14.0k |      $0.016 |        67 s |                 +3% |
+| **gearbox auto**      | **100%** |             **4.5k** |  **$0.007** |    **28 s** |            **−55%** |
+
+<sub>18 tasks × 1 run · model opencode-go/claude-haiku-5-5 · judge opencode-go/claude-haiku-5-5#none · OpenCode 2.2.6 · Gearbox 0.2.0 · 2026-11-11 · medians, judge cost included. [Method and raw data](bench/README.md)</sub>
 <!-- bench:end -->
 
 ## Supported models

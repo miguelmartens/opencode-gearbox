@@ -109,4 +109,18 @@ Each task run appends one line to `results/raw/<run id>.jsonl` (format: `bench/l
 
 ## Published runs
 
-None yet. Each published run adds a line here: date, commit, model, judge, runs and the raw file.
+Each published run adds a line here: date, commit, model, judge, runs and the raw file.
+
+- **2026-11-11 · partial.** Model `opencode-go/claude-haiku-5-5`, judge `opencode-go/claude-haiku-5-5#none`. OpenCode 2.2.6, Gearbox 0.2.0, Bun 1.4.4, commit `e520a20`. Planned 3 runs × 6 arms × 24 tasks = 432 task runs; stopped by hand after 30, all in run 1. Total cost $0.45, judge included. Raw file [`results/raw/2026-11-11T19-51-41-334Z.jsonl`](results/raw/2026-11-11T19-51-41-334Z.jsonl).
+  - **Not comparable across setups.** The shuffled order gave each arm a different subset of tasks (✗ = unsolved):
+
+    | Arm           | Task runs | Tasks                                                                                                                                                                  |
+    | ------------- | --------: | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+    | `medium`      |         4 | `e06-error-message-typo`, `e07-capitalize-empty`, `e10-find-user-case`, `m02-cents-dollars-bug`                                                                        |
+    | `high`        |         4 | `e05-cli-version-flag`, `e12-plan-then-do`, `h01-extract-pricing`, `h03-money-split-rounding`                                                                          |
+    | `xhigh`       |         7 | `e02-off-by-one-range`, `e03-add-user-field`, `e07-capitalize-empty`, `e09-default-separator`, `e10-find-user-case`, `h01-extract-pricing`, `m08-schedule-overlap-bug` |
+    | `max`         |         3 | `e01-rename-function`, `m07-config-env-validation` ✗, `m08-schedule-overlap-bug`                                                                                       |
+    | `auto`        |         6 | `e01-rename-function`, `e04-negative-is-even`, `e07-capitalize-empty`, `h02-queue-concurrency-race`, `h03-money-split-rounding`, `m01-paginate-feature`                |
+    | `auto-effort` |         6 | `e03-add-user-field`, `e04-negative-is-even`, `e07-capitalize-empty`, `h01-extract-pricing`, `h02-queue-concurrency-race` ✗, `h04-callbacks-to-async`                  |
+
+  - **Transport error.** `max` / `m07-config-env-validation` failed with `run error: Transport: The operation timed out` after 324 s in its only turn, not at the 15-minute task limit. Its cause is not yet known: Bun's `fetch` itself waited 320 s for a slow response in a local test. It counts as unsolved.

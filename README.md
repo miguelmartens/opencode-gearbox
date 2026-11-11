@@ -45,7 +45,7 @@ You pick a variant, forget it, and burn `max` effort on `rename this variable`. 
 Gearbox fixes that. A small judge model rates each prompt. Gearbox shifts the effort for the turn and gives each subagent its own level and a cheaper model when it fits. A status bar shows what it chose and why.
 
 ```
-⚙ High · haiku-5-5 · ◔ 38% · cache 4:12 · Auto
+⚙ high · haiku-5-5 · ◔ 38% · cache 4:12 · Auto
 ```
 
 Gearbox is built for **Claude models** first; other models with effort variants work too (see [Supported models](#supported-models)). It is an OpenCode plugin and does not run in Claude Code. It was inspired by [HeyCubit/effortless](https://github.com/HeyCubit/effortless), a Claude Code mod, but written from scratch for OpenCode V2.
@@ -92,7 +92,7 @@ Only Claude models usually have all five levels. Many GPT, DeepSeek and other mo
 | `low` … `high`    | the same     |
 | `xhigh` and `max` | `high`       |
 
-On a model with only `high` and `max`, a `low` turn runs on `high`. The status bar shows both, e.g. `XHigh→High`. `/gearbox stats` counts the turn at the judged level, and `/gearbox debug` shows the variant actually sent. Variants such as `none`, `minimal` and `thinking` are never used for effort.
+On a model with only `high` and `max`, a `low` turn runs on `high`. The status bar shows both, e.g. `xhigh→high`. `/gearbox stats` counts the turn at the judged level, and `/gearbox debug` shows the variant actually sent. Variants such as `none`, `minimal` and `thinking` are never used for effort.
 
 | Models                               | API                                    | Status on OpenCode 2.2.6                                 |
 | ------------------------------------ | -------------------------------------- | -------------------------------------------------------- |
@@ -179,10 +179,10 @@ In `/gearbox stats` a **turn** is one user prompt, counted once at the level Gea
 ## Status bar
 
 ```
-⚙ <Level>[→<Sent>] · <model> · ◔ <context %> · cache <m:ss> · <Auto | Manual | Paused: reason> [· ↻ handoff? | · ⚠ swamped]
+⚙ <level>[→<sent>] · <model> · ◔ <context %> · cache <m:ss> · <Auto | Manual | Paused: reason> [· ↻ handoff? | · ⚠ swamped]
 ```
 
-- **Level:** the effort of the current turn. `→<Sent>` follows when the model lacks that level and Gearbox sent the nearest variant instead (see [Supported models](#supported-models)).
+- **Level:** the effort of the current turn. `→<sent>` follows when the model lacks that level and Gearbox sent the nearest variant instead (see [Supported models](#supported-models)).
 - **Model:** the model id without the provider and a leading `claude-`.
 - **Context:** how full the context window is.
 - **Cache:** how long the provider's prompt cache stays warm. It uses the model's `settings.cache.ttl`, else the provider's `settings.cache.ttl`, else 5 minutes.

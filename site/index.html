@@ -264,7 +264,7 @@ footer .brand{font-size:22px;text-decoration:none}
       </div>
       <div class="statusbar" id="sbar">
         <svg class="cog" viewBox="-10 -10 20 20" aria-hidden="true"><path fill="#EDECE6" d="M-1.6-10h3.2l.5 2.6 2 .9 2.2-1.5 2.3 2.3-1.5 2.2.9 2 2.6.5v3.2l-2.6.5-.9 2 1.5 2.2-2.3 2.3-2.2-1.5-2 .9-.5 2.6h-3.2l-.5-2.6-2-.9-2.2 1.5-2.3-2.3 1.5-2.2-.9-2-2.6-.5v-3.2l2.6-.5.9-2-1.5-2.2 2.3-2.3 2.2 1.5 2-.9z"/><circle r="3.4" fill="#0E0E0E"/></svg>
-        <span id="slvl" style="color:#66C7FF">Medium</span><span class="sep">·</span>
+        <span id="slvl" style="color:#66C7FF">medium</span><span class="sep">·</span>
         <span id="smodel">sonnet-5-5</span><span class="sep">·</span>
         <span>◔ <span id="sctx">21</span>%</span><span class="sep">·</span>
         <span>cache 4:12</span><span class="sep">·</span>
@@ -334,7 +334,7 @@ footer .brand{font-size:22px;text-decoration:none}
     <div class="anatomy">
       <div class="statusbar">
         <svg class="cog" viewBox="-10 -10 20 20" aria-hidden="true"><path fill="#EDECE6" d="M-1.6-10h3.2l.5 2.6 2 .9 2.2-1.5 2.3 2.3-1.5 2.2.9 2 2.6.5v3.2l-2.6.5-.9 2 1.5 2.2-2.3 2.3-2.2-1.5-2 .9-.5 2.6h-3.2l-.5-2.6-2-.9-2.2 1.5-2.3-2.3 1.5-2.2-.9-2-2.6-.5v-3.2l2.6-.5.9-2-1.5-2.2 2.3-2.3 2.2 1.5 2-.9z"/><circle r="3.4" fill="#0E0E0E"/></svg>
-        <span style="color:var(--high)">High</span><span class="sep">·</span><span>haiku-5-5</span><span class="sep">·</span><span>◔ 38%</span><span class="sep">·</span><span>cache 4:12</span><span class="sep">·</span><span class="mode">Auto</span>
+        <span style="color:var(--high)">high</span><span class="sep">·</span><span>haiku-5-5</span><span class="sep">·</span><span>◔ 38%</span><span class="sep">·</span><span>cache 4:12</span><span class="sep">·</span><span class="mode">Auto</span>
       </div>
       <div class="legend">
         <div><b>Level</b>Effort of the current turn.</div>
@@ -454,7 +454,7 @@ footer .brand{font-size:22px;text-decoration:none}
 
   // shifter replay
   var P={1:[60,60],2:[60,240],3:[150,60],4:[150,240],5:[240,60]};
-  var N={1:['Low','#8BE48B'],2:['Medium','#66C7FF'],3:['High','#B69CFF'],4:['Xhigh','#FF9A3C'],5:['Max','#FF4F4F']};
+  var N={1:['low','#8BE48B'],2:['medium','#66C7FF'],3:['high','#B69CFF'],4:['xhigh','#FF9A3C'],5:['max','#FF4F4F']};
   var script=[
     {t:'rename fetchUser to getUser in api.ts',g:1,why:'small, mechanical edit',m:'sonnet-5-5',c:22},
     {t:'add a test for parse_price with comma decimals',g:2,why:'a focused, everyday change',m:'sonnet-5-5',c:26},
@@ -484,7 +484,7 @@ footer .brand{font-size:22px;text-decoration:none}
         var s=script[i];
         vl.textContent='…';vl.style.background='#202023';vl.style.color='#EDECE6';vw.textContent='rating…';
         await type(s.t);await wait(450);
-        vl.textContent=N[s.g][0].toLowerCase();vl.style.background=N[s.g][1];vl.style.color='#0C0C0D';vw.textContent=s.why;
+        vl.textContent=N[s.g][0];vl.style.background=N[s.g][1];vl.style.color='#0C0C0D';vw.textContent=s.why;
         await shift(s.g);
         sl.textContent=N[s.g][0];sl.style.color=N[s.g][1];sm.textContent=s.m;sc.textContent=s.c;
         await wait(2200);

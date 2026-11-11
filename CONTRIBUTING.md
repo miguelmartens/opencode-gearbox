@@ -9,12 +9,13 @@ Bun 1.4 or later. `package.json` pins the exact version in `packageManager`.
     bun install
     bun test                # tests
     bun run format:check    # formatting
+    bun run check           # both, formatting first: what the hook and CI run
 
 `bun install` also points Git at the hooks in `.githooks/`. If you skip the install, enable them by hand once per clone:
 
     git config core.hooksPath .githooks
 
-- `pre-commit` runs `bun run format:check` and `bun test`, the same checks as CI.
+- `pre-commit` runs `bun run check`, the same checks as CI.
 - `commit-msg` rejects a subject that is not a Conventional Commit (see [Commits](#commits)).
 
 Skip both once with `git commit --no-verify`. CI still runs the checks.
@@ -66,7 +67,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope)!:
 ## Pull requests
 
 - Keep the diff focused: one concern per PR.
-- `bun test`, `bun run format:check` and the PR title check must pass.
+- `bun run check` and the PR title check must pass.
 - Do not add dependencies for what a few lines of TypeScript can do.
 
 ## Releases

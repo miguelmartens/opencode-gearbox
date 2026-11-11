@@ -7,13 +7,8 @@ cd "$(git rev-parse --show-toplevel)"
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 
-if ! bun run format:check >"$log" 2>&1; then
+if ! bun run check >"$log" 2>&1; then
   cat "$log" >&2
-  echo "pre-commit: formatting is off; run \`bun run format\`." >&2
-  exit 1
-fi
-if ! bun test >"$log" 2>&1; then
-  cat "$log" >&2
-  echo "pre-commit: tests failed." >&2
+  echo "pre-commit: \`bun run check\` failed. \`bun run format\` fixes formatting." >&2
   exit 1
 fi

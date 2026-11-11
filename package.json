@@ -41,7 +41,8 @@
     "prepare": "git config core.hooksPath .githooks",
     "test": "bun test",
     "format": "bun fmt --no-script",
-    "format:check": "bun fmt --check --no-script"
+    "format:check": "bun fmt --check --no-script",
+    "check": "bun run format:check && bun test"
   },
   "packageManager": "bun@1.4.4",
   "publishConfig": {

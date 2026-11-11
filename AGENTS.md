@@ -9,7 +9,7 @@ opencode-gearbox is built from one plan:
 - `src/core/types.ts` is frozen. Ask the coordinator for changes.
 - `src/core/**` imports nothing from `@opencode/plugin` and no Node built-ins.
 - TypeScript erasable syntax only: no `enum`, no `namespace`, no parameter properties, `import type` for types, `.ts` extensions on relative imports.
-- Development uses Bun (replaces the plan's Node toolchain): tests use `bun:test` with `expect`. Work test-first with `bun test`. Done = `bun test` and `bun run format:check` pass.
+- Development uses Bun (replaces the plan's Node toolchain): tests use `bun:test` with `expect`. Work test-first with `bun test`. Done = `bun run check` passes (formatting, then tests).
 - Plugin code in `src/` stays runtime-portable: no Bun-only APIs (`Bun.*`). OpenCode loads plugins under Bun or Node, so use `node:*` modules in `src/server/`, which Bun supports natively.
 - Conventional Commits. Never push, publish, or edit a global OpenCode config.
 

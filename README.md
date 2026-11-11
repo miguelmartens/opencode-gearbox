@@ -33,7 +33,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/brand/statusbar.svg" width="720" alt="Status bar: High · haiku-5-5 · 38% context · cache 4:12 · Auto">
+  <img src="assets/brand/statusbar.svg" width="720" alt="Status bar: high · haiku-5-5 · 38% context · cache 4:12 · Auto">
 </p>
 
 ---

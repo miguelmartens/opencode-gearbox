@@ -319,12 +319,12 @@ def statusbar(level=2, W=1200, H=96, theme="dark", shadow=True):
     x = 28
     b += gear_icon(x + 14, (H - sh) / 2, size * 0.55, fg, bg)
     x += 46
-    segs = [(name.capitalize(), col), ("·", dim), ("haiku-5-5", fg), ("·", dim), ("◔ 38%", fg), ("·", dim),
+    segs = [(name, col), ("·", dim), ("haiku-5-5", fg), ("·", dim), ("◔ 38%", fg), ("·", dim),
             ("cache 4:12", fg), ("·", dim), ("Auto", MUTE if theme == "dark" else "#6B6B70")]
     for txt, c in segs:
         b += T(MONO, txt, x, y, size, c)
         x += MONO.width(txt, size) + size * 0.6
-    return svg(W, H, b, f"Status bar: {name.capitalize()} · haiku-5-5 · 38% context · cache 4:12 · Auto")
+    return svg(W, H, b, f"Status bar: {name} · haiku-5-5 · 38% context · cache 4:12 · Auto")
 
 
 # ---------- banners ----------

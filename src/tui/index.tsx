@@ -60,6 +60,18 @@ export default Plugin.define({
       return route.type === 'session' ? route.sessionID : undefined;
     };
 
+    // Catalog name of a model, for alias ids such as `claude-agent/opus`. Loads the list once.
+    let catalogRequested = false;
+    const modelName = (ref: GearboxStatus['model']): string | undefined => {
+      if (!ref) return undefined;
+      const models = context.data.location.model.list();
+      if (!models && !catalogRequested) {
+        catalogRequested = true;
+        context.data.location.model.sync().catch(() => {});
+      }
+      return models?.find((m) => m.providerID === ref.providerID && m.id === ref.id)?.name;
+    };
+
     const line = (sessionID: string | undefined): Segment[] | undefined => {
       if (!sessionID) return undefined;
       // Read the clock first: the 1 s tick re-renders the bar, so a fetch is retried once its
@@ -67,7 +79,8 @@ export default Plugin.define({
       const at = now();
       fetchOnce(sessionID, at);
       const seen = statuses()[sessionID];
-      return seen ? statusSegments(ageStatus(seen.status, at - seen.at)) : undefined;
+      if (!seen) return undefined;
+      return statusSegments(ageStatus(seen.status, at - seen.at), modelName(seen.status.model));
     };
 
     const showToast = (t: ToastEvent) => {

@@ -1,5 +1,4 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import { registerRouting } from '../../src/server/routing.ts';
 import { registerCommands } from '../../src/server/commands.ts';
@@ -64,15 +63,18 @@ test('one judge call over three context steps counts once, in stats and daily sp
   }
   await waitFor(() => (fake.storage.get(`stats/${sessionID}`) as any)?.requests === 3);
   const stats = fake.storage.get(`stats/${sessionID}`) as any;
-  assert.equal(stats.turns, 1, 'one user turn');
-  assert.equal(stats.judgeCalls, 1);
-  assert.ok(stats.judgeCostUSD > 0);
+  expect(stats.turns, 'one user turn').toBe(1);
+  expect(stats.judgeCalls).toBe(1);
+  expect(stats.judgeCostUSD > 0).toBeTruthy();
   const spend = [...fake.storage.entries()].find(([key]) => key.startsWith('spend/'));
-  assert.ok(spend, 'daily spend recorded');
+  expect(spend, 'daily spend recorded').toBeTruthy();
   const total = [...fake.storage.entries()]
     .filter(([key]) => key.startsWith('spend/'))
     .reduce((sum, [, value]) => sum + (value as any).usd, 0);
-  assert.ok(Math.abs(total - stats.judgeCostUSD) < 1e-12, 'spend = judge cost (steps cost 0)');
+  expect(
+    Math.abs(total - stats.judgeCostUSD) < 1e-12,
+    'spend = judge cost (steps cost 0)',
+  ).toBeTruthy();
 });
 
 test("a timed-out judge's cost is still recorded once when it finishes", async () => {
@@ -87,16 +89,16 @@ test("a timed-out judge's cost is still recorded once when it finishes", async (
   });
   const ref = { providerID: 'anthropic', id: 'claude-haiku-5-5' };
   const sessionID = 'ses_ledger_late';
-  assert.equal(await runJudge(fake.ctx, ref, 'x'.repeat(400), 20, { sessionID }), null);
-  assert.equal(fake.storage.get(`stats/${sessionID}`), undefined);
+  expect(await runJudge(fake.ctx, ref, 'x'.repeat(400), 20, { sessionID })).toBe(null);
+  expect(fake.storage.get(`stats/${sessionID}`)).toBe(undefined);
   open();
   await waitFor(() => (fake.storage.get(`stats/${sessionID}`) as any)?.judgeCalls === 1);
   await new Promise((resolve) => setTimeout(resolve, 20));
   const stats = fake.storage.get(`stats/${sessionID}`) as any;
-  assert.equal(stats.judgeCalls, 1);
-  assert.equal(stats.turns, 0);
+  expect(stats.judgeCalls).toBe(1);
+  expect(stats.turns).toBe(0);
   // 100 input tokens at $1/M + 3 output tokens at $5/M.
-  assert.ok(Math.abs(stats.judgeCostUSD - (100 * 1 + 3 * 5) / 1e6) < 1e-12);
+  expect(Math.abs(stats.judgeCostUSD - (100 * 1 + 3 * 5) / 1e6) < 1e-12).toBeTruthy();
 });
 
 test('a garbage judge answer is still counted with its cost', async () => {
@@ -105,5 +107,5 @@ test('a garbage judge answer is still counted with its cost', async () => {
   const sessionID = 'ses_ledger_garbage';
   await runJudge(fake.ctx, ref, 'x'.repeat(40), 1000, { sessionID });
   await waitFor(() => (fake.storage.get(`stats/${sessionID}`) as any)?.judgeCalls === 1);
-  assert.ok((fake.storage.get(`stats/${sessionID}`) as any).judgeCostUSD > 0);
+  expect((fake.storage.get(`stats/${sessionID}`) as any).judgeCostUSD > 0).toBeTruthy();
 });

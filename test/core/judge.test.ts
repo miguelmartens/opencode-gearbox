@@ -1,5 +1,4 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'bun:test';
 import {
   buildCompactionPrompt,
   buildHandoffAdvicePrompt,
@@ -11,37 +10,39 @@ import {
 const count = (text: string, ch: string): number => text.split(ch).length - 1;
 
 test('parseJudgeAnswer reads the LEVEL and WHY lines case-insensitively', () => {
-  assert.deepEqual(parseJudgeAnswer('LEVEL: High\nWHY: refactor'), {
+  expect(parseJudgeAnswer('LEVEL: High\nWHY: refactor')).toStrictEqual({
     level: 'high',
     reason: 'refactor',
   });
 });
 
 test('parseJudgeAnswer matches xhigh before high', () => {
-  assert.equal(parseJudgeAnswer('LEVEL: xhigh')?.level, 'xhigh');
-  assert.equal(parseJudgeAnswer('level:XHIGH\nwhy: hard bug')?.level, 'xhigh');
+  expect(parseJudgeAnswer('LEVEL: xhigh')?.level).toBe('xhigh');
+  expect(parseJudgeAnswer('level:XHIGH\nwhy: hard bug')?.level).toBe('xhigh');
 });
 
 test('parseJudgeAnswer prefers the LEVEL line over earlier level words', () => {
-  assert.deepEqual(parseJudgeAnswer('Not low, not max.\nLEVEL: medium\nWHY: one scoped change'), {
+  expect(
+    parseJudgeAnswer('Not low, not max.\nLEVEL: medium\nWHY: one scoped change'),
+  ).toStrictEqual({
     level: 'medium',
     reason: 'one scoped change',
   });
 });
 
 test('parseJudgeAnswer falls back to the first standalone level word', () => {
-  assert.equal(parseJudgeAnswer("I'd say medium.")?.level, 'medium');
-  assert.equal(parseJudgeAnswer('maximum effort? no: low')?.level, 'low');
+  expect(parseJudgeAnswer("I'd say medium.")?.level).toBe('medium');
+  expect(parseJudgeAnswer('maximum effort? no: low')?.level).toBe('low');
 });
 
 test('parseJudgeAnswer returns null for garbage', () => {
-  assert.equal(parseJudgeAnswer('banana'), null);
-  assert.equal(parseJudgeAnswer(''), null);
-  assert.equal(parseJudgeAnswer('LEVEL: extreme'), null);
+  expect(parseJudgeAnswer('banana')).toBe(null);
+  expect(parseJudgeAnswer('')).toBe(null);
+  expect(parseJudgeAnswer('LEVEL: extreme')).toBe(null);
 });
 
 test('parseJudgeAnswer gives an empty reason without a WHY line', () => {
-  assert.deepEqual(parseJudgeAnswer('LEVEL: low'), { level: 'low', reason: '' });
+  expect(parseJudgeAnswer('LEVEL: low')).toStrictEqual({ level: 'low', reason: '' });
 });
 
 test('buildJudgePrompt truncates the prompt to 2000 chars and asks for LEVEL', () => {
@@ -51,10 +52,10 @@ test('buildJudgePrompt truncates the prompt to 2000 chars and asks for LEVEL', (
     contextRatio: null,
     isSubagent: false,
   });
-  assert.ok(count(out, '█') <= 2000);
-  assert.ok(count(out, '█') > 0);
-  assert.ok(out.includes('LEVEL:'));
-  assert.ok(out.includes('WHY:'));
+  expect(count(out, '█') <= 2000).toBeTruthy();
+  expect(count(out, '█') > 0).toBeTruthy();
+  expect(out.includes('LEVEL:')).toBeTruthy();
+  expect(out.includes('WHY:')).toBeTruthy();
 });
 
 test('buildJudgePrompt keeps only the last 500 chars of the reply tail', () => {
@@ -64,11 +65,11 @@ test('buildJudgePrompt keeps only the last 500 chars of the reply tail', () => {
     contextRatio: 0.42,
     isSubagent: true,
   });
-  assert.ok(count(out, '░') <= 500);
-  assert.ok(out.includes('END'));
-  assert.ok(!out.includes('START'));
-  assert.ok(out.includes('42%'));
-  assert.match(out, /subagent/i);
+  expect(count(out, '░') <= 500).toBeTruthy();
+  expect(out.includes('END')).toBeTruthy();
+  expect(!out.includes('START')).toBeTruthy();
+  expect(out.includes('42%')).toBeTruthy();
+  expect(out).toMatch(/subagent/i);
 });
 
 test('buildJudgePrompt lists every level with its guidance', () => {
@@ -79,16 +80,16 @@ test('buildJudgePrompt lists every level with its guidance', () => {
     isSubagent: false,
   });
   for (const level of ['low', 'medium', 'high', 'xhigh', 'max']) {
-    assert.match(out, new RegExp(`\\b${level}\\b`));
+    expect(out).toMatch(new RegExp(`\\b${level}\\b`));
   }
 });
 
 test('parseYesNo reads yes, no or nothing', () => {
-  assert.equal(parseYesNo('Yes, start fresh'), true);
-  assert.equal(parseYesNo('no'), false);
-  assert.equal(parseYesNo('NO.'), false);
-  assert.equal(parseYesNo('maybe'), null);
-  assert.equal(parseYesNo(''), null);
+  expect(parseYesNo('Yes, start fresh')).toBe(true);
+  expect(parseYesNo('no')).toBe(false);
+  expect(parseYesNo('NO.')).toBe(false);
+  expect(parseYesNo('maybe')).toBe(null);
+  expect(parseYesNo('')).toBe(null);
 });
 
 test('buildHandoffAdvicePrompt includes topics, context use and a YES/NO request', () => {
@@ -97,22 +98,22 @@ test('buildHandoffAdvicePrompt includes topics, context use and a YES/NO request
     lastReplyTail: 'done.',
     contextRatio: 0.35,
   });
-  assert.ok(out.includes('auth refactor'));
-  assert.ok(out.includes('flaky test'));
-  assert.ok(out.includes('35%'));
-  assert.ok(out.includes('done.'));
-  assert.match(out, /YES/);
-  assert.match(out, /NO/);
+  expect(out.includes('auth refactor')).toBeTruthy();
+  expect(out.includes('flaky test')).toBeTruthy();
+  expect(out.includes('35%')).toBeTruthy();
+  expect(out.includes('done.')).toBeTruthy();
+  expect(out).toMatch(/YES/);
+  expect(out).toMatch(/NO/);
 });
 
 test('buildCompactionPrompt keeps decisions, tasks, paths, commands and errors', () => {
   const out = buildCompactionPrompt();
   for (const word of ['decisions', 'open tasks', 'file paths', 'commands', 'errors']) {
-    assert.ok(out.toLowerCase().includes(word), word);
+    expect(out.toLowerCase().includes(word), word).toBeTruthy();
   }
 });
 
 test('buildCompactionPrompt appends the user note', () => {
-  assert.ok(buildCompactionPrompt('focus on the parser').includes('focus on the parser'));
-  assert.equal(buildCompactionPrompt('  '), buildCompactionPrompt());
+  expect(buildCompactionPrompt('focus on the parser').includes('focus on the parser')).toBeTruthy();
+  expect(buildCompactionPrompt('  ')).toBe(buildCompactionPrompt());
 });

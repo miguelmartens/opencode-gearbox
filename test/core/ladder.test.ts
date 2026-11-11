@@ -1,5 +1,4 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'bun:test';
 import { buildLadder, preferEffortRungs, routeModel } from '../../src/core/ladder.ts';
 import type { ModelLite } from '../../src/core/types.ts';
 
@@ -27,7 +26,7 @@ function ids(ladder: ModelLite[]) {
 }
 
 test('buildLadder keeps the chat provider, cheapest first, chat model last', () => {
-  assert.deepEqual(ids(buildLadder(all, opus.ref, any)), [
+  expect(ids(buildLadder(all, opus.ref, any))).toStrictEqual([
     'claude-haiku',
     'claude-sonnet',
     'claude-opus',
@@ -35,8 +34,8 @@ test('buildLadder keeps the chat provider, cheapest first, chat model last', () 
 });
 
 test('buildLadder never goes above the chat model', () => {
-  assert.deepEqual(ids(buildLadder(all, haiku.ref, any)), ['claude-haiku']);
-  assert.deepEqual(ids(buildLadder(all, sonnet.ref, any)), ['claude-haiku', 'claude-sonnet']);
+  expect(ids(buildLadder(all, haiku.ref, any))).toStrictEqual(['claude-haiku']);
+  expect(ids(buildLadder(all, sonnet.ref, any))).toStrictEqual(['claude-haiku', 'claude-sonnet']);
 });
 
 test('buildLadder drops disabled models and models without tools', () => {
@@ -46,11 +45,11 @@ test('buildLadder drops disabled models and models without tools', () => {
     model('anthropic', 'no-tools', 1, { tools: false }),
     haiku,
   ];
-  assert.deepEqual(ids(buildLadder(models, opus.ref, any)), ['claude-haiku', 'claude-opus']);
+  expect(ids(buildLadder(models, opus.ref, any))).toStrictEqual(['claude-haiku', 'claude-opus']);
 });
 
 test('buildLadder drops models whose id fails effortModels', () => {
-  assert.deepEqual(ids(buildLadder(all, opus.ref, /opus|sonnet/)), [
+  expect(ids(buildLadder(all, opus.ref, /opus|sonnet/))).toStrictEqual([
     'claude-sonnet',
     'claude-opus',
   ]);
@@ -58,7 +57,7 @@ test('buildLadder drops models whose id fails effortModels', () => {
 
 test('buildLadder keeps the chat model last even when another model costs the same', () => {
   const twin = model('anthropic', 'claude-opus-twin', 25);
-  assert.deepEqual(ids(buildLadder([opus, twin], opus.ref, any)), [
+  expect(ids(buildLadder([opus, twin], opus.ref, any))).toStrictEqual([
     'claude-opus-twin',
     'claude-opus',
   ]);
@@ -66,56 +65,56 @@ test('buildLadder keeps the chat model last even when another model costs the sa
 
 test('buildLadder ignores the chat ref variant', () => {
   const ladder = buildLadder(all, { ...opus.ref, variant: 'high' }, any);
-  assert.deepEqual(ids(ladder), ['claude-haiku', 'claude-sonnet', 'claude-opus']);
+  expect(ids(ladder)).toStrictEqual(['claude-haiku', 'claude-sonnet', 'claude-opus']);
 });
 
 test('buildLadder is empty when the chat model is unknown', () => {
-  assert.deepEqual(buildLadder(all, { providerID: 'anthropic', id: 'nope' }, any), []);
+  expect(buildLadder(all, { providerID: 'anthropic', id: 'nope' }, any)).toStrictEqual([]);
 });
 
 test('buildLadder does not mutate its input', () => {
   const models = [...all];
   buildLadder(models, opus.ref, any);
-  assert.deepEqual(models, all);
+  expect(models).toStrictEqual(all);
 });
 
 test('routeModel picks by level', () => {
   const ladder = buildLadder(all, opus.ref, any);
-  assert.equal(routeModel('low', ladder), haiku);
-  assert.equal(routeModel('medium', ladder), sonnet);
-  assert.equal(routeModel('high', ladder), opus);
-  assert.equal(routeModel('xhigh', ladder), opus);
-  assert.equal(routeModel('max', ladder), opus);
+  expect(routeModel('low', ladder)).toBe(haiku);
+  expect(routeModel('medium', ladder)).toBe(sonnet);
+  expect(routeModel('high', ladder)).toBe(opus);
+  expect(routeModel('xhigh', ladder)).toBe(opus);
+  expect(routeModel('max', ladder)).toBe(opus);
 });
 
 test('routeModel on a one-model ladder always returns that model', () => {
   const ladder = buildLadder(all, haiku.ref, any);
   for (const level of ['low', 'medium', 'max'] as const) {
-    assert.equal(routeModel(level, ladder), haiku);
+    expect(routeModel(level, ladder)).toBe(haiku);
   }
 });
 
 test('routeModel medium rounds down on an even ladder', () => {
   const ladder = [haiku, sonnet, model('anthropic', 'mid', 20), opus];
-  assert.equal(routeModel('medium', ladder), sonnet);
+  expect(routeModel('medium', ladder)).toBe(sonnet);
 });
 
 test('preferEffortRungs drops cheaper rungs without effort variants', () => {
   const flash = model('anthropic', 'flash', 1, { variants: [] });
   const thinking = model('anthropic', 'thinker', 2, { variants: ['none', 'thinking'] });
   const ladder = buildLadder([flash, thinking, haiku, opus], opus.ref, any);
-  assert.deepEqual(ids(preferEffortRungs(ladder)), ['claude-haiku', 'claude-opus']);
+  expect(ids(preferEffortRungs(ladder))).toStrictEqual(['claude-haiku', 'claude-opus']);
 });
 
 test('preferEffortRungs keeps the chat model last even without effort variants', () => {
   const top = model('anthropic', 'top', 30, { variants: [] });
   const ladder = buildLadder([haiku, top], top.ref, any);
-  assert.deepEqual(ids(preferEffortRungs(ladder)), ['claude-haiku', 'top']);
+  expect(ids(preferEffortRungs(ladder))).toStrictEqual(['claude-haiku', 'top']);
 });
 
 test('preferEffortRungs keeps the ladder when no rung has effort variants', () => {
   const flash = model('anthropic', 'flash', 1, { variants: [] });
   const top = model('anthropic', 'top', 30, { variants: ['none'] });
   const ladder = buildLadder([flash, top], top.ref, any);
-  assert.deepEqual(ids(preferEffortRungs(ladder)), ['flash', 'top']);
+  expect(ids(preferEffortRungs(ladder))).toStrictEqual(['flash', 'top']);
 });

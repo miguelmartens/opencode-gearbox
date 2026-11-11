@@ -1,12 +1,19 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { expect, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import type { FakeCtxOptions } from '../fake-ctx.ts';
 import { compactNow, getCareState, handoff, registerContextCare } from '../../src/server/care.ts';
 import { getState } from '../../src/server/state.ts';
+
+async function tempDir(): Promise<string> {
+  const base = (Bun.env.TMPDIR ?? '/tmp').replace(/\/+$/, '');
+  const dir = `${base}/gearbox-handoff-${crypto.randomUUID()}`;
+  await Bun.$`mkdir -p ${dir}`;
+  return dir;
+}
+
+const listDir = (dir: string) => Array.fromAsync(new Bun.Glob('*').scan({ cwd: dir, dot: true }));
+const removeDir = (dir: string) => Bun.$`rm -rf ${dir}`;
+const baseName = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 
 const MODEL = { providerID: 'p', id: 'big' };
 
@@ -73,12 +80,12 @@ test('compaction with the small model sets result.summary', async () => {
   const fake = fakeWith({ generateText: async () => ({ text: '- decided X\n- next: Y' }) });
   await registerContextCare(fake.ctx);
   const event = await fake.fire('compaction', compactionEvent('ses_c1'));
-  assert.deepEqual(event.result, { summary: '- decided X\n- next: Y' });
+  expect(event.result).toStrictEqual({ summary: '- decided X\n- next: Y' });
   const [call] = fake.callsTo('generate.text');
   const input = call.input as { prompt: string; model: { providerID: string } };
-  assert.match(input.prompt, /Fix the parser in src\/p\.ts/);
-  assert.match(input.prompt, /Summarize the conversation above/);
-  assert.equal(input.model.providerID, 'p');
+  expect(input.prompt).toMatch(/Fix the parser in src\/p\.ts/);
+  expect(input.prompt).toMatch(/Summarize the conversation above/);
+  expect(input.model.providerID).toBe('p');
 });
 
 /** A ~100k-token transcript, on models whose context fits it. */
@@ -95,7 +102,7 @@ test('compaction with a cold session cache uses the cheaper small model', async 
   const fake = fakeWith({ models: roomy, generateText: async () => ({ text: 'summary' }) });
   await registerContextCare(fake.ctx);
   const event = await fake.fire('compaction', longCompaction('ses_cost1'));
-  assert.deepEqual(event.result, { summary: 'summary' });
+  expect(event.result).toStrictEqual({ summary: 'summary' });
 });
 
 test('compaction is left to OpenCode when the warm session cache is cheaper', async () => {
@@ -105,8 +112,8 @@ test('compaction is left to OpenCode when the warm session cache is cheaper', as
   state.lastRequestAt = Date.now();
   state.requestModel = MODEL;
   const event = await fake.fire('compaction', longCompaction('ses_cost2'));
-  assert.equal(event.result, undefined);
-  assert.equal(fake.callsTo('generate.text').length, 0);
+  expect(event.result).toBe(undefined);
+  expect(fake.callsTo('generate.text').length).toBe(0);
 });
 
 test('compaction is left to OpenCode when the transcript does not fit the small model', async () => {
@@ -115,8 +122,8 @@ test('compaction is left to OpenCode when the transcript does not fit the small 
   const event = compactionEvent('ses_fit');
   event.messages[0].content = [{ type: 'text', text: 'x'.repeat(10_000) }];
   await fake.fire('compaction', event);
-  assert.equal(event.result, undefined);
-  assert.equal(fake.callsTo('generate.text').length, 0);
+  expect(event.result).toBe(undefined);
+  expect(fake.callsTo('generate.text').length).toBe(0);
 });
 
 test('compaction is left to OpenCode when a price is unknown', async () => {
@@ -124,8 +131,8 @@ test('compaction is left to OpenCode when a price is unknown', async () => {
   const fake = fakeWith({ models: unpriced, generateText: async () => ({ text: 'summary' }) });
   await registerContextCare(fake.ctx);
   const event = await fake.fire('compaction', compactionEvent('ses_unpriced'));
-  assert.equal(event.result, undefined);
-  assert.equal(fake.callsTo('generate.text').length, 0);
+  expect(event.result).toBe(undefined);
+  expect(fake.callsTo('generate.text').length).toBe(0);
 });
 
 test('compaction leaves result unset when the generator throws', async () => {
@@ -136,14 +143,14 @@ test('compaction leaves result unset when the generator throws', async () => {
   });
   await registerContextCare(fake.ctx);
   const event = await fake.fire('compaction', compactionEvent('ses_c2'));
-  assert.equal(event.result, undefined);
+  expect(event.result).toBe(undefined);
 });
 
 test('compaction leaves result unset on an empty summary', async () => {
   const fake = fakeWith({ generateText: async () => ({ text: '  ' }) });
   await registerContextCare(fake.ctx);
   const event = await fake.fire('compaction', compactionEvent('ses_c3'));
-  assert.equal(event.result, undefined);
+  expect(event.result).toBe(undefined);
 });
 
 test('compaction is left to OpenCode when compactWith is "session"', async () => {
@@ -157,8 +164,8 @@ test('compaction is left to OpenCode when compactWith is "session"', async () =>
   const { loadSettings } = await import('../../src/server/settings-store.ts');
   if ((await loadSettings(fake.ctx)).compactWith !== 'session') return;
   const event = await fake.fire('compaction', compactionEvent('ses_c4'));
-  assert.equal(event.result, undefined);
-  assert.equal(fake.callsTo('generate.text').length, 0);
+  expect(event.result).toBe(undefined);
+  expect(fake.callsTo('generate.text').length).toBe(0);
 });
 
 test('compaction keeps a result another plugin already set', async () => {
@@ -167,7 +174,7 @@ test('compaction keeps a result another plugin already set', async () => {
   const event = compactionEvent('ses_c5');
   event.result = { summary: 'theirs' };
   await fake.fire('compaction', event);
-  assert.deepEqual(event.result, { summary: 'theirs' });
+  expect(event.result).toStrictEqual({ summary: 'theirs' });
 });
 
 test('swamped toast fires once per upward crossing', async () => {
@@ -178,17 +185,17 @@ test('swamped toast fires once per upward crossing', async () => {
     await settle();
   }
   const swamped = fake.toasts.filter((t) => /swamped/i.test(t.message));
-  assert.equal(swamped.length, 1);
-  assert.equal(getCareState('ses_s1').advice, 'swamped');
-  assert.equal(getCareState('ses_s1').contextRatio, 0.8);
+  expect(swamped.length).toBe(1);
+  expect(getCareState('ses_s1').advice).toBe('swamped');
+  expect(getCareState('ses_s1').contextRatio).toBe(0.8);
 
   // Dropping below the threshold (after a compaction) re-arms the warning.
   fake.publish(step('ses_s1', 100));
   await settle();
-  assert.equal(getCareState('ses_s1').advice, null);
+  expect(getCareState('ses_s1').advice).toBe(null);
   fake.publish(step('ses_s1', 900));
   await settle();
-  assert.equal(fake.toasts.filter((t) => /swamped/i.test(t.message)).length, 2);
+  expect(fake.toasts.filter((t) => /swamped/i.test(t.message)).length).toBe(2);
 });
 
 test('swamped crossing emits a status event', async () => {
@@ -197,9 +204,9 @@ test('swamped crossing emits a status event', async () => {
   fake.publish(step('ses_s2', 750));
   await settle();
   const status = fake.events.find((e) => e.name === 'status');
-  assert.ok(status);
-  assert.equal((status.payload as { advice: string }).advice, 'swamped');
-  assert.equal((status.payload as { contextRatio: number }).contextRatio, 0.75);
+  expect(status).toBeTruthy();
+  expect((status.payload as { advice: string }).advice).toBe('swamped');
+  expect((status.payload as { contextRatio: number }).contextRatio).toBe(0.75);
 });
 
 test('handoff advice asks the judge and toasts on yes', async () => {
@@ -209,14 +216,14 @@ test('handoff advice asks the judge and toasts on yes', async () => {
   fake.publish(step('ses_a1', 350));
   await settle();
   const [call] = fake.callsTo('generate.text');
-  assert.match((call.input as { prompt: string }).prompt, /YES or NO/);
-  assert.equal(getCareState('ses_a1').advice, 'handoff');
-  assert.equal(fake.toasts.filter((t) => /handoff/i.test(t.message)).length, 1);
+  expect((call.input as { prompt: string }).prompt).toMatch(/YES or NO/);
+  expect(getCareState('ses_a1').advice).toBe('handoff');
+  expect(fake.toasts.filter((t) => /handoff/i.test(t.message)).length).toBe(1);
 
   // Same user turn, another step: no second question.
   fake.publish(step('ses_a1', 360));
   await settle();
-  assert.equal(fake.callsTo('generate.text').length, 1);
+  expect(fake.callsTo('generate.text').length).toBe(1);
 });
 
 test('handoff advice is skipped on odd turns, low context and tool-call steps', async () => {
@@ -231,8 +238,8 @@ test('handoff advice is skipped on odd turns, low context and tool-call steps', 
   await settle();
   fake.publish(step('ses_a2', 350, 'tool-calls'));
   await settle();
-  assert.equal(fake.callsTo('generate.text').length, 0);
-  assert.equal(getCareState('ses_a2').advice, null);
+  expect(fake.callsTo('generate.text').length).toBe(0);
+  expect(getCareState('ses_a2').advice).toBe(null);
 });
 
 test('handoff advice on no leaves advice unset', async () => {
@@ -241,9 +248,9 @@ test('handoff advice on no leaves advice unset', async () => {
   getState('ses_a3').userTurn = 2;
   fake.publish(step('ses_a3', 400));
   await settle();
-  assert.equal(fake.callsTo('generate.text').length, 1);
-  assert.equal(getCareState('ses_a3').advice, null);
-  assert.equal(fake.toasts.length, 0);
+  expect(fake.callsTo('generate.text').length).toBe(1);
+  expect(getCareState('ses_a3').advice).toBe(null);
+  expect(fake.toasts.length).toBe(0);
 });
 
 test('subagent sessions get no context advice', async () => {
@@ -255,8 +262,8 @@ test('subagent sessions get no context advice', async () => {
   getState('ses_child').userTurn = 2;
   fake.publish(step('ses_child', 900));
   await settle();
-  assert.equal(fake.toasts.length, 0);
-  assert.equal(fake.callsTo('generate.text').length, 0);
+  expect(fake.toasts.length).toBe(0);
+  expect(fake.callsTo('generate.text').length).toBe(0);
 });
 
 test('a root session with parentID null gets context advice', async () => {
@@ -267,7 +274,7 @@ test('a root session with parentID null gets context advice', async () => {
   await registerContextCare(fake.ctx);
   fake.publish(step('ses_null', 900));
   await settle();
-  assert.equal(getCareState('ses_null').advice, 'swamped');
+  expect(getCareState('ses_null').advice).toBe('swamped');
 });
 
 test('handoff quick creates a session and prompts it with the summary', async () => {
@@ -292,16 +299,16 @@ test('handoff quick creates a session and prompts it with the summary', async ()
   );
   const result = await handoff(fake.ctx, 'ses_h1', 'quick');
   const [create] = fake.callsTo('session.create');
-  assert.ok(create);
-  assert.equal(result.newSessionID, 'ses_fake_1');
-  assert.equal(result.file, undefined);
+  expect(create).toBeTruthy();
+  expect(result.newSessionID).toBe('ses_fake_1');
+  expect(result.file).toBe(undefined);
   const [prompt] = fake.callsTo('session.prompt');
   const input = prompt.input as { sessionID: string; text: string };
-  assert.equal(input.sessionID, 'ses_fake_1');
-  assert.match(input.text, /SUMMARY: parser fixed, next add tests/);
+  expect(input.sessionID).toBe('ses_fake_1');
+  expect(input.text).toMatch(/SUMMARY: parser fixed, next add tests/);
   const [gen] = fake.callsTo('generate.text');
-  assert.match((gen.input as { prompt: string }).prompt, /Fix the parser/);
-  assert.equal(fake.callsTo('vcs.status').length, 0);
+  expect((gen.input as { prompt: string }).prompt).toMatch(/Fix the parser/);
+  expect(fake.callsTo('vcs.status').length).toBe(0);
 });
 
 test('handoff fails without creating a session when the summary fails', async () => {
@@ -313,12 +320,12 @@ test('handoff fails without creating a session when the summary fails', async ()
     },
     ['ses_h2'],
   );
-  await assert.rejects(handoff(fake.ctx, 'ses_h2', 'quick'));
-  assert.equal(fake.callsTo('session.create').length, 0);
+  await expect(handoff(fake.ctx, 'ses_h2', 'quick')).rejects.toThrow();
+  expect(fake.callsTo('session.create').length).toBe(0);
 });
 
 test('handoff full writes HANDOFF.md with the summary and changed files', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'gearbox-handoff-'));
+  const dir = await tempDir();
   try {
     const fake = fakeWith(
       {
@@ -339,15 +346,15 @@ test('handoff full writes HANDOFF.md with the summary and changed files', async 
       ['ses_h3'],
     );
     const result = await handoff(fake.ctx, 'ses_h3', 'full');
-    assert.equal(result.file, join(dir, 'HANDOFF.md'));
-    const text = await readFile(join(dir, 'HANDOFF.md'), 'utf8');
-    assert.match(text, /SUMMARY: halfway through the parser/);
-    assert.match(text, /src\/p\.ts.*\+12.*-3/);
-    assert.match(text, /test\/p\.test\.ts.*\+40/);
+    expect(result.file).toBe(`${dir}/HANDOFF.md`);
+    const text = await Bun.file(`${dir}/HANDOFF.md`).text();
+    expect(text).toMatch(/SUMMARY: halfway through the parser/);
+    expect(text).toMatch(/src\/p\.ts.*\+12.*-3/);
+    expect(text).toMatch(/test\/p\.test\.ts.*\+40/);
     const [prompt] = fake.callsTo('session.prompt');
-    assert.match((prompt.input as { text: string }).text, /HANDOFF\.md/);
+    expect((prompt.input as { text: string }).text).toMatch(/HANDOFF\.md/);
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   }
 });
 
@@ -356,15 +363,15 @@ test('compactNow compacts and passes the note into the next compaction prompt', 
   await registerContextCare(fake.ctx);
   await compactNow(fake.ctx, 'ses_n1', 'keep the API decisions');
   const [compact] = fake.callsTo('session.compact');
-  assert.deepEqual(compact.input, { sessionID: 'ses_n1' });
+  expect(compact.input).toStrictEqual({ sessionID: 'ses_n1' });
   await fake.fire('compaction', compactionEvent('ses_n1'));
   const [gen] = fake.callsTo('generate.text');
-  assert.match((gen.input as { prompt: string }).prompt, /keep the API decisions/);
+  expect((gen.input as { prompt: string }).prompt).toMatch(/keep the API decisions/);
 
   // The note is used once.
   await fake.fire('compaction', compactionEvent('ses_n1'));
   const second = fake.callsTo('generate.text')[1];
-  assert.doesNotMatch((second.input as { prompt: string }).prompt, /keep the API decisions/);
+  expect((second.input as { prompt: string }).prompt).not.toMatch(/keep the API decisions/);
 });
 
 test('a compactNow note goes into OpenCode\'s compaction while compactWith is "session"', async () => {
@@ -378,10 +385,10 @@ test('a compactNow note goes into OpenCode\'s compaction while compactWith is "s
   await registerContextCare(fake.ctx);
   await compactNow(fake.ctx, 'ses_n2', 'keep the API decisions');
   const event = await fake.fire('compaction', compactionEvent('ses_n2'));
-  assert.equal(fake.callsTo('generate.text').length, 0);
-  assert.equal(event.result, undefined);
+  expect(fake.callsTo('generate.text').length).toBe(0);
+  expect(event.result).toBe(undefined);
   // `system` holds SystemPart objects; a bare string breaks OpenCode's compaction.
-  assert.deepEqual(event.system.at(-1), {
+  expect(event.system.at(-1)).toStrictEqual({
     type: 'text',
     text: 'Extra instructions from the user: keep the API decisions',
   });
@@ -389,7 +396,7 @@ test('a compactNow note goes into OpenCode\'s compaction while compactWith is "s
   fake.storage.delete('settings');
   await fake.fire('compaction', compactionEvent('ses_n2'));
   const [gen] = fake.callsTo('generate.text');
-  assert.doesNotMatch((gen.input as { prompt: string }).prompt, /keep the API decisions/);
+  expect((gen.input as { prompt: string }).prompt).not.toMatch(/keep the API decisions/);
 });
 
 test("a compactNow note goes into OpenCode's compaction when the judge is not cheaper", async () => {
@@ -400,9 +407,9 @@ test("a compactNow note goes into OpenCode's compaction when the judge is not ch
   await registerContextCare(fake.ctx);
   await compactNow(fake.ctx, 'ses_n3', 'keep the API decisions');
   const event = await fake.fire('compaction', compactionEvent('ses_n3'));
-  assert.equal(event.result, undefined);
+  expect(event.result).toBe(undefined);
   // `system` holds SystemPart objects; a bare string breaks OpenCode's compaction.
-  assert.deepEqual(event.system.at(-1), {
+  expect(event.system.at(-1)).toStrictEqual({
     type: 'text',
     text: 'Extra instructions from the user: keep the API decisions',
   });
@@ -424,7 +431,7 @@ test('a compactNow note is kept for the next compaction when the event has no sy
   fake.storage.delete('settings');
   await fake.fire('compaction', compactionEvent('ses_n4'));
   const [gen] = fake.callsTo('generate.text');
-  assert.match((gen.input as { prompt: string }).prompt, /keep the API decisions/);
+  expect((gen.input as { prompt: string }).prompt).toMatch(/keep the API decisions/);
 });
 
 test('compaction summary calls are recorded as judge calls', async () => {
@@ -433,14 +440,14 @@ test('compaction summary calls are recorded as judge calls', async () => {
   await fake.fire('compaction', compactionEvent('ses_c6'));
   await settle();
   const stats = fake.storage.get('stats/ses_c6') as { judgeCalls: number; judgeCostUSD: number };
-  assert.equal(stats.judgeCalls, 1);
-  assert.ok(stats.judgeCostUSD > 0);
+  expect(stats.judgeCalls).toBe(1);
+  expect(stats.judgeCostUSD > 0).toBeTruthy();
 });
 
 test('handoff full never overwrites an existing HANDOFF.md', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'gearbox-handoff-'));
+  const dir = await tempDir();
   try {
-    await writeFile(join(dir, 'HANDOFF.md'), 'older notes', 'utf8');
+    await Bun.write(`${dir}/HANDOFF.md`, 'older notes');
     const fake = fakeWith(
       {
         generateText: async () => ({ text: 'SUMMARY: second handoff' }),
@@ -449,19 +456,19 @@ test('handoff full never overwrites an existing HANDOFF.md', async () => {
       ['ses_h4'],
     );
     const result = await handoff(fake.ctx, 'ses_h4', 'full');
-    assert.equal(await readFile(join(dir, 'HANDOFF.md'), 'utf8'), 'older notes');
-    assert.ok(result.file);
-    assert.match(result.file, /HANDOFF-.+\.md$/);
-    assert.match(await readFile(result.file, 'utf8'), /second handoff/);
+    expect(await Bun.file(`${dir}/HANDOFF.md`).text()).toBe('older notes');
+    expect(result.file).toBeTruthy();
+    expect(result.file).toMatch(/HANDOFF-.+\.md$/);
+    expect(await Bun.file(result.file).text()).toMatch(/second handoff/);
     const [prompt] = fake.callsTo('session.prompt');
-    assert.ok((prompt.input as { text: string }).text.includes(basename(result.file)));
+    expect((prompt.input as { text: string }).text.includes(baseName(result.file))).toBeTruthy();
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   }
 });
 
 test('handoff full writes no file when session.create fails', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'gearbox-handoff-'));
+  const dir = await tempDir();
   try {
     const fake = fakeWith(
       {
@@ -477,15 +484,15 @@ test('handoff full writes no file when session.create fails', async () => {
       },
       ['ses_h5'],
     );
-    await assert.rejects(handoff(fake.ctx, 'ses_h5', 'full'), /create failed/);
-    assert.deepEqual(await readdir(dir), []);
+    await expect(handoff(fake.ctx, 'ses_h5', 'full')).rejects.toThrow(/create failed/);
+    expect(await listDir(dir)).toStrictEqual([]);
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   }
 });
 
 test('handoff full uses location.directory when there is no project directory', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'gearbox-handoff-'));
+  const dir = await tempDir();
   try {
     const fake = fakeWith(
       {
@@ -495,9 +502,9 @@ test('handoff full uses location.directory when there is no project directory', 
       ['ses_h6'],
     );
     const result = await handoff(fake.ctx, 'ses_h6', 'full');
-    assert.equal(result.file, join(dir, 'HANDOFF.md'));
+    expect(result.file).toBe(`${dir}/HANDOFF.md`);
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await removeDir(dir);
   }
 });
 
@@ -508,8 +515,8 @@ test('a care status emit keeps the routing effort pause', async () => {
   fake.publish(step('ses_s3', 750));
   await settle();
   const status = fake.events.filter((e) => e.name === 'status').at(-1)?.payload as any;
-  assert.equal(status.advice, 'swamped');
-  assert.equal(status.paused, 'no effort control');
+  expect(status.advice).toBe('swamped');
+  expect(status.paused).toBe('no effort control');
 });
 
 test('handoff still prompts the new session when writing the file fails', async () => {
@@ -521,12 +528,12 @@ test('handoff still prompts the new session when writing the file fails', async 
     ['ses_h7'],
   );
   const result = await handoff(fake.ctx, 'ses_h7', 'full');
-  assert.equal(result.newSessionID, 'ses_fake_1');
-  assert.equal(result.file, undefined);
-  assert.match(result.fileError ?? '', /ENOENT|no such file/i);
+  expect(result.newSessionID).toBe('ses_fake_1');
+  expect(result.file).toBe(undefined);
+  expect(result.fileError ?? '').toMatch(/ENOENT|no such file/i);
   const [prompt] = fake.callsTo('session.prompt');
-  assert.ok(prompt, 'the new session is prompted');
+  expect(prompt, 'the new session is prompted').toBeTruthy();
   const text = (prompt.input as { text: string }).text;
-  assert.match(text, /SUMMARY: parser done/);
-  assert.doesNotMatch(text, /HANDOFF/);
+  expect(text).toMatch(/SUMMARY: parser done/);
+  expect(text).not.toMatch(/HANDOFF/);
 });

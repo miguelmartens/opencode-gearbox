@@ -1,5 +1,4 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'bun:test';
 import {
   ageStatus,
   formatStatus,
@@ -35,70 +34,68 @@ const empty: GearboxStatus = {
 };
 
 test('formatStatus renders every segment', () => {
-  assert.equal(formatStatus(full), '⚙ High · opus-5-5 · ◔ 38% · cache 4:12 · Auto');
+  expect(formatStatus(full)).toBe('⚙ High · opus-5-5 · ◔ 38% · cache 4:12 · Auto');
 });
 
 test('formatStatus drops null segments', () => {
-  assert.equal(formatStatus(empty), '⚙ Auto');
-  assert.equal(
-    formatStatus({ ...full, model: null, cacheRemainingMs: null }),
+  expect(formatStatus(empty)).toBe('⚙ Auto');
+  expect(formatStatus({ ...full, model: null, cacheRemainingMs: null })).toBe(
     '⚙ High · ◔ 38% · Auto',
   );
 });
 
 test('formatStatus shows the pause reason over the mode', () => {
-  assert.equal(
-    formatStatus({ ...full, paused: 'manual variant' }),
+  expect(formatStatus({ ...full, paused: 'manual variant' })).toBe(
     '⚙ High · opus-5-5 · ◔ 38% · cache 4:12 · Paused: manual variant',
   );
 });
 
 test('formatStatus shows Manual when auto is off', () => {
-  assert.equal(formatStatus({ ...empty, auto: false }), '⚙ Manual');
+  expect(formatStatus({ ...empty, auto: false })).toBe('⚙ Manual');
 });
 
 test('formatStatus appends advice', () => {
-  assert.equal(formatStatus({ ...empty, advice: 'handoff' }), '⚙ Auto · ↻ handoff?');
-  assert.equal(formatStatus({ ...empty, advice: 'swamped' }), '⚙ Auto · ⚠ swamped');
+  expect(formatStatus({ ...empty, advice: 'handoff' })).toBe('⚙ Auto · ↻ handoff?');
+  expect(formatStatus({ ...empty, advice: 'swamped' })).toBe('⚙ Auto · ⚠ swamped');
 });
 
 test('formatStatus labels every level and pads cache seconds', () => {
-  assert.equal(formatStatus({ ...empty, level: 'xhigh' }), '⚙ XHigh · Auto');
-  assert.equal(formatStatus({ ...empty, cacheRemainingMs: 65_400 }), '⚙ cache 1:05 · Auto');
-  assert.equal(formatStatus({ ...empty, cacheRemainingMs: 0 }), '⚙ cache 0:00 · Auto');
+  expect(formatStatus({ ...empty, level: 'xhigh' })).toBe('⚙ XHigh · Auto');
+  expect(formatStatus({ ...empty, cacheRemainingMs: 65_400 })).toBe('⚙ cache 1:05 · Auto');
+  expect(formatStatus({ ...empty, cacheRemainingMs: 0 })).toBe('⚙ cache 0:00 · Auto');
 });
 
 test('shortModel strips the provider path and a leading claude-', () => {
-  assert.equal(shortModel('claude-opus-5-5'), 'opus-5-5');
-  assert.equal(shortModel('anthropic/claude-sonnet-5-5'), 'sonnet-5-5');
-  assert.equal(shortModel('gpt-6-luna'), 'gpt-6-luna');
+  expect(shortModel('claude-opus-5-5')).toBe('opus-5-5');
+  expect(shortModel('anthropic/claude-sonnet-5-5')).toBe('sonnet-5-5');
+  expect(shortModel('gpt-6-luna')).toBe('gpt-6-luna');
 });
 
 test('ageStatus counts the cache down and never below zero', () => {
-  assert.equal(ageStatus(full, 2_000).cacheRemainingMs, 250_000);
-  assert.equal(ageStatus(full, 999_000).cacheRemainingMs, 0);
-  assert.equal(ageStatus(empty, 2_000).cacheRemainingMs, null);
-  assert.equal(full.cacheRemainingMs, 252_000);
+  expect(ageStatus(full, 2_000).cacheRemainingMs).toBe(250_000);
+  expect(ageStatus(full, 999_000).cacheRemainingMs).toBe(0);
+  expect(ageStatus(empty, 2_000).cacheRemainingMs).toBe(null);
+  expect(full.cacheRemainingMs).toBe(252_000);
 });
 
 test('isLongMessage flags multi-line or long text for a dialog', () => {
-  assert.equal(isLongMessage('Auto paused: manual variant'), false);
-  assert.equal(isLongMessage('line one\nline two'), true);
-  assert.equal(isLongMessage('x'.repeat(200)), true);
+  expect(isLongMessage('Auto paused: manual variant')).toBe(false);
+  expect(isLongMessage('line one\nline two')).toBe(true);
+  expect(isLongMessage('x'.repeat(200))).toBe(true);
 });
 
 test('retryDelayMs backs off failed status fetches up to a minute', () => {
-  assert.equal(retryDelayMs(1), 2_000);
-  assert.equal(retryDelayMs(2), 4_000);
-  assert.equal(retryDelayMs(3), 8_000);
-  assert.equal(retryDelayMs(20), 60_000);
+  expect(retryDelayMs(1)).toBe(2_000);
+  expect(retryDelayMs(2)).toBe(4_000);
+  expect(retryDelayMs(3)).toBe(8_000);
+  expect(retryDelayMs(20)).toBe(60_000);
 });
 
 test('toastKind opens a dialog only for long text of the current session', () => {
   const long = 'line one\nline two';
-  assert.equal(toastKind({ sessionID: 'ses_a', message: long }, 'ses_a'), 'dialog');
-  assert.equal(toastKind({ sessionID: 'ses_b', message: long }, 'ses_a'), 'toast');
-  assert.equal(toastKind({ message: long }, 'ses_a'), 'toast');
-  assert.equal(toastKind({ sessionID: 'ses_a', message: long }, undefined), 'toast');
-  assert.equal(toastKind({ sessionID: 'ses_a', message: 'short' }, 'ses_a'), 'toast');
+  expect(toastKind({ sessionID: 'ses_a', message: long }, 'ses_a')).toBe('dialog');
+  expect(toastKind({ sessionID: 'ses_b', message: long }, 'ses_a')).toBe('toast');
+  expect(toastKind({ message: long }, 'ses_a')).toBe('toast');
+  expect(toastKind({ sessionID: 'ses_a', message: long }, undefined)).toBe('toast');
+  expect(toastKind({ sessionID: 'ses_a', message: 'short' }, 'ses_a')).toBe('toast');
 });

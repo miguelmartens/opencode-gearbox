@@ -30,9 +30,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # npm trusted publishing (OIDC). Configure it for this repository and workflow on npmjs.com
-      # before the first release, or `npm publish` fails.
-      id-token: write
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -40,20 +37,9 @@ jobs:
           bun-version: '1.4.x'
       - run: bun install --frozen-lockfile
       - run: bun test
-      # Node only provides the npm CLI, which trusted publishing (OIDC) needs.
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - name: Check whether this version is already on npm
-        id: check
-        run: |
-          name=$(jq -r .name package.json)
-          version=$(jq -r .version package.json)
-          if npm view "$name@$version" version >/dev/null 2>&1; then
-            echo "published=true" >> "$GITHUB_OUTPUT"
-            echo "$name@$version is already published; the publish step will be skipped."
-          else
-            echo "published=false" >> "$GITHUB_OUTPUT"
-          fi
-      - if: steps.check.outputs.published == 'false'
-        run: npm publish
+      # bun publish cannot use npm trusted publishing (OIDC) or provenance. It needs an npm
+      # automation token stored as the repository secret NPM_TOKEN. A version that is already
+      # on npm is skipped, so re-running the job is safe.
+      - run: bun publish --tolerate-republish
+        env:
+          NPM_CONFIG_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,20 +1,19 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'bun:test';
 import { expectedOutput, shouldSwitch } from '../../src/core/cost.ts';
 
 const from = { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 };
 const to = { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 };
 
 function near(actual: number, expected: number) {
-  assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} is not close to ${expected}`);
+  expect(Math.abs(actual - expected) < 1e-9, `${actual} is not close to ${expected}`).toBeTruthy();
 }
 
 test('expectedOutput follows the Global Constraints table', () => {
-  assert.equal(expectedOutput('low'), 800);
-  assert.equal(expectedOutput('medium'), 3000);
-  assert.equal(expectedOutput('high'), 8000);
-  assert.equal(expectedOutput('xhigh'), 16000);
-  assert.equal(expectedOutput('max'), 32000);
+  expect(expectedOutput('low')).toBe(800);
+  expect(expectedOutput('medium')).toBe(3000);
+  expect(expectedOutput('high')).toBe(8000);
+  expect(expectedOutput('xhigh')).toBe(16000);
+  expect(expectedOutput('max')).toBe(32000);
 });
 
 test('shouldSwitch stays on a large warm cache', () => {
@@ -28,7 +27,7 @@ test('shouldSwitch stays on a large warm cache', () => {
   });
   near(r.stayUSD, 0.1);
   near(r.goUSD, 0.1925);
-  assert.equal(r.switch, false);
+  expect(r.switch).toBe(false);
 });
 
 test('shouldSwitch switches when output dominates a small warm context', () => {
@@ -42,7 +41,7 @@ test('shouldSwitch switches when output dominates a small warm context', () => {
   });
   near(r.stayUSD, 0.105);
   near(r.goUSD, 0.0325);
-  assert.equal(r.switch, true);
+  expect(r.switch).toBe(true);
 });
 
 test('shouldSwitch switches for a fresh subagent with no context', () => {
@@ -54,7 +53,7 @@ test('shouldSwitch switches for a fresh subagent with no context', () => {
     expectedOutput: 3000,
     minSavingRatio: 0.2,
   });
-  assert.equal(r.switch, true);
+  expect(r.switch).toBe(true);
 });
 
 test('shouldSwitch prices a cold cache at full input on both sides', () => {
@@ -91,6 +90,6 @@ test('shouldSwitch needs the saving to reach minSavingRatio', () => {
     to: { input: 0, output: 80, cacheRead: 0, cacheWrite: 0 },
     expectedOutput: 1000,
   };
-  assert.equal(shouldSwitch({ ...base, minSavingRatio: 0.2 }).switch, true);
-  assert.equal(shouldSwitch({ ...base, minSavingRatio: 0.21 }).switch, false);
+  expect(shouldSwitch({ ...base, minSavingRatio: 0.2 }).switch).toBe(true);
+  expect(shouldSwitch({ ...base, minSavingRatio: 0.21 }).switch).toBe(false);
 });

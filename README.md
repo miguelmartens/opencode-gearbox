@@ -31,8 +31,8 @@ Effort works with any model that exposes effort variants. Verified on OpenCode 2
 
 ## Requirements
 
-- OpenCode **V2, 2.2.6 or later**. V1 is not supported.
-- Bun 1.4 or later, only to develop and run the tests.
+- OpenCode **V2, 2.2.6 or later**, running plugins on Bun (the standard OpenCode binary does). Gearbox uses Bun APIs, so it does not load under OpenCode's Node plugin loader. V1 is not supported.
+- Bun 1.4 or later to develop and run the tests.
 
 ## Install
 

@@ -195,6 +195,53 @@ footer{background:#080809;padding:40px 0;font:400 14px/1.6 var(--mono);color:var
 footer .wrap{display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between;align-items:center}
 footer a{color:var(--fg)}
 footer .brand{font-size:22px;text-decoration:none}
+
+/* benchmark */
+#bench[hidden],#nav-bench[hidden]{display:none}
+.demo-flag{display:inline-block;margin-left:12px;background:var(--max);color:var(--bg);font:700 12px/1 var(--mono);letter-spacing:.12em;padding:7px 9px;text-transform:uppercase}
+.bench-grid{display:grid;grid-template-columns:1.35fr .65fr;gap:28px;margin-top:52px;align-items:stretch}
+@media(max-width:960px){.bench-grid{grid-template-columns:1fr}}
+.bench-grid>*{min-width:0}
+.chartbox{padding:0;display:flex;flex-direction:column}
+.chartbox .demo-head{gap:12px;flex-wrap:wrap}
+.seg{display:flex;border:2px solid var(--fg)}
+.seg button{font:700 12px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;background:var(--surf);color:var(--mute);border:0;padding:8px 10px;cursor:pointer}
+.seg button+button{border-left:2px solid var(--fg)}
+.seg button[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
+#bchart{width:100%;height:auto;display:block;padding:10px 6px 4px}
+.legend2{display:flex;flex-wrap:wrap;gap:8px 18px;padding:12px 18px 16px;border-top:1px solid var(--line);font:400 13px/1 var(--mono);color:var(--mute);margin-top:auto}
+.legend2 span{display:inline-flex;align-items:center;gap:7px}
+.legend2 i{width:12px;height:12px;border:2px solid var(--bg);outline:1px solid var(--line);border-radius:50%}
+.legend2 i.sq{border-radius:0}
+.legend2 b{color:var(--fg)}
+.tiles{display:grid;gap:18px}
+.tile{padding:20px 22px}
+.tile .k{font:700 12px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+.tile .v{font:52px/1 var(--display);margin:10px 0 6px;letter-spacing:-.02em}
+.tile .d{font:400 14px/1.4 var(--mono);color:var(--mute)}
+.tile.hero{background:var(--fg);color:var(--bg)}
+.tile.hero .k,.tile.hero .d{color:#3a3a3e}
+.mix{margin-top:28px;padding:20px 22px}
+.mixbar{display:flex;height:34px;border:3px solid var(--fg);margin:12px 0 10px}
+.mixbar i{display:block;height:100%}
+.mixbar i+i{border-left:3px solid var(--bg)}
+.mixlegend{display:flex;flex-wrap:wrap;gap:8px 18px;font:400 13px/1 var(--mono);color:var(--mute)}
+.mixlegend span::before{content:"";display:inline-block;width:10px;height:10px;margin-right:6px;background:var(--c);border:1px solid var(--fg)}
+.btable{width:100%;border-collapse:collapse;margin-top:28px;font:400 15px/1.4 var(--mono);background:var(--surf);border:var(--bw) solid var(--fg);box-shadow:var(--sh) var(--sh) 0 var(--shadow)}
+.btable th{text-align:left;font-weight:700;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--mute);padding:14px 16px;border-bottom:var(--bw) solid var(--fg);background:var(--surf2)}
+.btable td{padding:13px 16px;border-bottom:1px solid var(--line);white-space:nowrap}
+.btable td.num,.btable th.num{text-align:right}
+.btable tr.me td{background:var(--fg);color:var(--bg);font-weight:700}
+.btable tr.me .sbar{background:#cfcec8}.btable tr.me .sbar i{background:var(--bg)}
+.btable .sw{display:inline-block;width:12px;height:12px;border:2px solid var(--fg);margin-right:10px;vertical-align:-1px}
+.btable tr.me .sw{border-color:var(--bg)}
+.sbar{display:inline-block;width:90px;height:10px;background:var(--surf2);margin-right:10px;vertical-align:0}
+.sbar i{display:block;height:100%;background:var(--fg)}
+.good{color:var(--low)}.bad{color:var(--max)}
+.btable tr.me .good,.btable tr.me .bad{color:var(--bg)}
+.tablewrap{overflow-x:auto;padding:0 10px 12px 0}
+.bmeta{margin-top:22px;font:400 13px/1.7 var(--mono);color:var(--mute)}
+.bmeta a{color:var(--fg)}
 @media(max-width:520px){.gatewrap{grid-template-columns:1fr}.verdict{text-align:center}section{padding:72px 0}}
 </style>
 </head>
@@ -210,6 +257,7 @@ footer .brand{font-size:22px;text-decoration:none}
       <a href="#how">How it works</a>
       <a href="#gears">Gears</a>
       <a href="#features">Features</a>
+      <a href="#bench" id="nav-bench" hidden>Benchmark</a>
       <a href="#commands">Commands</a>
       <a href="#install">Install</a>
     </div>
@@ -326,9 +374,34 @@ footer .brand{font-size:22px;text-decoration:none}
   </div>
 </section>
 
-<section class="alt" id="statusbar">
+<section id="bench" class="alt" hidden aria-labelledby="bench-title">
   <div class="wrap">
-    <div class="eyebrow"><b>04</b> Status bar</div>
+    <div class="eyebrow"><b>04</b> Benchmark<span class="demo-flag" id="bench-flag" hidden>Sample data · not measured</span></div>
+    <h2 id="bench-title">Measured, not promised.</h2>
+    <p class="sub" id="bench-sub"></p>
+    <div class="bench-grid">
+      <div class="box chartbox">
+        <div class="demo-head"><span>Tasks solved vs. <span id="bx-label">cost</span> per task</span>
+          <div class="seg" role="group" aria-label="X axis">
+            <button type="button" data-x="cost" aria-pressed="true">Cost</button>
+            <button type="button" data-x="tokens" aria-pressed="false">Tokens</button>
+            <button type="button" data-x="time" aria-pressed="false">Time</button>
+          </div>
+        </div>
+        <svg id="bchart" viewBox="0 0 680 420" role="img" aria-labelledby="bench-title"></svg>
+        <div class="legend2" id="blegend"></div>
+      </div>
+      <div class="tiles" id="btiles"></div>
+    </div>
+    <div class="box mix" id="bmix"></div>
+    <div class="tablewrap"><table class="btable" id="btable"></table></div>
+    <p class="bmeta" id="bmeta"></p>
+  </div>
+</section>
+
+<section id="statusbar">
+  <div class="wrap">
+    <div class="eyebrow"><b>05</b> Status bar</div>
     <h2>Always know which gear you're in.</h2>
     <p class="sub">The TUI status bar ships in the same package. It shows what Gearbox chose, and why.</p>
     <div class="anatomy">
@@ -347,9 +420,9 @@ footer .brand{font-size:22px;text-decoration:none}
   </div>
 </section>
 
-<section id="commands">
+<section id="commands" class="alt">
   <div class="wrap">
-    <div class="eyebrow"><b>05</b> Commands</div>
+    <div class="eyebrow"><b>06</b> Commands</div>
     <h2>One command, no model turns.</h2>
     <p class="sub">Everything answers as a toast or a dialog. Nothing starts a model turn.</p>
     <div class="term">
@@ -371,7 +444,7 @@ footer .brand{font-size:22px;text-decoration:none}
 
 <section id="install">
   <div class="wrap">
-    <div class="eyebrow"><b>06</b> Install</div>
+    <div class="eyebrow"><b>07</b> Install</div>
     <h2>Put it in drive.</h2>
     <div class="install">
       <ol class="steps">
@@ -484,7 +557,7 @@ footer .brand{font-size:22px;text-decoration:none}
         var s=script[i];
         vl.textContent='…';vl.style.background='#202023';vl.style.color='#EDECE6';vw.textContent='rating…';
         await type(s.t);await wait(450);
-        vl.textContent=N[s.g][0];vl.style.background=N[s.g][1];vl.style.color='#0C0C0D';vw.textContent=s.why;
+        vl.textContent=N[s.g][0].toLowerCase();vl.style.background=N[s.g][1];vl.style.color='#0C0C0D';vw.textContent=s.why;
         await shift(s.g);
         sl.textContent=N[s.g][0];sl.style.color=N[s.g][1];sm.textContent=s.m;sc.textContent=s.c;
         await wait(2200);
@@ -492,6 +565,101 @@ footer .brand{font-size:22px;text-decoration:none}
     }
   }
   run();
+})();
+</script>
+
+<script>
+/* Benchmark section. Renders bench.json (written by bench/ in the repo, copied in by the pages workflow).
+   No file -> the section stays hidden. #bench-demo shows clearly flagged SAMPLE data for design review only. */
+(function(){
+  var COL={low:'#8BE48B',medium:'#66C7FF',high:'#B69CFF',xhigh:'#FF9A3C',max:'#FF4F4F'};
+  var SAMPLE={version:1,sample:true,date:'YYYY-MM-DD',opencode:'2.2.6',gearbox:'x.y.z',model:'provider/model',judge:'provider/judge#none',
+    tasks:24,runs:3,baseline:'high',
+    arms:[
+      {id:'medium',label:'always medium',kind:'fixed',passRate:.71,passRange:[.67,.75],outputTokensPerTask:6100,costPerTask:.061,costRange:[.055,.068],secondsPerTask:48},
+      {id:'high',label:'always high',kind:'fixed',passRate:.83,passRange:[.79,.88],outputTokensPerTask:11800,costPerTask:.094,costRange:[.086,.101],secondsPerTask:71},
+      {id:'xhigh',label:'always xhigh',kind:'fixed',passRate:.86,passRange:[.83,.88],outputTokensPerTask:19900,costPerTask:.138,costRange:[.127,.149],secondsPerTask:102},
+      {id:'max',label:'always max',kind:'fixed',passRate:.88,passRange:[.83,.92],outputTokensPerTask:30500,costPerTask:.19,costRange:[.176,.207],secondsPerTask:139},
+      {id:'auto-effort',label:'gearbox · effort only',kind:'gearbox',passRate:.83,passRange:[.79,.88],outputTokensPerTask:8300,costPerTask:.071,costRange:[.064,.077],secondsPerTask:58,judgeCostPerTask:.002},
+      {id:'auto',label:'gearbox auto',kind:'gearbox',passRate:.84,passRange:[.79,.88],outputTokensPerTask:8100,costPerTask:.052,costRange:[.047,.058],secondsPerTask:55,judgeCostPerTask:.002,
+       levels:{low:.29,medium:.33,high:.21,xhigh:.12,max:.05}}
+    ]};
+  var sec=document.getElementById('bench');if(!sec)return;
+  var X={cost:{k:'costPerTask',r:'costRange',name:'cost',fmt:function(v){return '$'+(v>=1?v.toFixed(2):v.toFixed(3).replace(/0$/,''))}},
+         tokens:{k:'outputTokensPerTask',name:'output tokens',fmt:function(v){return v>=1000?(v/1000).toFixed(1)+'k':String(Math.round(v))}},
+         time:{k:'secondsPerTask',name:'time',fmt:function(v){return Math.round(v)+'s'}}};
+  var data,xm='cost';
+  function el(t,a,c){var e=document.createElementNS('http://www.w3.org/2000/svg',t);for(var k in a)e.setAttribute(k,a[k]);if(c!=null)e.textContent=c;return e}
+  function colorOf(a){return a.kind==='gearbox'?(a.id==='auto'?'#EDECE6':'#8C8C93'):(COL[a.id]||'#8C8C93')}
+  function pct(v){return Math.round(v*100)+'%'}
+  function delta(a,b){return (a-b)/b}
+  function arm(id){for(var i=0;i<data.arms.length;i++)if(data.arms[i].id===id)return data.arms[i]}
+  function niceMax(v){var p=Math.pow(10,Math.floor(Math.log10(v))),n=v/p;return (n<=1?1:n<=2?2:n<=2.5?2.5:n<=5?5:10)*p}
+
+  function chart(){
+    var svg=document.getElementById('bchart');while(svg.firstChild)svg.removeChild(svg.firstChild);
+    var W=680,H=420,L=64,R=24,T=20,B=56,ax=X[xm];
+    document.getElementById('bx-label').textContent=ax.name;
+    document.querySelectorAll('.seg button').forEach(function(b){b.setAttribute('aria-pressed',b.dataset.x===xm)});
+    var xs=data.arms.map(function(a){return a[ax.r]?a[ax.r][1]:a[ax.k]});
+    var xmax=niceMax(Math.max.apply(null,xs)*1.08);
+    var pm=data.arms.map(function(a){return a.passRange?a.passRange[0]:a.passRate});
+    var ymin=Math.max(0,Math.floor((Math.min.apply(null,pm)-.05)*5)/5),ymax=1;
+    function px(v){return L+(v/xmax)*(W-L-R)}function py(v){return T+(1-(v-ymin)/(ymax-ymin))*(H-T-B)}
+    var mant=xmax/Math.pow(10,Math.floor(Math.log10(xmax))),NX=(mant===2.5||mant===5)?5:4,NY=Math.round((ymax-ymin)*10)<=5?Math.round((ymax-ymin)*10):Math.round((ymax-ymin)*5);
+    for(var i=0;i<=Math.max(NX,NY);i++){var gx=xmax*i/NX,gy=ymin+(ymax-ymin)*i/NY;if(i<=NX){
+      svg.appendChild(el('line',{x1:px(gx),x2:px(gx),y1:T,y2:H-B,stroke:'#34343A','stroke-width':1}));
+      }if(i<=NY){svg.appendChild(el('line',{x1:L,x2:W-R,y1:py(gy),y2:py(gy),stroke:'#34343A','stroke-width':1}));
+      svg.appendChild(el('text',{x:L-10,y:py(gy)+4,fill:'#8C8C93','font-family':'JetBrains Mono','font-size':12,'text-anchor':'end'},pct(gy)));}
+      if(i<=NX)svg.appendChild(el('text',{x:px(gx),y:H-B+22,fill:'#8C8C93','font-family':'JetBrains Mono','font-size':12,'text-anchor':'middle'},ax.fmt(gx)));}
+    svg.appendChild(el('path',{d:'M'+L+','+T+'V'+(H-B)+'H'+(W-R),fill:'none',stroke:'#EDECE6','stroke-width':3}));
+    svg.appendChild(el('text',{x:(L+W-R)/2,y:H-10,fill:'#8C8C93','font-family':'JetBrains Mono','font-size':12,'font-weight':700,'text-anchor':'middle','letter-spacing':'1'},(ax.name+' per task  →  cheaper is left').toUpperCase()));
+    svg.appendChild(el('text',{x:16,y:(T+H-B)/2,fill:'#8C8C93','font-family':'JetBrains Mono','font-size':12,'font-weight':700,'text-anchor':'middle','letter-spacing':'1',transform:'rotate(-90 16 '+((T+H-B)/2)+')'},'TASKS SOLVED ↑'));
+    var order=data.arms.slice().sort(function(a,b){return a.kind==='gearbox'?1:-1});
+    order.forEach(function(a){
+      var x=px(a[ax.k]),y=py(a.passRate),c=colorOf(a),g=el('g',{});
+      if(a.passRange)g.appendChild(el('line',{x1:x,x2:x,y1:py(a.passRange[0]),y2:py(a.passRange[1]),stroke:c,'stroke-width':3}));
+      if(ax.r&&a[ax.r])g.appendChild(el('line',{x1:px(a[ax.r][0]),x2:px(a[ax.r][1]),y1:y,y2:y,stroke:c,'stroke-width':3}));
+      if(a.id==='auto'){g.appendChild(el('rect',{x:x-12,y:y-12,width:24,height:24,fill:'#4A4A51',transform:'translate(4 4)'}));g.appendChild(el('rect',{x:x-12,y:y-12,width:24,height:24,fill:c,stroke:'#0C0C0D','stroke-width':3}))}
+      else if(a.kind==='gearbox')g.appendChild(el('rect',{x:x-9,y:y-9,width:18,height:18,fill:'#161618',stroke:c,'stroke-width':3}));
+      else g.appendChild(el('circle',{cx:x,cy:y,r:10,fill:c,stroke:'#0C0C0D','stroke-width':3}));
+      if(a.id==='auto')g.appendChild(el('text',{x:x,y:y-26,fill:'#EDECE6',stroke:'#161618','stroke-width':6,'paint-order':'stroke','font-family':'Archivo Black','font-size':16,'text-anchor':'middle'},'gearbox'));
+      var t=el('title',{},a.label+': '+pct(a.passRate)+' solved, '+ax.fmt(a[ax.k])+' per task');g.appendChild(t);
+      svg.appendChild(g);
+    });
+  }
+
+  function render(){
+    var base=arm(data.baseline||'high'),me=arm('auto');if(!base||!me)return false;
+    var dc=delta(me.costPerTask,base.costPerTask),dt=delta(me.outputTokensPerTask,base.outputTokensPerTask),dp=me.passRate-base.passRate;
+    function word(d,less,more){return Math.abs(Math.round(d*100))+'% '+(d<=0?less:more)}
+    document.getElementById('bench-sub').textContent='Gearbox auto against a fixed effort level on '+data.tasks+' coding tasks × '+data.runs+' runs, same model, every task checked by its tests. Against always-'+base.id+': '+word(dc,'less','more')+' spend, '+word(dt,'fewer','more')+' output tokens, '+(dp>=0?'+':'−')+Math.abs(Math.round(dp*100))+(Math.abs(Math.round(dp*100))===1?' point':' points')+' of tasks solved.';
+    var tiles=[
+      {k:'Spend vs always-'+base.id,v:(dc<=0?'−':'+')+Math.abs(Math.round(dc*100))+'%',d:'$'+me.costPerTask.toFixed(3)+' vs $'+base.costPerTask.toFixed(3)+' per task, judge included',hero:true},
+      {k:'Output tokens',v:(dt<=0?'−':'+')+Math.abs(Math.round(dt*100))+'%',d:X.tokens.fmt(me.outputTokensPerTask)+' vs '+X.tokens.fmt(base.outputTokensPerTask)+' per task'},
+      {k:'Tasks solved',v:pct(me.passRate),d:'always-'+base.id+': '+pct(base.passRate)}];
+    var tb=document.getElementById('btiles');tb.innerHTML='';
+    tiles.forEach(function(t){var d=document.createElement('div');d.className='box tile'+(t.hero?' hero':'');
+      d.innerHTML='<div class="k"></div><div class="v"></div><div class="d"></div>';d.children[0].textContent=t.k;d.children[1].textContent=t.v;d.children[2].textContent=t.d;tb.appendChild(d)});
+    var mx=document.getElementById('bmix');
+    if(me.levels){var h='<div class="tile" style="padding:0"><div class="k">Where Gearbox put each turn</div></div><div class="mixbar">',lg='<div class="mixlegend">';
+      ['low','medium','high','xhigh','max'].forEach(function(l){var v=me.levels[l]||0;if(v>0)h+='<i style="width:'+(v*100)+'%;background:'+COL[l]+'" title="'+l+' '+pct(v)+'"></i>';lg+='<span style="--c:'+COL[l]+'">'+l+' '+pct(v)+'</span>'});
+      mx.innerHTML=h+'</div>'+lg+'</div>';mx.hidden=false}else mx.hidden=true;
+    var rows='<thead><tr><th>Setup</th><th>Solved</th><th class="num">Output tokens</th><th class="num">Cost</th><th class="num">Time</th><th class="num">Cost vs always-'+base.id+'</th></tr></thead><tbody>';
+    data.arms.forEach(function(a){var d=delta(a.costPerTask,base.costPerTask),cls=a.id===base.id?'':(d<0?'good':'bad');
+      rows+='<tr class="'+(a.id==='auto'?'me':'')+'"><td><span class="sw" style="background:'+colorOf(a)+'"></span>'+a.label+'</td><td><span class="sbar"><i style="width:'+(a.passRate*100)+'%"></i></span>'+pct(a.passRate)+'</td><td class="num">'+X.tokens.fmt(a.outputTokensPerTask)+'</td><td class="num">'+X.cost.fmt(a.costPerTask)+'</td><td class="num">'+X.time.fmt(a.secondsPerTask)+'</td><td class="num '+cls+'">'+(a.id===base.id?'baseline':(d<0?'−':'+')+Math.abs(Math.round(d*100))+'%')+'</td></tr>'});
+    document.getElementById('btable').innerHTML=rows+'</tbody>';
+    var m=document.getElementById('bmeta');
+    m.innerHTML='';m.append('Per task, median of '+data.runs+' runs; bars show min–max. Model '+data.model+', judge '+data.judge+', OpenCode '+data.opencode+', Gearbox '+data.gearbox+', run '+data.date+'. Gearbox cost includes every judge call. ');
+    var a1=document.createElement('a');a1.href='https://github.com/miguelmartens/opencode-gearbox/tree/main/bench';a1.textContent='Method, tasks and raw results →';m.append(a1);
+    var lg=document.getElementById('blegend');lg.innerHTML='';
+    data.arms.forEach(function(a){var sp=document.createElement('span'),i=document.createElement('i');i.style.background=a.kind==='gearbox'&&a.id!=='auto'?'#161618':colorOf(a);if(a.kind==='gearbox'){i.className='sq';if(a.id!=='auto')i.style.borderColor=colorOf(a)}sp.appendChild(i);var t=document.createElement(a.id==='auto'?'b':'span');t.textContent=a.label;sp.appendChild(t);lg.appendChild(sp)});
+    chart();return true;
+  }
+  function show(d,demo){data=d;if(!render())return;sec.hidden=false;document.getElementById('nav-bench').hidden=false;document.getElementById('bench-flag').hidden=!demo;}
+  document.querySelectorAll('.seg button').forEach(function(b){b.addEventListener('click',function(){xm=b.dataset.x;chart()})});
+  if(location.hash==='#bench-demo'){show(SAMPLE,true);setTimeout(function(){sec.scrollIntoView()},50);return}
+  try{fetch('bench.json',{cache:'no-store'}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.version===1&&!d.sample)show(d,false)}).catch(function(){})}catch(e){}
 })();
 </script>
 </body>

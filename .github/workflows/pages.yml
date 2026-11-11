@@ -3,7 +3,7 @@ name: pages
 on:
   push:
     branches: [main]
-    paths: ['site/**', 'assets/brand/**']
+    paths: ['site/**', 'assets/brand/**', 'bench/results/**']
   workflow_dispatch:
 
 permissions:
@@ -24,7 +24,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Copy brand assets into the site
-        run: cp assets/brand/social-preview.png assets/brand/favicon.svg site/
+        run: |
+          cp assets/brand/social-preview.png assets/brand/favicon.svg site/
+          # Benchmark results: the site's Benchmark section stays hidden without this file.
+          if [ -f bench/results/summary.json ]; then cp bench/results/summary.json site/bench.json; fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

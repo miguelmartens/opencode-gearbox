@@ -12,6 +12,17 @@ import type { Segment } from './format.ts';
 
 type Seen = { status: GearboxStatus; at: number };
 
+/** One bar line. A `<span>` takes its color only from `style`; a bare `fg` prop is ignored. */
+export function StatusLine(props: { segments: Segment[] }) {
+  return (
+    <text>
+      <For each={props.segments}>
+        {(segment) => <span style={{ fg: segment.fg }}>{segment.text}</span>}
+      </For>
+    </text>
+  );
+}
+
 export default Plugin.define({
   id: 'gearbox',
   setup(context) {
@@ -85,13 +96,7 @@ export default Plugin.define({
       append: 'prompt.footer.status',
       render: (input) => (
         <Show when={line(input.sessionID)}>
-          {(segments) => (
-            <text>
-              <For each={segments()}>
-                {(segment) => <span fg={segment.fg}>{segment.text}</span>}
-              </For>
-            </text>
-          )}
+          {(segments) => <StatusLine segments={segments()} />}
         </Show>
       ),
     });

@@ -16,7 +16,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           # engines.bun is >=1.4.
-          bun-version: '1.4'
+          bun-version: '1.4.x'
       - run: bun install --frozen-lockfile
       - run: bun test
       - run: bun run format:check

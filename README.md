@@ -32,7 +32,7 @@ Effort works with any model that exposes effort variants. Verified on OpenCode 2
 ## Requirements
 
 - OpenCode **V2, 2.2.6 or later**. V1 is not supported.
-- Node.js 22.18 or later, only to run the tests.
+- Bun 1.4 or later, only to develop and run the tests.
 
 ## Install
 

@@ -536,7 +536,9 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
 
       const decision = await turnDecision(state, settings.judge.timeoutMs, entry);
       const level = applyShaping(decision.level, settings, Date.now());
-      const info = findInfo(await listModelInfos(ctx), model);
+      // A hanging catalog read must not hold the request: no catalog → no effort control.
+      const infos = await bounded(listModelInfos(ctx), settings.judge.timeoutMs, []);
+      const info = findInfo(infos, model);
       const variantID = pickVariant(level, effortVariants((info?.variants ?? []).map((v) => v.id)));
       const effort = info?.variants?.find((v) => v.id === variantID)?.settings;
       state.lastLevel = decision.level;
@@ -548,7 +550,8 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       state.requestModel = variantID
         ? { providerID: model.providerID, id: model.id, variant: variantID }
         : { providerID: model.providerID, id: model.id };
-      await publishStatus(sessionID, state, options ? null : NO_EFFORT_CONTROL);
+      const paused = options ? null : NO_EFFORT_CONTROL;
+      await bounded(publishStatus(sessionID, state, paused), settings.judge.timeoutMs, undefined);
     } catch (error) {
       logOnce(sessionID, 'routing.context', error);
     }

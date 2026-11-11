@@ -117,6 +117,18 @@ test('the turn decision applies on every context step', async () => {
   expect(fake.callsTo('generate.text').length).toBe(1);
 });
 
+test('a hanging model catalog does not hold the request', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { judge: { timeoutMs: 50 } },
+    overrides: { model: { list: () => new Promise(() => {}) } },
+  });
+  await fake.fire('prompt', promptEvent(sessionID, 'max effort: fix it'));
+  const late = new Promise((resolve) => setTimeout(() => resolve('hung'), 1000));
+  const result = await Promise.race([fake.fire('context', contextEvent(sessionID)), late]);
+  expect(result).not.toBe('hung');
+});
+
 function userMessage(id: string, text: string) {
   return { id, role: 'user', content: [{ type: 'text', text }] };
 }

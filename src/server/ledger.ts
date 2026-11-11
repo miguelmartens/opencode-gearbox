@@ -4,7 +4,7 @@
 
 import type { Plugin } from '@opencode/plugin';
 import { LEVELS } from '../core/types.ts';
-import type { Level, Settings, Stats } from '../core/types.ts';
+import type { Level, Settings } from '../core/types.ts';
 import { addRequest, emptySessionStats } from '../core/stats.ts';
 import type { SessionStats } from '../core/stats.ts';
 import { budgetState } from '../core/context.ts';
@@ -38,10 +38,13 @@ export async function readSpend(ctx: Ctx, now: number): Promise<Spend> {
     : { usd: 0, warned: false };
 }
 
-function isStats(v: unknown): v is Stats {
+function isStats(v: unknown): v is SessionStats {
   return (
     isObject(v) &&
     isNumber(v.turns) &&
+    isNumber(v.requests) &&
+    isNumber(v.manual) &&
+    (v.lastTurn === null || isNumber(v.lastTurn)) &&
     isObject(v.byLevel) &&
     LEVELS.every((level) => isNumber(v.byLevel[level])) &&
     isObject(v.tokens) &&
@@ -54,20 +57,10 @@ function isStats(v: unknown): v is Stats {
   );
 }
 
-/**
- * Stored stats, or empty stats when missing or of the wrong shape. Stats stored before requests
- * were counted apart count every request as a turn.
- */
+/** Stored stats, or empty stats when missing or of the wrong shape. */
 export async function readStats(ctx: Ctx, sessionID: string): Promise<SessionStats> {
   const stored = await ctx.storage.get(`stats/${sessionID}`);
-  if (!isStats(stored)) return emptySessionStats();
-  const extra = stored as Stats & { requests?: unknown; manual?: unknown; lastTurn?: unknown };
-  return {
-    ...stored,
-    requests: isNumber(extra.requests) ? extra.requests : stored.turns,
-    manual: isNumber(extra.manual) ? extra.manual : 0,
-    lastTurn: isNumber(extra.lastTurn) ? extra.lastTurn : null,
-  };
+  return isStats(stored) ? stored : emptySessionStats();
 }
 
 const queues = new WeakMap<object, Promise<unknown>>();

@@ -300,6 +300,14 @@ test('stored stats with the wrong shape fall back to empty stats', async () => {
   await waitFor(() => (fake.storage.get('stats/ses_bad') as any)?.requests === 1);
 });
 
+test('stored stats without the per-request fields fall back to empty stats', async () => {
+  const old = { ...emptySessionStats(), turns: 3 } as Record<string, unknown>;
+  delete old.requests;
+  const fake = await setup({ storage: { 'stats/ses_old': old } });
+  await fake.runCommand('gearbox', 'stats', 'ses_old');
+  expect(fake.lastMessage()).toBe(summarize(emptySessionStats()));
+});
+
 test('budget warn shows one toast and turns save mode on', async () => {
   resetState('ses_budget');
   const fake = await setup({ storage: { settings: { budget: { dailyUSD: 10 } } } });

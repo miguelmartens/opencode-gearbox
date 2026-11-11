@@ -126,6 +126,11 @@ export function trackUsage(ctx: Ctx): void {
       const state = getState(sessionID);
       if (event.type === 'session.step.started') {
         state.requestModel = toModelRef(data.model) ?? state.requestModel;
+        state.step = {
+          turn: state.requestTurn,
+          level: state.requestLevel,
+          model: state.requestModel,
+        };
         return;
       }
       sweepIdle(Date.now(), sessionID);
@@ -140,6 +145,7 @@ export function trackUsage(ctx: Ctx): void {
           logOnce(sessionID, scope, error);
         }
       }
+      state.step = null;
       await statusChanged(ctx, sessionID);
     },
     'usage tracking',

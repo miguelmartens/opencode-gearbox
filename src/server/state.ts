@@ -18,6 +18,11 @@ export type SessionState = {
   requestTurn: number;
   /** Effort level Gearbox set on the last request; `null` when it left the request alone. */
   requestLevel: Level | null;
+  /**
+   * Turn, level and model of the running request, copied on `session.step.started`. The next
+   * request's `context` hook can overwrite the fields above before this step's end arrives.
+   */
+  step: { turn: number; level: Level | null; model: ModelRef | null } | null;
   /** Context size of the last request (`session.step.ended`). */
   contextTokens: number | null;
   /** Raw text of the last judge answer, for `/gearbox debug`. */
@@ -61,6 +66,7 @@ function freshState(): SessionState {
     requestModel: null,
     requestTurn: 0,
     requestLevel: null,
+    step: null,
     contextTokens: null,
     judgeAnswer: null,
     firstModel: null,

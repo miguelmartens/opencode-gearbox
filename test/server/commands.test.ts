@@ -179,6 +179,27 @@ test('stats counts one turn per user prompt and its level once', async () => {
   expect(stats.byLevel).toStrictEqual({ low: 1, medium: 0, high: 0, xhigh: 1, max: 0 });
 });
 
+test('a step counts under the turn and level it started with, not the next request', async () => {
+  resetState('ses_race');
+  const state = getState('ses_race');
+  const fake = await setup();
+  state.requestTurn = 1;
+  state.requestLevel = 'low';
+  fake.publish({
+    type: 'session.step.started',
+    data: { sessionID: 'ses_race', model: { providerID: 'p', id: 'm' } },
+  });
+  await waitFor(() => state.requestModel !== null);
+  // The queued prompt's `context` hook runs before the bus delivers this step's end.
+  state.requestTurn = 2;
+  state.requestLevel = 'xhigh';
+  fake.publish(stepEnded('ses_race', 0));
+  await waitFor(() => (fake.storage.get('stats/ses_race') as any)?.requests === 1);
+  const stats = fake.storage.get('stats/ses_race') as any;
+  expect(stats.lastTurn).toBe(1);
+  expect(stats.byLevel).toStrictEqual({ low: 1, medium: 0, high: 0, xhigh: 0, max: 0 });
+});
+
 test('a turn Gearbox did not route counts as manual, not under its last level', async () => {
   resetState('ses_manual');
   const state = getState('ses_manual');

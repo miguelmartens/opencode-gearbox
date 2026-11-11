@@ -88,7 +88,13 @@ async function priceTokens(
 async function recordRequest(ctx: Ctx, deps: CommandDeps, data: any): Promise<void> {
   const sessionID: string = data.sessionID;
   const state = getState(sessionID);
-  const model = state.requestModel ?? undefined;
+  // The step as it started; without a `step.started` event, the live request fields.
+  const step = state.step ?? {
+    turn: state.requestTurn,
+    level: state.requestLevel,
+    model: state.requestModel,
+  };
+  const model = step.model ?? undefined;
   const tokens = isObject(data.tokens) ? data.tokens : {};
   const t = {
     input: num(tokens.input),
@@ -104,12 +110,12 @@ async function recordRequest(ctx: Ctx, deps: CommandDeps, data: any): Promise<vo
     ctx,
     sessionID,
     {
-      level: state.requestLevel,
+      level: step.level,
       input: t.input,
       output: t.output,
       cacheRead: t.cacheRead,
       costUSD,
-      turn: state.requestTurn,
+      turn: step.turn,
     },
     deps.now(),
   );

@@ -4,7 +4,7 @@
 
 import type { Plugin } from '@opencode/plugin';
 import { LEVELS } from '../core/types.ts';
-import type { Level } from '../core/types.ts';
+import type { Level, ModelRef } from '../core/types.ts';
 import { addRequest, emptySessionStats, usd } from '../core/stats.ts';
 import { saveModeActive } from '../core/levels.ts';
 import type { SessionStats } from '../core/stats.ts';
@@ -13,6 +13,7 @@ import { isNumber, isObject, num } from '../core/guards.ts';
 import { getState, onForget } from './state.ts';
 import { loadSettings, updateSettings } from './settings-store.ts';
 import { logOnce, toast } from './notify.ts';
+import { findModelInfo, toModelLite } from './models.ts';
 
 type Ctx = Plugin.Context;
 
@@ -179,6 +180,63 @@ export function recordStep(
       await writeStats(ctx, sessionID, addRequest(await readStats(ctx, sessionID), step));
     await addSpend(ctx, sessionID, step.costUSD, now);
   });
+}
+
+/** USD for a request from its tokens and the model's base-tier price (docs/api-probe.md §2, §8). */
+async function priceTokens(
+  ctx: Ctx,
+  model: ModelRef,
+  t: { input: number; output: number; cacheRead: number; cacheWrite: number },
+): Promise<number> {
+  const info = await findModelInfo(ctx, model);
+  const p = info ? toModelLite(info)?.price : undefined;
+  if (!p) return 0;
+  return (
+    (t.input * p.input +
+      t.output * p.output +
+      t.cacheRead * p.cacheRead +
+      t.cacheWrite * p.cacheWrite) /
+    1e6
+  );
+}
+
+/**
+ * One finished model request into stats and the budget; `data` is the `session.step.ended` event
+ * data (docs/api-probe.md §8). Turn, level and model come from the step tracker's snapshot.
+ */
+export async function recordRequest(ctx: Ctx, data: any, now = Date.now()): Promise<void> {
+  const sessionID: string = data.sessionID;
+  const state = getState(sessionID);
+  // The step as it started; without a `step.started` event, the live request fields.
+  const step = state.step ?? {
+    turn: state.requestTurn,
+    level: state.requestLevel,
+    model: state.requestModel,
+  };
+  const tokens = isObject(data.tokens) ? data.tokens : {};
+  const t = {
+    input: num(tokens.input),
+    output: num(tokens.output),
+    cacheRead: num(tokens.cache?.read),
+    cacheWrite: num(tokens.cache?.write),
+  };
+  // Trust the reported cost, 0 included (subscriptions); price tokens only when it is missing.
+  const reported = typeof data.cost === 'number' && Number.isFinite(data.cost);
+  const costUSD = reported ? data.cost : step.model ? await priceTokens(ctx, step.model, t) : 0;
+  // Judge calls are recorded by `runJudge` when they settle, never per step.
+  await recordStep(
+    ctx,
+    sessionID,
+    {
+      level: step.level,
+      input: t.input,
+      output: t.output,
+      cacheRead: t.cacheRead,
+      costUSD,
+      turn: step.turn,
+    },
+    now,
+  );
 }
 
 /**

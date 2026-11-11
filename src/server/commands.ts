@@ -1,4 +1,4 @@
-// /gearbox commands, per-request stats, the daily spend budget and the judge benchmark.
+// /gearbox commands and the judge benchmark; per-request stats and the budget live in ledger.ts.
 // Command output goes out as a toast RPC event (docs/api-probe.md §9, §10): the server has no
 // toast API and a command must not start a model turn.
 
@@ -7,14 +7,14 @@ import type { Level, ModelRef } from '../core/types.ts';
 import { mergeSettings, parseSetCommand } from '../core/settings.ts';
 import { summarize, usd } from '../core/stats.ts';
 import { saveModeActive } from '../core/levels.ts';
-import { isObject, num } from '../core/guards.ts';
+import { isObject } from '../core/guards.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
 import { getState } from './state.ts';
 import { loadSettings, updateSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
 import { compactNow, handoff } from './care.ts';
-import { HOUR_MS, readSpend, readStats, recordStep } from './ledger.ts';
-import { findModelInfo, parseModelString, sessionModelRef, toModelLite } from './models.ts';
+import { HOUR_MS, readSpend, readStats, recordRequest } from './ledger.ts';
+import { parseModelString, sessionModelRef } from './models.ts';
 import { buildStatus, onStepEnded, statusChanged } from './status.ts';
 import { logOnce, toast } from './notify.ts';
 import bench from '../../bench/judge-cases.json' with { type: 'json' };
@@ -62,64 +62,6 @@ const clip = (text: string): string =>
 
 const formatModel = (m: ModelRef | null | undefined): string =>
   m ? `${m.providerID}/${m.id}${m.variant ? `#${m.variant}` : ''}` : 'unknown';
-
-/** USD for a request from its tokens and the model's base-tier price (docs/api-probe.md §2, §8). */
-async function priceTokens(
-  ctx: Ctx,
-  model: ModelRef,
-  t: { input: number; output: number; cacheRead: number; cacheWrite: number },
-): Promise<number> {
-  const info = await findModelInfo(ctx, model);
-  const p = info ? toModelLite(info)?.price : undefined;
-  if (!p) return 0;
-  return (
-    (t.input * p.input +
-      t.output * p.output +
-      t.cacheRead * p.cacheRead +
-      t.cacheWrite * p.cacheWrite) /
-    1e6
-  );
-}
-
-/**
- * One finished model request into stats and the budget (docs/api-probe.md §8). The request model
- * comes from the step tracker, which records it on `session.step.started`.
- */
-async function recordRequest(ctx: Ctx, deps: CommandDeps, data: any): Promise<void> {
-  const sessionID: string = data.sessionID;
-  const state = getState(sessionID);
-  // The step as it started; without a `step.started` event, the live request fields.
-  const step = state.step ?? {
-    turn: state.requestTurn,
-    level: state.requestLevel,
-    model: state.requestModel,
-  };
-  const model = step.model ?? undefined;
-  const tokens = isObject(data.tokens) ? data.tokens : {};
-  const t = {
-    input: num(tokens.input),
-    output: num(tokens.output),
-    cacheRead: num(tokens.cache?.read),
-    cacheWrite: num(tokens.cache?.write),
-  };
-  // Trust the reported cost, 0 included (subscriptions); price tokens only when it is missing.
-  const reported = typeof data.cost === 'number' && Number.isFinite(data.cost);
-  const costUSD = reported ? data.cost : model ? await priceTokens(ctx, model, t) : 0;
-  // Judge calls are recorded by `runJudge` when they settle, never per step.
-  await recordStep(
-    ctx,
-    sessionID,
-    {
-      level: step.level,
-      input: t.input,
-      output: t.output,
-      cacheRead: t.cacheRead,
-      costUSD,
-      turn: step.turn,
-    },
-    deps.now(),
-  );
-}
 
 type BenchResult = { c: BenchCase; answered: boolean; got: Level | null; ms: number };
 
@@ -412,5 +354,5 @@ export async function registerCommands(
     } as never);
   });
 
-  onStepEnded(ctx, 'usage', (data) => recordRequest(ctx, deps, data));
+  onStepEnded(ctx, 'usage', (data) => recordRequest(ctx, data, deps.now()));
 }

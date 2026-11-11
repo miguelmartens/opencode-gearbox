@@ -51,3 +51,27 @@ export async function saveSettings(ctx: Ctx, s: Settings): Promise<void> {
   if (Object.keys(overrides).length === 0) await ctx.storage.remove(SETTINGS_KEY);
   else await ctx.storage.set(SETTINGS_KEY, overrides as never);
 }
+
+const updates = new WeakMap<object, Promise<unknown>>();
+
+/**
+ * Loads the settings, lets `change` edit them in place and saves them, after every earlier update
+ * of this context: a command and the budget changing settings together never lose a change.
+ * `change` returns `false` to save nothing.
+ */
+export function updateSettings(
+  ctx: Ctx,
+  change: (s: Settings) => boolean | void,
+): Promise<Settings> {
+  const task = async () => {
+    const s = await loadSettings(ctx);
+    if (change(s) !== false) await saveSettings(ctx, s);
+    return s;
+  };
+  const run = (updates.get(ctx) ?? Promise.resolve()).then(task, task);
+  updates.set(
+    ctx,
+    run.catch(() => {}),
+  );
+  return run;
+}

@@ -12,11 +12,15 @@ export function shiftLevel(level: Level, by: number): Level {
 const atLeast = (level: Level, min: Level): Level => (rank(level) < rank(min) ? min : level);
 const atMost = (level: Level, max: Level): Level => (rank(level) > rank(max) ? max : level);
 
+export function saveModeActive(s: Settings, now: number): boolean {
+  return s.saveMode.until !== null && s.saveMode.until > now;
+}
+
 /** Bias, then floor/ceiling, then the save-mode cap while save mode is active. */
 export function applyShaping(level: Level, s: Settings, now: number): Level {
   let out = shiftLevel(level, s.bias);
   out = atMost(atLeast(out, s.floor), s.ceiling);
-  if (s.saveMode.until !== null && s.saveMode.until > now) out = atMost(out, s.saveMode.cap);
+  if (saveModeActive(s, now)) out = atMost(out, s.saveMode.cap);
   return out;
 }
 

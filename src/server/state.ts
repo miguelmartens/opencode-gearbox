@@ -18,6 +18,11 @@ export type SessionState = {
   requestTurn: number;
   /** Effort level Gearbox set on the last request; `null` when it left the request alone. */
   requestLevel: Level | null;
+  /**
+   * Turn, level and model of the running request, copied on `session.step.started`. The next
+   * request's `context` hook can overwrite the fields above before this step's end arrives.
+   */
+  step: { turn: number; level: Level | null; model: ModelRef | null } | null;
   /** Context size of the last request (`session.step.ended`). */
   contextTokens: number | null;
   /** Raw text of the last judge answer, for `/gearbox debug`. */
@@ -28,10 +33,7 @@ export type SessionState = {
   judging: number;
   /** Last time any module read this state (`getState`); idle eviction uses it. */
   touchedAt: number;
-};
-
-/** Context care's view of a session: what the status bar shows as context ratio and advice. */
-export type CareState = {
+  /** Context care: the context ratio and advice the status bar shows. */
   contextRatio: number | null;
   advice: GearboxStatus['advice'];
   swamped: boolean;
@@ -40,7 +42,6 @@ export type CareState = {
 };
 
 const sessions = new Map<string, SessionState>();
-const cares = new Map<string, CareState>();
 const forgetters = new Set<(sessionID: string) => void>();
 
 /** Sessions idle for longer than this are forgotten, so a long-running server does not grow. */
@@ -61,11 +62,16 @@ function freshState(): SessionState {
     requestModel: null,
     requestTurn: 0,
     requestLevel: null,
+    step: null,
     contextTokens: null,
     judgeAnswer: null,
     firstModel: null,
     judging: 0,
     touchedAt: Date.now(),
+    contextRatio: null,
+    advice: null,
+    swamped: false,
+    askedTurn: null,
   };
 }
 
@@ -79,20 +85,6 @@ export function getState(sessionID: string): SessionState {
   return state;
 }
 
-export function getCare(sessionID: string): CareState {
-  let care = cares.get(sessionID);
-  if (!care) {
-    care = { contextRatio: null, advice: null, swamped: false, askedTurn: null };
-    cares.set(sessionID, care);
-  }
-  return care;
-}
-
-/** Reads care state without creating it. */
-export function peekCare(sessionID: string): CareState | undefined {
-  return cares.get(sessionID);
-}
-
 /** Registers a callback that drops a module's own per-session data in `resetState`. */
 export function onForget(forget: (sessionID: string) => void): void {
   forgetters.add(forget);
@@ -100,7 +92,6 @@ export function onForget(forget: (sessionID: string) => void): void {
 
 export function resetState(sessionID: string): void {
   sessions.delete(sessionID);
-  cares.delete(sessionID);
   for (const forget of forgetters) forget(sessionID);
 }
 

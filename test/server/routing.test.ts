@@ -1,4 +1,4 @@
-import { afterEach, expect, mock, spyOn, test } from 'bun:test';
+import { afterEach, expect, mock, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import type { FakeCtxOptions } from '../fake-ctx.ts';
 import { registerRouting } from '../../src/server/routing.ts';
@@ -115,6 +115,18 @@ test('the turn decision applies on every context step', async () => {
   expect(first.options.effort).toBe('xhigh');
   expect(second.options.effort).toBe('xhigh');
   expect(fake.callsTo('generate.text').length).toBe(1);
+});
+
+test('a hanging model catalog does not hold the request', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { judge: { timeoutMs: 50 } },
+    overrides: { model: { list: () => new Promise(() => {}) } },
+  });
+  await fake.fire('prompt', promptEvent(sessionID, 'max effort: fix it'));
+  const late = new Promise((resolve) => setTimeout(() => resolve('hung'), 1000));
+  const result = await Promise.race([fake.fire('context', contextEvent(sessionID)), late]);
+  expect(result).not.toBe('hung');
 });
 
 function userMessage(id: string, text: string) {
@@ -503,21 +515,6 @@ test('resolve treats an unknown agent as explicit and keeps the model', async ()
     model: { ...OPUS },
   });
   expect(event.model).toStrictEqual(OPUS);
-});
-
-test('an invalid effortModels pattern is logged once and fails open', async () => {
-  const errors = spyOn(console, 'error').mockImplementation(() => {});
-  const sessionID = newSession();
-  const fake = await setup({
-    settings: { effortModels: '(' },
-    generateText: async () => ({ text: 'LEVEL: high' }),
-  });
-  await fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module'));
-  const first = await fake.fire('context', contextEvent(sessionID));
-  await fake.fire('context', contextEvent(sessionID));
-  expect(first.options.effort).toBe('high');
-  const logged = errors.mock.calls.filter((call) => /effortModels/.test(String(call[0])));
-  expect(logged.length).toBe(1);
 });
 
 test('a target without effort variants stores the effort pause in state', async () => {

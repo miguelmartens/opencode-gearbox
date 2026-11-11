@@ -69,6 +69,15 @@ test('mergeSettings drops an invalid effortModels regex', () => {
   expect(mergeSettings(DEFAULT_SETTINGS, { effortModels: '^gpt' }).effortModels).toBe('^gpt');
 });
 
+test('mergeSettings drops a judge.model that is not provider/model[#variant]', () => {
+  for (const model of ['claude-haiku-5-5', '/m', 'p/', 'p/m x', 'p/m#']) {
+    expect(mergeSettings(DEFAULT_SETTINGS, { judge: { model } }).judge.model).toBe(undefined);
+  }
+  for (const model of ['p/m', 'p/org/m', 'p/m#none']) {
+    expect(mergeSettings(DEFAULT_SETTINGS, { judge: { model } }).judge.model).toBe(model);
+  }
+});
+
 test('mergeSettings accepts null where the type allows it', () => {
   const base = mergeSettings(DEFAULT_SETTINGS, {
     saveMode: { until: 5 },

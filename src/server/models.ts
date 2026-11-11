@@ -3,6 +3,7 @@
 
 import type { Plugin } from '@opencode/plugin';
 import type { ModelLite, ModelRef } from '../core/types.ts';
+import { sameModel } from '../core/ladder.ts';
 
 type Ctx = Plugin.Context;
 
@@ -109,10 +110,12 @@ export function listModelInfos(ctx: Ctx): Promise<ModelInfo[]> {
   );
 }
 
+export function findInfo(infos: ModelInfo[], ref: ModelRef): ModelInfo | undefined {
+  return infos.find((m) => sameModel(m, ref));
+}
+
 export async function findModelInfo(ctx: Ctx, ref: ModelRef): Promise<ModelInfo | undefined> {
-  return (await listModelInfos(ctx)).find(
-    (m) => m.providerID === ref.providerID && m.id === ref.id,
-  );
+  return findInfo(await listModelInfos(ctx), ref);
 }
 
 /** Maps `Model.Info` to `ModelLite`; `null` when the model has no base-tier price. */
@@ -197,6 +200,6 @@ export async function cacheWarm(
 ): Promise<boolean> {
   if (last.lastRequestAt === null) return false;
   const holder = last.requestModel;
-  if (holder && (holder.providerID !== ref.providerID || holder.id !== ref.id)) return false;
+  if (holder && !sameModel(holder, ref)) return false;
   return last.lastRequestAt + (await cacheTtlMs(ctx, ref, info)) > now;
 }

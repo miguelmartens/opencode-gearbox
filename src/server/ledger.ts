@@ -4,29 +4,25 @@
 
 import type { Plugin } from '@opencode/plugin';
 import { LEVELS } from '../core/types.ts';
-import type { Level, Settings, Stats } from '../core/types.ts';
-import { addRequest, emptySessionStats } from '../core/stats.ts';
+import type { Level, ModelRef } from '../core/types.ts';
+import { addRequest, emptySessionStats, usd } from '../core/stats.ts';
+import { saveModeActive } from '../core/levels.ts';
 import type { SessionStats } from '../core/stats.ts';
 import { budgetState } from '../core/context.ts';
 import { isNumber, isObject, num } from '../core/guards.ts';
 import { getState, onForget } from './state.ts';
-import { loadSettings, saveSettings } from './settings-store.ts';
+import { loadSettings, updateSettings } from './settings-store.ts';
 import { logOnce, toast } from './notify.ts';
+import { findModelInfo, toModelLite } from './models.ts';
 
 type Ctx = Plugin.Context;
 
-const HOUR_MS = 3_600_000;
-
-export const usd = (v: number): string => `$${v.toFixed(4)}`;
+export const HOUR_MS = 3_600_000;
 
 export function dayKey(now: number): string {
   const d = new Date(now);
   const pad = (n: number) => String(n).padStart(2, '0');
   return `spend/${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-export function saveModeActive(s: Settings, now: number): boolean {
-  return s.saveMode.until !== null && s.saveMode.until > now;
 }
 
 export type Spend = { usd: number; warned: boolean };
@@ -38,10 +34,13 @@ export async function readSpend(ctx: Ctx, now: number): Promise<Spend> {
     : { usd: 0, warned: false };
 }
 
-function isStats(v: unknown): v is Stats {
+function isStats(v: unknown): v is SessionStats {
   return (
     isObject(v) &&
     isNumber(v.turns) &&
+    isNumber(v.requests) &&
+    isNumber(v.manual) &&
+    (v.lastTurn === null || isNumber(v.lastTurn)) &&
     isObject(v.byLevel) &&
     LEVELS.every((level) => isNumber(v.byLevel[level])) &&
     isObject(v.tokens) &&
@@ -54,20 +53,10 @@ function isStats(v: unknown): v is Stats {
   );
 }
 
-/**
- * Stored stats, or empty stats when missing or of the wrong shape. Stats stored before requests
- * were counted apart count every request as a turn.
- */
+/** Stored stats, or empty stats when missing or of the wrong shape. */
 export async function readStats(ctx: Ctx, sessionID: string): Promise<SessionStats> {
   const stored = await ctx.storage.get(`stats/${sessionID}`);
-  if (!isStats(stored)) return emptySessionStats();
-  const extra = stored as Stats & { requests?: unknown; manual?: unknown; lastTurn?: unknown };
-  return {
-    ...stored,
-    requests: isNumber(extra.requests) ? extra.requests : stored.turns,
-    manual: isNumber(extra.manual) ? extra.manual : 0,
-    lastTurn: isNumber(extra.lastTurn) ? extra.lastTurn : null,
-  };
+  return isStats(stored) ? stored : emptySessionStats();
 }
 
 const queues = new WeakMap<object, Promise<unknown>>();
@@ -139,15 +128,15 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
   const level = budgetState(spend.usd, daily);
   if ((level === 'warn' || level === 'over') && !spend.warned) {
     spend.warned = true;
-    if (!saveModeActive(settings, now)) {
-      settings.saveMode.until = now + settings.saveMode.hours * HOUR_MS;
-      await saveSettings(ctx, settings);
-    }
+    const saved = await updateSettings(ctx, (s) => {
+      if (saveModeActive(s, now)) return false;
+      s.saveMode.until = now + s.saveMode.hours * HOUR_MS;
+    });
     if (level === 'warn') {
-      await toast({
+      await toast(ctx, {
         ...(sessionID ? { sessionID } : {}),
         title: 'Gearbox',
-        message: `Gearbox: ${usd(spend.usd)} of the ${usd(daily ?? 0)} daily budget spent; save mode on for ${settings.saveMode.hours} h.`,
+        message: `Gearbox: ${usd(spend.usd)} of the ${usd(daily ?? 0)} daily budget spent; save mode on for ${saved.saveMode.hours} h.`,
         variant: 'warning',
       });
     }
@@ -157,7 +146,7 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
     const turn = getState(sessionID).userTurn;
     if (overToastTurn.get(sessionID) !== turn) {
       overToastTurn.set(sessionID, turn);
-      await toast({
+      await toast(ctx, {
         sessionID,
         title: 'Gearbox',
         message: `Gearbox: over the daily budget (${usd(spend.usd)} of ${usd(daily ?? 0)}).`,
@@ -191,6 +180,63 @@ export function recordStep(
       await writeStats(ctx, sessionID, addRequest(await readStats(ctx, sessionID), step));
     await addSpend(ctx, sessionID, step.costUSD, now);
   });
+}
+
+/** USD for a request from its tokens and the model's base-tier price (docs/api-probe.md §2, §8). */
+async function priceTokens(
+  ctx: Ctx,
+  model: ModelRef,
+  t: { input: number; output: number; cacheRead: number; cacheWrite: number },
+): Promise<number> {
+  const info = await findModelInfo(ctx, model);
+  const p = info ? toModelLite(info)?.price : undefined;
+  if (!p) return 0;
+  return (
+    (t.input * p.input +
+      t.output * p.output +
+      t.cacheRead * p.cacheRead +
+      t.cacheWrite * p.cacheWrite) /
+    1e6
+  );
+}
+
+/**
+ * One finished model request into stats and the budget; `data` is the `session.step.ended` event
+ * data (docs/api-probe.md §8). Turn, level and model come from the step tracker's snapshot.
+ */
+export async function recordRequest(ctx: Ctx, data: any, now = Date.now()): Promise<void> {
+  const sessionID: string = data.sessionID;
+  const state = getState(sessionID);
+  // The step as it started; without a `step.started` event, the live request fields.
+  const step = state.step ?? {
+    turn: state.requestTurn,
+    level: state.requestLevel,
+    model: state.requestModel,
+  };
+  const tokens = isObject(data.tokens) ? data.tokens : {};
+  const t = {
+    input: num(tokens.input),
+    output: num(tokens.output),
+    cacheRead: num(tokens.cache?.read),
+    cacheWrite: num(tokens.cache?.write),
+  };
+  // Trust the reported cost, 0 included (subscriptions); price tokens only when it is missing.
+  const reported = typeof data.cost === 'number' && Number.isFinite(data.cost);
+  const costUSD = reported ? data.cost : step.model ? await priceTokens(ctx, step.model, t) : 0;
+  // Judge calls are recorded by `runJudge` when they settle, never per step.
+  await recordStep(
+    ctx,
+    sessionID,
+    {
+      level: step.level,
+      input: t.input,
+      output: t.output,
+      cacheRead: t.cacheRead,
+      costUSD,
+      turn: step.turn,
+    },
+    now,
+  );
 }
 
 /**

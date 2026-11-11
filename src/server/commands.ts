@@ -1,19 +1,20 @@
-// /gearbox commands, per-request stats, the daily spend budget and the judge benchmark.
+// /gearbox commands and the judge benchmark; per-request stats and the budget live in ledger.ts.
 // Command output goes out as a toast RPC event (docs/api-probe.md §9, §10): the server has no
 // toast API and a command must not start a model turn.
 
 import type { Plugin } from '@opencode/plugin';
 import type { Level, ModelRef } from '../core/types.ts';
 import { mergeSettings, parseSetCommand } from '../core/settings.ts';
-import { summarize } from '../core/stats.ts';
-import { isObject, num } from '../core/guards.ts';
+import { summarize, usd } from '../core/stats.ts';
+import { saveModeActive } from '../core/levels.ts';
+import { isObject } from '../core/guards.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
 import { getState } from './state.ts';
-import { loadSettings, saveSettings } from './settings-store.ts';
+import { loadSettings, updateSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
 import { compactNow, handoff } from './care.ts';
-import { readSpend, readStats, recordStep, saveModeActive, usd } from './ledger.ts';
-import { findModelInfo, parseModelString, sessionModelRef, toModelLite } from './models.ts';
+import { HOUR_MS, readSpend, readStats, recordRequest } from './ledger.ts';
+import { parseModelString, sessionModelRef } from './models.ts';
 import { buildStatus, onStepEnded, statusChanged } from './status.ts';
 import { logOnce, toast } from './notify.ts';
 import bench from '../../bench/judge-cases.json' with { type: 'json' };
@@ -36,7 +37,6 @@ type BenchCase = {
   holdout?: boolean;
 };
 
-const HOUR_MS = 3_600_000;
 const BENCH_CONCURRENCY = 4;
 const MAX_FIELD = 60;
 
@@ -62,58 +62,6 @@ const clip = (text: string): string =>
 
 const formatModel = (m: ModelRef | null | undefined): string =>
   m ? `${m.providerID}/${m.id}${m.variant ? `#${m.variant}` : ''}` : 'unknown';
-
-/** USD for a request from its tokens and the model's base-tier price (docs/api-probe.md §2, §8). */
-async function priceTokens(
-  ctx: Ctx,
-  model: ModelRef,
-  t: { input: number; output: number; cacheRead: number; cacheWrite: number },
-): Promise<number> {
-  const info = await findModelInfo(ctx, model);
-  const p = info ? toModelLite(info)?.price : undefined;
-  if (!p) return 0;
-  return (
-    (t.input * p.input +
-      t.output * p.output +
-      t.cacheRead * p.cacheRead +
-      t.cacheWrite * p.cacheWrite) /
-    1e6
-  );
-}
-
-/**
- * One finished model request into stats and the budget (docs/api-probe.md §8). The request model
- * comes from the step tracker, which records it on `session.step.started`.
- */
-async function recordRequest(ctx: Ctx, deps: CommandDeps, data: any): Promise<void> {
-  const sessionID: string = data.sessionID;
-  const state = getState(sessionID);
-  const model = state.requestModel ?? undefined;
-  const tokens = isObject(data.tokens) ? data.tokens : {};
-  const t = {
-    input: num(tokens.input),
-    output: num(tokens.output),
-    cacheRead: num(tokens.cache?.read),
-    cacheWrite: num(tokens.cache?.write),
-  };
-  // Trust the reported cost, 0 included (subscriptions); price tokens only when it is missing.
-  const reported = typeof data.cost === 'number' && Number.isFinite(data.cost);
-  const costUSD = reported ? data.cost : model ? await priceTokens(ctx, model, t) : 0;
-  // Judge calls are recorded by `runJudge` when they settle, never per step.
-  await recordStep(
-    ctx,
-    sessionID,
-    {
-      level: state.requestLevel,
-      input: t.input,
-      output: t.output,
-      cacheRead: t.cacheRead,
-      costUSD,
-      turn: state.requestTurn,
-    },
-    deps.now(),
-  );
-}
 
 type BenchResult = { c: BenchCase; answered: boolean; got: Level | null; ms: number };
 
@@ -234,7 +182,7 @@ export async function registerCommands(
     sessionID: string,
     message: string,
     variant: 'info' | 'warning' | 'error' = 'info',
-  ) => toast({ sessionID, title: 'Gearbox', message, variant });
+  ) => toast(ctx, { sessionID, title: 'Gearbox', message, variant });
 
   const subcommands: Record<string, (sessionID: string, arg: string) => Promise<void>> = {
     async status(sessionID) {
@@ -269,9 +217,9 @@ export async function registerCommands(
     async auto(sessionID, arg) {
       if (arg !== 'on' && arg !== 'off')
         return say(sessionID, 'Usage: /gearbox auto on|off', 'error');
-      const s = await loadSettings(ctx);
-      s.auto = arg === 'on';
-      await saveSettings(ctx, s);
+      const s = await updateSettings(ctx, (s) => {
+        s.auto = arg === 'on';
+      });
       if (s.auto) getState(sessionID).autoPaused = null;
       await statusChanged(ctx, sessionID);
       await say(sessionID, `Gearbox: auto ${arg}`);
@@ -280,18 +228,22 @@ export async function registerCommands(
       const parsed = parseSetCommand(arg);
       if ('error' in parsed) return say(sessionID, `Gearbox: ${parsed.error}`, 'error');
       const { key, value } = parsed;
-      const s = mergeSettings(await loadSettings(ctx), nested(key, value));
-      const applied =
-        value === null && key === 'judge.model'
-          ? s.judge.model === undefined
-          : leaf(s, key) === value;
+      let applied = false;
+      await updateSettings(ctx, (current) => {
+        const s = mergeSettings(current, nested(key, value));
+        applied =
+          value === null && key === 'judge.model'
+            ? s.judge.model === undefined
+            : leaf(s, key) === value;
+        if (!applied) return false;
+        Object.assign(current, s);
+      });
       if (!applied)
         return say(
           sessionID,
           `Gearbox: invalid value for ${key}: ${JSON.stringify(value)}`,
           'error',
         );
-      await saveSettings(ctx, s);
       await say(sessionID, `Gearbox: ${key} = ${JSON.stringify(value)}`);
     },
     async settings(sessionID) {
@@ -301,10 +253,10 @@ export async function registerCommands(
     async save(sessionID, arg) {
       if (arg !== '' && arg !== 'on' && arg !== 'off')
         return say(sessionID, 'Usage: /gearbox save [on|off]', 'error');
-      const s = await loadSettings(ctx);
       const on = arg !== 'off';
-      s.saveMode.until = on ? deps.now() + s.saveMode.hours * HOUR_MS : null;
-      await saveSettings(ctx, s);
+      const s = await updateSettings(ctx, (s) => {
+        s.saveMode.until = on ? deps.now() + s.saveMode.hours * HOUR_MS : null;
+      });
       await say(
         sessionID,
         on
@@ -402,5 +354,5 @@ export async function registerCommands(
     } as never);
   });
 
-  onStepEnded(ctx, 'usage', (data) => recordRequest(ctx, deps, data));
+  onStepEnded(ctx, 'usage', (data) => recordRequest(ctx, data, deps.now()));
 }

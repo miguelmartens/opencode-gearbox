@@ -4,7 +4,7 @@
 import type { Plugin } from '@opencode/plugin';
 import type { GearboxStatus, ModelRef } from '../core/types.ts';
 import { cacheRemainingMs, contextRatio } from '../core/context.ts';
-import { getState, peekCare, resetState, sweepIdle } from './state.ts';
+import { getState, resetState, sweepIdle } from './state.ts';
 import { loadSettings } from './settings-store.ts';
 import {
   cacheTtlMs,
@@ -48,12 +48,11 @@ export async function buildStatus(
   now = Date.now(),
 ): Promise<GearboxStatus> {
   const state = getState(sessionID);
-  const care = peekCare(sessionID);
   const model = state.requestModel;
   const auto = await autoSetting(ctx, sessionID);
   const facts = model ? await modelFacts(ctx, sessionID, model) : null;
   const ratio =
-    care?.contextRatio ??
+    state.contextRatio ??
     (facts && state.contextTokens !== null ? contextRatio(state.contextTokens, facts.limit) : null);
   return {
     sessionID,
@@ -68,15 +67,15 @@ export async function buildStatus(
       now,
     ),
     judgeReason: state.lastDecision?.reason ?? null,
-    advice: care?.advice ?? null,
+    advice: state.advice,
   };
 }
 
 /** "The status of `sessionID` changed": builds it once and emits it. Never throws. */
 export async function statusChanged(ctx: Ctx, sessionID: string): Promise<void> {
-  if (!hasEmitter()) return;
+  if (!hasEmitter(ctx)) return;
   try {
-    await emitStatus(await buildStatus(ctx, sessionID));
+    await emitStatus(ctx, await buildStatus(ctx, sessionID));
   } catch (error) {
     logOnce(sessionID, 'status', error);
   }
@@ -126,6 +125,11 @@ export function trackUsage(ctx: Ctx): void {
       const state = getState(sessionID);
       if (event.type === 'session.step.started') {
         state.requestModel = toModelRef(data.model) ?? state.requestModel;
+        state.step = {
+          turn: state.requestTurn,
+          level: state.requestLevel,
+          model: state.requestModel,
+        };
         return;
       }
       sweepIdle(Date.now(), sessionID);
@@ -140,6 +144,7 @@ export function trackUsage(ctx: Ctx): void {
           logOnce(sessionID, scope, error);
         }
       }
+      state.step = null;
       await statusChanged(ctx, sessionID);
     },
     'usage tracking',

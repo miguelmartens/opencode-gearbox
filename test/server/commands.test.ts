@@ -3,7 +3,7 @@ import { makeFakeCtx } from '../fake-ctx.ts';
 import type { FakeCtx, FakeCtxOptions } from '../fake-ctx.ts';
 import { registerCommands } from '../../src/server/commands.ts';
 import type { CommandDeps } from '../../src/server/commands.ts';
-import { loadSettings, saveSettings } from '../../src/server/settings-store.ts';
+import { loadSettings, saveSettings, updateSettings } from '../../src/server/settings-store.ts';
 import { getState, resetState } from '../../src/server/state.ts';
 import { DEFAULT_SETTINGS, LEVELS } from '../../src/core/types.ts';
 import type { Level } from '../../src/core/types.ts';
@@ -76,6 +76,30 @@ test('saveSettings keeps a cleared judge model cleared over plugin options', asy
   expect((await loadSettings(fake.ctx)).judge.model).toBe(undefined);
 });
 
+test('concurrent settings updates both persist', async () => {
+  const fake = makeFakeCtx();
+  await Promise.all([
+    updateSettings(fake.ctx, (s) => {
+      s.bias = 1;
+    }),
+    updateSettings(fake.ctx, (s) => {
+      s.swampedAt = 0.5;
+    }),
+  ]);
+  const s = await loadSettings(fake.ctx);
+  expect(s.bias).toBe(1);
+  expect(s.swampedAt).toBe(0.5);
+});
+
+test('a settings update that returns false stores nothing', async () => {
+  const fake = makeFakeCtx();
+  await updateSettings(fake.ctx, (s) => {
+    s.bias = 1;
+    return false;
+  });
+  expect(fake.storage.get('settings')).toBe(undefined);
+});
+
 test('set bias -1 persists and loadSettings returns it', async () => {
   const fake = await setup();
   await fake.runCommand('gearbox', 'set bias -1');
@@ -95,6 +119,13 @@ test('set judge.model null clears the judge model', async () => {
   const fake = await setup({ storage: { settings: { judge: { model: 'p/m' } } } });
   await fake.runCommand('gearbox', 'set judge.model null');
   expect((await loadSettings(fake.ctx)).judge.model).toBe(undefined);
+});
+
+test('set judge.model without a provider is rejected, not stored', async () => {
+  const fake = await setup();
+  await fake.runCommand('gearbox', 'set judge.model claude-haiku-5-5');
+  expect(fake.storage.get('settings')).toBe(undefined);
+  expect(fake.lastMessage()).toMatch(/invalid value for judge\.model/i);
 });
 
 test('auto off persists auto: false', async () => {
@@ -172,6 +203,27 @@ test('stats counts one turn per user prompt and its level once', async () => {
   expect(stats.byLevel).toStrictEqual({ low: 1, medium: 0, high: 0, xhigh: 1, max: 0 });
 });
 
+test('a step counts under the turn and level it started with, not the next request', async () => {
+  resetState('ses_race');
+  const state = getState('ses_race');
+  const fake = await setup();
+  state.requestTurn = 1;
+  state.requestLevel = 'low';
+  fake.publish({
+    type: 'session.step.started',
+    data: { sessionID: 'ses_race', model: { providerID: 'p', id: 'm' } },
+  });
+  await waitFor(() => state.requestModel !== null);
+  // The queued prompt's `context` hook runs before the bus delivers this step's end.
+  state.requestTurn = 2;
+  state.requestLevel = 'xhigh';
+  fake.publish(stepEnded('ses_race', 0));
+  await waitFor(() => (fake.storage.get('stats/ses_race') as any)?.requests === 1);
+  const stats = fake.storage.get('stats/ses_race') as any;
+  expect(stats.lastTurn).toBe(1);
+  expect(stats.byLevel).toStrictEqual({ low: 1, medium: 0, high: 0, xhigh: 0, max: 0 });
+});
+
 test('a turn Gearbox did not route counts as manual, not under its last level', async () => {
   resetState('ses_manual');
   const state = getState('ses_manual');
@@ -246,6 +298,14 @@ test('stored stats with the wrong shape fall back to empty stats', async () => {
   expect(fake.lastMessage()).toBe(summarize(emptySessionStats()));
   fake.publish(stepEnded('ses_bad', 0.01));
   await waitFor(() => (fake.storage.get('stats/ses_bad') as any)?.requests === 1);
+});
+
+test('stored stats without the per-request fields fall back to empty stats', async () => {
+  const old = { ...emptySessionStats(), turns: 3 } as Record<string, unknown>;
+  delete old.requests;
+  const fake = await setup({ storage: { 'stats/ses_old': old } });
+  await fake.runCommand('gearbox', 'stats', 'ses_old');
+  expect(fake.lastMessage()).toBe(summarize(emptySessionStats()));
 });
 
 test('budget warn shows one toast and turns save mode on', async () => {

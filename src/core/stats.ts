@@ -60,6 +60,8 @@ export function addRequest(s: SessionStats, r: Request): SessionStats {
   };
 }
 
+export const usd = (v: number): string => `$${v.toFixed(4)}`;
+
 const plural = (n: number, word: string): string => `${n} ${n === 1 ? word : `${word}s`}`;
 
 /** One line per level and one for manual turns, then a totals line. */
@@ -68,7 +70,7 @@ export function summarize(s: SessionStats): string {
   lines.push(`${'manual'.padEnd(6)} ${s.manual}`);
   const turns = `${plural(s.turns, 'turn')}, ${plural(s.requests, 'request')}`;
   const tokens = `in ${s.tokens.input}, out ${s.tokens.output}, cache read ${s.tokens.cacheRead}`;
-  const judge = `judge $${s.judgeCostUSD.toFixed(4)} (${plural(s.judgeCalls, 'call')})`;
-  lines.push(`total  ${turns}; tokens ${tokens}; cost $${s.costUSD.toFixed(4)}; ${judge}`);
+  const judge = `judge ${usd(s.judgeCostUSD)} (${plural(s.judgeCalls, 'call')})`;
+  lines.push(`total  ${turns}; tokens ${tokens}; cost ${usd(s.costUSD)}; ${judge}`);
   return lines.join('\n');
 }

@@ -3,7 +3,13 @@
 import { writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import type { Plugin } from '@opencode/plugin';
-import { buildCompactionPrompt, buildHandoffAdvicePrompt, parseYesNo } from '../core/judge.ts';
+import {
+  buildCompactionPrompt,
+  buildHandoffAdvicePrompt,
+  parseYesNo,
+  percent,
+} from '../core/judge.ts';
+import { textOf } from '../core/guards.ts';
 import { contextRatio, shouldAskHandoff, shouldWarnSwamped } from '../core/context.ts';
 import { shouldSwitch } from '../core/cost.ts';
 import type { ModelRef, Settings } from '../core/types.ts';
@@ -18,7 +24,7 @@ import {
 } from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { loadSettings } from './settings-store.ts';
-import { getCare, getState, onForget } from './state.ts';
+import { getState, onForget } from './state.ts';
 import { onStepEnded, statusChanged } from './status.ts';
 
 type Ctx = Plugin.Context;
@@ -32,7 +38,6 @@ const COMPACTION_TIMEOUT_MS = 30_000;
 const HANDOFF_TIMEOUT_MS = 120_000;
 /** Expected length of a compaction summary, in tokens. */
 const SUMMARY_TOKENS = 2000;
-/** Rough token estimate: about 4 characters per token. */
 const TOPIC_MAX = 80;
 const TOPICS_MAX = 10;
 const HANDOFF_FILE = 'HANDOFF.md';
@@ -73,16 +78,6 @@ const dataOf = <T>(result: unknown): T[] => {
   const data = (result as { data?: unknown } | null | undefined)?.data;
   return Array.isArray(data) ? (data as T[]) : [];
 };
-
-const textOf = (content: TextPart[] | string | undefined): string =>
-  typeof content === 'string'
-    ? content
-    : (content ?? [])
-        .filter((part) => part.type === 'text' && typeof part.text === 'string')
-        .map((part) => part.text)
-        .join('\n');
-
-const percent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
 
 async function sessionModel(ctx: Ctx, session: SessionInfo): Promise<ModelRef> {
   const ref = await sessionModelRef(ctx, session);
@@ -240,10 +235,10 @@ async function askHandoff(
   const judge = await resolveJudgeModel(ctx, ref, settings);
   const answer = await generate(ctx, session.id, judge, prompt, settings.judge.timeoutMs);
   if (answer === null || parseYesNo(answer) !== true) return;
-  const state = getCare(session.id);
+  const state = getState(session.id);
   if (state.advice !== null) return;
   state.advice = 'handoff';
-  await toast({
+  await toast(ctx, {
     sessionID: session.id,
     variant: 'info',
     message: `Context ${percent(ratio)}: the work has moved on. /gearbox handoff starts fresh with a summary.`,
@@ -262,13 +257,13 @@ async function adviseAfterStep(ctx: Ctx, step: StepEnded): Promise<void> {
   const ratio = contextRatio(getState(sessionID).contextTokens ?? 0, limit);
   const settings = await loadSettings(ctx);
 
-  const state = getCare(sessionID);
+  const state = getState(sessionID);
   state.contextRatio = ratio;
   const swamped = shouldWarnSwamped(ratio, settings);
   if (swamped && !state.swamped) {
     state.swamped = true;
     state.advice = 'swamped';
-    await toast({
+    await toast(ctx, {
       sessionID,
       variant: 'warning',
       message: `Context ${percent(ratio ?? 0)} full: swamped. Try /gearbox handoff or /gearbox compact.`,
@@ -351,7 +346,13 @@ export async function handoff(
   const settings = await loadSettings(ctx);
   const messages = dataOf<SessionMessage>(await ctx.session.context({ sessionID }));
   const judge = await resolveJudgeModel(ctx, ref, settings);
-  const prompt = summaryPrompt(formatSessionMessages(messages));
+  // A handoff is advised when the context is full: keep the newest part that fits the judge.
+  let transcript = formatSessionMessages(messages);
+  const limit = contextLimit(await findModelInfo(ctx, judge));
+  const room = limit * CHARS_PER_TOKEN - summaryPrompt('').length;
+  if (limit > 0 && transcript.length > room)
+    transcript = transcript.slice(transcript.length - Math.max(0, room));
+  const prompt = summaryPrompt(transcript);
   const summary = await generate(ctx, sessionID, judge, prompt, HANDOFF_TIMEOUT_MS);
   if (!summary) throw new Error('handoff summary failed');
   const changes = mode === 'full' ? dataOf<FileStatus>(await ctx.vcs.status()) : [];

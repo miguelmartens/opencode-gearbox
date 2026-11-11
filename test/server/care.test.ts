@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import type { FakeCtxOptions } from '../fake-ctx.ts';
 import { compactNow, handoff, registerContextCare } from '../../src/server/care.ts';
-import { getState, peekCare } from '../../src/server/state.ts';
+import { getState } from '../../src/server/state.ts';
 
 async function tempDir(): Promise<string> {
   const base = (Bun.env.TMPDIR ?? '/tmp').replace(/\/+$/, '');
@@ -187,13 +187,13 @@ test('swamped toast fires once per upward crossing', async () => {
   }
   const swamped = fake.toasts.filter((t) => /swamped/i.test(t.message));
   expect(swamped.length).toBe(1);
-  expect(peekCare('ses_s1')?.advice ?? null).toBe('swamped');
-  expect(peekCare('ses_s1')?.contextRatio).toBe(0.8);
+  expect(getState('ses_s1').advice).toBe('swamped');
+  expect(getState('ses_s1').contextRatio).toBe(0.8);
 
   // Dropping below the threshold (after a compaction) re-arms the warning.
   fake.publish(step('ses_s1', 100));
   await settle();
-  expect(peekCare('ses_s1')?.advice ?? null).toBe(null);
+  expect(getState('ses_s1').advice).toBe(null);
   fake.publish(step('ses_s1', 900));
   await settle();
   expect(fake.toasts.filter((t) => /swamped/i.test(t.message)).length).toBe(2);
@@ -218,7 +218,7 @@ test('handoff advice asks the judge and toasts on yes', async () => {
   await settle();
   const [call] = fake.callsTo('generate.text');
   expect((call.input as { prompt: string }).prompt).toMatch(/YES or NO/);
-  expect(peekCare('ses_a1')?.advice ?? null).toBe('handoff');
+  expect(getState('ses_a1').advice).toBe('handoff');
   expect(fake.toasts.filter((t) => /handoff/i.test(t.message)).length).toBe(1);
 
   // Same user turn, another step: no second question.
@@ -240,7 +240,7 @@ test('handoff advice is skipped on odd turns, low context and tool-call steps', 
   fake.publish(step('ses_a2', 350, 'tool-calls'));
   await settle();
   expect(fake.callsTo('generate.text').length).toBe(0);
-  expect(peekCare('ses_a2')?.advice ?? null).toBe(null);
+  expect(getState('ses_a2').advice).toBe(null);
 });
 
 test('handoff advice on no leaves advice unset', async () => {
@@ -250,7 +250,7 @@ test('handoff advice on no leaves advice unset', async () => {
   fake.publish(step('ses_a3', 400));
   await settle();
   expect(fake.callsTo('generate.text').length).toBe(1);
-  expect(peekCare('ses_a3')?.advice ?? null).toBe(null);
+  expect(getState('ses_a3').advice).toBe(null);
   expect(fake.toasts.length).toBe(0);
 });
 
@@ -275,7 +275,7 @@ test('a root session with parentID null gets context advice', async () => {
   await registerContextCare(fake.ctx);
   fake.publish(step('ses_null', 900));
   await settle();
-  expect(peekCare('ses_null')?.advice ?? null).toBe('swamped');
+  expect(getState('ses_null').advice).toBe('swamped');
 });
 
 test('handoff quick creates a session and prompts it with the summary', async () => {
@@ -310,6 +310,30 @@ test('handoff quick creates a session and prompts it with the summary', async ()
   const [gen] = fake.callsTo('generate.text');
   expect((gen.input as { prompt: string }).prompt).toMatch(/Fix the parser/);
   expect(fake.callsTo('vcs.status').length).toBe(0);
+});
+
+test('handoff keeps only the newest transcript that fits the judge model', async () => {
+  const fake = fakeWith(
+    {
+      generateText: async () => ({ text: 'SUMMARY' }),
+      overrides: {
+        session: {
+          context: async () => [
+            { id: 'u0', type: 'user', text: `OLD-TOPIC ${'x'.repeat(8000)}` },
+            { id: 'u1', type: 'user', text: 'Fix the parser' },
+          ],
+        },
+      },
+    },
+    ['ses_hfit'],
+  );
+  await handoff(fake.ctx, 'ses_hfit', 'quick');
+  const [gen] = fake.callsTo('generate.text');
+  const prompt = (gen.input as { prompt: string }).prompt;
+  // The judge (`small`) has a 1000-token context: about 4000 characters.
+  expect(prompt.length).toBeLessThanOrEqual(4000);
+  expect(prompt).toMatch(/Fix the parser/);
+  expect(prompt).not.toMatch(/OLD-TOPIC/);
 });
 
 test('handoff fails without creating a session when the summary fails', async () => {

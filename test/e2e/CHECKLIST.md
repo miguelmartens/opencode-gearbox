@@ -9,6 +9,7 @@ Manual end-to-end run of the plan's Task 10 steps and the must-checks from `docs
   - **First run:** 2026-11-10/11 at `f4b669f`.
   - **Second run:** 2026-11-11 at `2f39cb0`/`895c319`, after the follow-up fixes to `/gearbox bench`, `debug` and `stats`. It repeated steps 1–5, 7 and 8.
   - **Third run:** 2026-11-11 at `d5dc44f`, after the Task 11 review fixes (resumed subagents, root pause, effort rungs, compaction cost check). It repeated steps 4 and 5 in a fresh temp project, `/tmp/gbx-fix11/proj`, with the same `opencode.jsonc` (logging proxy on port 4196) and its own empty `XDG_CONFIG_HOME`.
+  - **Fourth run:** 2026-11-11 at `f47fe76`/`0b39323`, after the review follow-up (model-less subagents, root pause on `Session.Info`, compact note). Same temp project. It repeated step 4 with a root session created without a model, and the compact-note part of step 5.
   - Each block says which run it comes from.
 - **Isolation:** `XDG_CONFIG_HOME` pointed at an empty temp directory, so the global `<home>/.config/opencode` was neither loaded nor edited. Credentials came from the normal data directory.
 - **Temp project** `/tmp/gbx-e2e/proj` (git repo with `x.ts`, `queue.ts`, `worker.ts`, `main.ts`) and its `opencode.jsonc`:
@@ -289,7 +290,22 @@ Request model: opencode-go/claude-haiku-5-5#high
 
 The child inherited `#high` and kept it: no model switch, no judge call (the proxy logged none), and the `high` effort in its body is the variant's own setting.
 
-A root session created without a model (OpenCode's default model) gives its children no `model` either. Gearbox then does not switch their model; see Findings.
+**4d. Root session without a model (fourth run).** `session.create` without `model`, so the root runs on OpenCode's default model, `claude-haiku-5-5`. Same "task tool twice" prompt. The judge timed out, so the turn ran at `medium`:
+
+```
+session.created: [{"id":"ses_e381ac95affe7sqozxKgBnSPj5"},{"id":"ses_e381aaac1ffeCu4petWdMiMQa5","parentID":"ses_e381ac95affe7sqozxKgBnSPj5","agent":"general"},{"id":"ses_e381a7debffeFsvt6iA62j0zVi","parentID":"ses_e381ac95affe7sqozxKgBnSPj5","agent":"pinned","model":{"id":"gpt-6-luna","providerID":"opencode-go","variant":"medium"}}]
+session.model.selected: [{"sessionID":"ses_e381aaac1ffeCu4petWdMiMQa5","model":{"id":"qwen3.8-flash","providerID":"opencode-go","variant":"medium"}}]
+```
+
+Request bodies (`[session, kind, agent, model, variant, effort]`):
+
+```
+  3 ["BnSPj5","primary","build","claude-haiku-5-5",null,{"effort":"medium"}]
+  2 ["MiMQa5","primary","general","qwen3.8-flash","medium",{"effort":"medium"}]
+  3 ["2j0zVi","primary","pinned","gpt-6-luna","medium",{"effort":"medium","summary":"auto"}]
+```
+
+The `general` child had no `model` on its `Session.Info`, and no ancestor had one. Gearbox routed it from the default model: `routeModel("medium")` on the subagent ladder is `qwen3.8-flash`, with its `medium` variant. `pinned` kept its explicit model.
 
 ### 5. `/compact` — PASS
 
@@ -317,6 +333,17 @@ compaction.ended.text: "- Decisions made:\n  - None.\n- Open tasks / next step:\
 ```
 
 No `compaction`-kind request went to `claude-haiku-5-5`. The judge call count went from 2 to 3, and the stored summary is Gearbox's bullet format. `judge.model` was reset to `null` afterwards.
+
+**5c. A `/gearbox compact` note when OpenCode compacts (fourth run).** Default judge, so OpenCode writes the summary. A root session without a model, one prompt, then `/gearbox compact GBXNOTE keep the list of exports`:
+
+```
+Gearbox: compaction queued. The note goes into the summary prompt, whether the judge model or OpenCode writes the summary.
+{"kind":"compaction.hook","sessionID":"ses_e3818a4a9ffelv8QSTikxwHVGA","model":{"id":"claude-haiku-5-5","providerID":"opencode-go"},"hasResult":false,"systemNote":true}
+["xwHVGA","compaction","build","claude-haiku-5-5",noteInBody=true]
+compaction.ended.text: "## Objective\n- Answer the user's question about what `x.ts` exports, in one line.\n\n## Requirements\n- Answer in one line.\n- Extra instruction: \"GBXNOTE keep the list of exports.\"\n…"
+```
+
+The note went into the compaction hook's `system` list and reached the compaction request body. The first attempt pushed a bare string into `event.system`. OpenCode then made no compaction request and emitted no `session.compaction.ended`. `0b39323` pushes a `SystemPart` (`{ type: "text", text }`) instead.
 
 ### 6. `/gearbox handoff` — PASS
 
@@ -561,4 +588,4 @@ Open:
 6. **The bottom of the subagent ladder can be a free or contributor model.** On `opencode-go` a `low` subagent went to `longcat-2.5-free` in the second run, and to `beam-free` in the third (rungs without effort variants are now skipped). Users can exclude such models with `effortModels`. The README says so.
 7. **A plugin reload (config change, `location.reload`, edited plugin file) resets the in-memory session state.** After the reload, the bar showed `⚙ Auto` without a level until the next prompt. This is expected, but users will see it.
 8. **The coexistence runs sent test sessions through TokenEconomizer's dispatcher**, as the user's normal setup would.
-9. **Children of a root session without a model get no subagent routing.** In the third run, a root session created without `model` (it runs on OpenCode's default model) spawned a `general` child whose `Session.Info` had no `model`. Gearbox skipped its model switch, because subagent routing reads the model from the child's `Session.Info` (`session.model.selected` stayed empty). Effort goes through the `context` hook's request model, but that run did not log the request bodies. Not changed in the Task 11 fixes.
+9. **Fixed:** children of a root session without a model got no subagent model routing (third run). A child without a model is now routed from its nearest ancestor's model, else from OpenCode's default model. Step 4d shows it.

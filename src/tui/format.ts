@@ -3,14 +3,6 @@
 import { LEVELS } from '../core/types.ts';
 import type { GearboxStatus, Level } from '../core/types.ts';
 
-const LABELS: Record<Level, string> = {
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'XHigh',
-  max: 'Max',
-};
-
 /** Model id without a provider path or a leading `claude-`: `claude-opus-5-5` → `opus-5-5`. */
 export function shortModel(id: string): string {
   return id.slice(id.lastIndexOf('/') + 1).replace(/^claude-/, '');
@@ -41,16 +33,16 @@ const COLORS: Record<Level, string> = {
 export type Segment = { text: string; fg?: string };
 
 /**
- * `⚙ <Level>[→<Sent>] · <short model> · ◔ <pct>% · cache <m:ss> · <Auto|Manual|Paused: reason>`.
- * `→<Sent>` shows the variant used when the model lacks the judged level. Each level label is
- * its own segment, colored by level.
+ * `⚙ <level>[→<sent>] · <short model> · ◔ <pct>% · cache <m:ss> · <Auto|Manual|Paused: reason>`.
+ * `→<sent>` shows the variant used when the model lacks the judged level. Each level is its own
+ * lowercase segment, colored by level.
  */
 export function statusSegments(s: GearboxStatus): Segment[] {
   const segments: Segment[] = [{ text: '⚙ ' }];
   const sent = sentLevel(s);
   if (s.level) {
-    segments.push({ text: LABELS[s.level], fg: COLORS[s.level] });
-    if (sent) segments.push({ text: '→' }, { text: LABELS[sent], fg: COLORS[sent] });
+    segments.push({ text: s.level, fg: COLORS[s.level] });
+    if (sent) segments.push({ text: '→' }, { text: sent, fg: COLORS[sent] });
   }
   const parts: string[] = [];
   if (s.model) parts.push(shortModel(s.model.id));

@@ -35,19 +35,19 @@ const empty: GearboxStatus = {
 };
 
 test('formatStatus renders every segment', () => {
-  expect(formatStatus(full)).toBe('⚙ High · opus-5-5 · ◔ 38% · cache 4:12 · Auto');
+  expect(formatStatus(full)).toBe('⚙ high · opus-5-5 · ◔ 38% · cache 4:12 · Auto');
 });
 
 test('formatStatus drops null segments', () => {
   expect(formatStatus(empty)).toBe('⚙ Auto');
   expect(formatStatus({ ...full, model: null, cacheRemainingMs: null })).toBe(
-    '⚙ High · ◔ 38% · Auto',
+    '⚙ high · ◔ 38% · Auto',
   );
 });
 
 test('formatStatus shows the pause reason over the mode', () => {
   expect(formatStatus({ ...full, paused: 'manual variant' })).toBe(
-    '⚙ High · opus-5-5 · ◔ 38% · cache 4:12 · Paused: manual variant',
+    '⚙ high · opus-5-5 · ◔ 38% · cache 4:12 · Paused: manual variant',
   );
 });
 
@@ -61,26 +61,26 @@ test('formatStatus appends advice', () => {
 });
 
 test('formatStatus labels every level and pads cache seconds', () => {
-  expect(formatStatus({ ...empty, level: 'xhigh' })).toBe('⚙ XHigh · Auto');
+  expect(formatStatus({ ...empty, level: 'xhigh' })).toBe('⚙ xhigh · Auto');
   expect(formatStatus({ ...empty, cacheRemainingMs: 65_400 })).toBe('⚙ cache 1:05 · Auto');
   expect(formatStatus({ ...empty, cacheRemainingMs: 0 })).toBe('⚙ cache 0:00 · Auto');
 });
 
 test('formatStatus shows the variant sent when the model lacks the judged level', () => {
   const sentHigh = { ...full, level: 'xhigh' as const, model: { ...full.model!, variant: 'high' } };
-  expect(formatStatus(sentHigh)).toBe('⚙ XHigh→High · opus-5-5 · ◔ 38% · cache 4:12 · Auto');
+  expect(formatStatus(sentHigh)).toBe('⚙ xhigh→high · opus-5-5 · ◔ 38% · cache 4:12 · Auto');
   // Same level, a variant that is not a level, a pause or auto off: the level alone.
   expect(formatStatus({ ...full, model: { ...full.model!, variant: 'high' } })).toBe(
     formatStatus(full),
   );
   expect(formatStatus({ ...sentHigh, model: { ...full.model!, variant: 'thinking' } })).toBe(
-    '⚙ XHigh · opus-5-5 · ◔ 38% · cache 4:12 · Auto',
+    '⚙ xhigh · opus-5-5 · ◔ 38% · cache 4:12 · Auto',
   );
   expect(formatStatus({ ...sentHigh, paused: 'manual variant' })).toBe(
-    '⚙ XHigh · opus-5-5 · ◔ 38% · cache 4:12 · Paused: manual variant',
+    '⚙ xhigh · opus-5-5 · ◔ 38% · cache 4:12 · Paused: manual variant',
   );
   expect(formatStatus({ ...sentHigh, auto: false })).toBe(
-    '⚙ XHigh · opus-5-5 · ◔ 38% · cache 4:12 · Manual',
+    '⚙ xhigh · opus-5-5 · ◔ 38% · cache 4:12 · Manual',
   );
 });
 
@@ -88,17 +88,17 @@ test('statusSegments colors each level with the site palette', () => {
   const sentHigh = { ...full, level: 'xhigh' as const, model: { ...full.model!, variant: 'high' } };
   expect(statusSegments(sentHigh)).toEqual([
     { text: '⚙ ' },
-    { text: 'XHigh', fg: '#FF9A3C' },
+    { text: 'xhigh', fg: '#FF9A3C' },
     { text: '→' },
-    { text: 'High', fg: '#B69CFF' },
+    { text: 'high', fg: '#B69CFF' },
     { text: ' · opus-5-5 · ◔ 38% · cache 4:12 · Auto' },
   ]);
-  expect(statusSegments({ ...empty, level: 'low' })[1]).toEqual({ text: 'Low', fg: '#8BE48B' });
+  expect(statusSegments({ ...empty, level: 'low' })[1]).toEqual({ text: 'low', fg: '#8BE48B' });
   expect(statusSegments({ ...empty, level: 'medium' })[1]).toEqual({
-    text: 'Medium',
+    text: 'medium',
     fg: '#66C7FF',
   });
-  expect(statusSegments({ ...empty, level: 'max' })[1]).toEqual({ text: 'Max', fg: '#FF4F4F' });
+  expect(statusSegments({ ...empty, level: 'max' })[1]).toEqual({ text: 'max', fg: '#FF4F4F' });
   // No level: nothing colored.
   expect(statusSegments(empty)).toEqual([{ text: '⚙ ' }, { text: 'Auto' }]);
 });

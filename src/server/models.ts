@@ -28,6 +28,9 @@ export type ModelInfo = {
 /** How long a catalog read is reused: long enough for one step, short enough for config edits. */
 export const MEMO_MS = 3000;
 
+/** Rough token estimate for prompts and answers: about 4 characters per token. */
+export const CHARS_PER_TOKEN = 4;
+
 /** Provider default when no `settings.cache.ttl` is configured (§11). */
 export const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
 

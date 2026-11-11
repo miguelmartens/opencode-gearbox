@@ -12,7 +12,7 @@ import { LEVELS } from '../core/types.ts';
 import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
 import { applyShaping, pickVariant } from '../core/levels.ts';
 import { classifyPrompt } from '../core/rules.ts';
-import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
+import { buildJudgePrompt, parseJudgeAnswer, REPLY_TAIL_MAX } from '../core/judge.ts';
 import { buildLadder, preferEffortRungs, routeModel, sameModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
 import { contextRatio } from '../core/context.ts';
@@ -66,7 +66,6 @@ type Local = {
 const SUBAGENT_PREFIX = 'You are a subagent spawned by another session.\n';
 const MANUAL_VARIANT = 'manual variant';
 const NO_EFFORT_CONTROL = 'no effort control';
-const REPLY_TAIL_MAX = 500;
 const NO_MODEL: ModelRef = { providerID: '', id: '' };
 /** Bounds the walk up a child's parent chain. */
 const MAX_DEPTH = 16;
@@ -155,6 +154,7 @@ function lastReplyTail(messages: unknown): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]?.role !== 'assistant') continue;
     const text = messageText(messages[i]);
+    // Stored per session: keep only what the judge prompt uses.
     if (text) return text.slice(-REPLY_TAIL_MAX);
   }
   return null;

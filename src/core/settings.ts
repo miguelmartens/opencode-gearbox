@@ -1,9 +1,9 @@
 import { LEVELS } from './types.ts';
+import { isNumber, isObject } from './guards.ts';
 import type { Settings } from './types.ts';
 
 type Check = (v: unknown) => boolean;
 
-const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const isLevel: Check = (v) => typeof v === 'string' && (LEVELS as readonly string[]).includes(v);
 const isBoolean: Check = (v) => typeof v === 'boolean';
 const isPositive: Check = (v) => isNumber(v) && v > 0;
@@ -38,9 +38,6 @@ const CHECKS: Record<string, Check> = {
   'budget.dailyUSD': (v) => v === null || (isNumber(v) && v >= 0),
   effortModels: isRegex,
 };
-
-const isObject = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function getPath(source: unknown, path: string): unknown {
   let current = source;

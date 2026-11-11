@@ -6,6 +6,7 @@ import type { Plugin } from '@opencode/plugin';
 import type { Level, ModelRef } from '../core/types.ts';
 import { mergeSettings, parseSetCommand } from '../core/settings.ts';
 import { summarize } from '../core/stats.ts';
+import { isObject, num } from '../core/guards.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
 import { getState } from './state.ts';
 import { loadSettings, saveSettings } from './settings-store.ts';
@@ -55,11 +56,6 @@ const HELP = [
 
 const MAIN_SWITCH_NOTE =
   'Note: modelSwitch.main has no effect on OpenCode 2.2.6 (no model resolve hook yet); the main chat gets effort only.';
-
-const isObject = (v: unknown): v is Record<string, any> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
-
-const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 
 const clip = (text: string): string =>
   text.length > MAX_FIELD ? `${text.slice(0, MAX_FIELD - 1)}…` : text;

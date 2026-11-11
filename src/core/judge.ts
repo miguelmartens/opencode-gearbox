@@ -3,7 +3,8 @@
 import type { Level } from './types.ts';
 
 const PROMPT_MAX = 2000;
-const REPLY_TAIL_MAX = 500;
+/** Characters of the previous reply a judge prompt keeps. */
+export const REPLY_TAIL_MAX = 500;
 
 // xhigh comes before high so alternation never stops at the shorter word.
 const LEVEL_WORD = '(xhigh|max|high|medium|low)';

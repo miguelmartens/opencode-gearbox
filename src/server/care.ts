@@ -8,7 +8,14 @@ import { contextRatio, shouldAskHandoff, shouldWarnSwamped } from '../core/conte
 import { shouldSwitch } from '../core/cost.ts';
 import type { ModelRef, Settings } from '../core/types.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
-import { cacheWarm, contextLimit, findModelInfo, sessionModelRef, toModelLite } from './models.ts';
+import {
+  cacheWarm,
+  CHARS_PER_TOKEN,
+  contextLimit,
+  findModelInfo,
+  sessionModelRef,
+  toModelLite,
+} from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { loadSettings } from './settings-store.ts';
 import { getCare, getState, onForget } from './state.ts';
@@ -26,8 +33,6 @@ const HANDOFF_TIMEOUT_MS = 120_000;
 /** Expected length of a compaction summary, in tokens. */
 const SUMMARY_TOKENS = 2000;
 /** Rough token estimate: about 4 characters per token. */
-const CHARS_PER_TOKEN = 4;
-const REPLY_TAIL_MAX = 500;
 const TOPIC_MAX = 80;
 const TOPICS_MAX = 10;
 const HANDOFF_FILE = 'HANDOFF.md';
@@ -76,9 +81,6 @@ const textOf = (content: TextPart[] | string | undefined): string =>
         .filter((part) => part.type === 'text' && typeof part.text === 'string')
         .map((part) => part.text)
         .join('\n');
-
-const tail = (text: string, max: number): string =>
-  text.length > max ? text.slice(text.length - max) : text;
 
 const percent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
 
@@ -232,7 +234,7 @@ async function askHandoff(
   const lastReply = messages.filter((m) => m.type === 'assistant').at(-1);
   const prompt = buildHandoffAdvicePrompt({
     topics,
-    lastReplyTail: tail(lastReply ? textOf(lastReply.content) : '', REPLY_TAIL_MAX),
+    lastReplyTail: lastReply ? textOf(lastReply.content) : '',
     contextRatio: ratio,
   });
   const judge = await resolveJudgeModel(ctx, ref, settings);

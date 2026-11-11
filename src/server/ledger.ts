@@ -8,6 +8,7 @@ import type { Level, Settings, Stats } from '../core/types.ts';
 import { addRequest, emptySessionStats } from '../core/stats.ts';
 import type { SessionStats } from '../core/stats.ts';
 import { budgetState } from '../core/context.ts';
+import { isNumber, isObject, num } from '../core/guards.ts';
 import { getState, onForget } from './state.ts';
 import { loadSettings, saveSettings } from './settings-store.ts';
 import { logOnce, toast } from './notify.ts';
@@ -15,13 +16,6 @@ import { logOnce, toast } from './notify.ts';
 type Ctx = Plugin.Context;
 
 const HOUR_MS = 3_600_000;
-
-const isObject = (v: unknown): v is Record<string, any> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
-
-const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-
-const num = (v: unknown): number => (isNum(v) ? v : 0);
 
 export const usd = (v: number): string => `$${v.toFixed(4)}`;
 
@@ -47,16 +41,16 @@ export async function readSpend(ctx: Ctx, now: number): Promise<Spend> {
 function isStats(v: unknown): v is Stats {
   return (
     isObject(v) &&
-    isNum(v.turns) &&
+    isNumber(v.turns) &&
     isObject(v.byLevel) &&
-    LEVELS.every((level) => isNum(v.byLevel[level])) &&
+    LEVELS.every((level) => isNumber(v.byLevel[level])) &&
     isObject(v.tokens) &&
-    isNum(v.tokens.input) &&
-    isNum(v.tokens.output) &&
-    isNum(v.tokens.cacheRead) &&
-    isNum(v.costUSD) &&
-    isNum(v.judgeCostUSD) &&
-    isNum(v.judgeCalls)
+    isNumber(v.tokens.input) &&
+    isNumber(v.tokens.output) &&
+    isNumber(v.tokens.cacheRead) &&
+    isNumber(v.costUSD) &&
+    isNumber(v.judgeCostUSD) &&
+    isNumber(v.judgeCalls)
   );
 }
 
@@ -70,9 +64,9 @@ export async function readStats(ctx: Ctx, sessionID: string): Promise<SessionSta
   const extra = stored as Stats & { requests?: unknown; manual?: unknown; lastTurn?: unknown };
   return {
     ...stored,
-    requests: isNum(extra.requests) ? extra.requests : stored.turns,
-    manual: isNum(extra.manual) ? extra.manual : 0,
-    lastTurn: isNum(extra.lastTurn) ? extra.lastTurn : null,
+    requests: isNumber(extra.requests) ? extra.requests : stored.turns,
+    manual: isNumber(extra.manual) ? extra.manual : 0,
+    lastTurn: isNumber(extra.lastTurn) ? extra.lastTurn : null,
   };
 }
 

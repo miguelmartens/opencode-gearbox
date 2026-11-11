@@ -3,6 +3,7 @@
 import type { Plugin } from '@opencode/plugin';
 import type { ModelLite, ModelRef, Settings } from '../core/types.ts';
 import {
+  CHARS_PER_TOKEN,
   findModelInfo,
   listModelInfos,
   parseModelString,
@@ -28,9 +29,6 @@ const NO_MODEL: ModelRef = { providerID: '', id: '' };
 
 // Cheap variants for the judge: thinking off first.
 const LIGHT_VARIANTS = ['none', 'minimal', 'low'];
-
-// Rough token estimate for judge cost: about 4 characters per token.
-const CHARS_PER_TOKEN = 4;
 
 function lighten(ref: ModelRef, infos: ModelInfo[]): ModelRef {
   if (ref.variant) return ref;

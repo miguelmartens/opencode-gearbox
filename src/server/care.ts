@@ -12,8 +12,7 @@ import { cacheWarm, contextLimit, findModelInfo, toModelLite } from './models.ts
 import { logOnce, toast } from './notify.ts';
 import { loadSettings } from './settings-store.ts';
 import { getCare, getState, onForget, peekCare } from './state.ts';
-import { statusChanged } from './status.ts';
-import { watchEvents } from './lifecycle.ts';
+import { onStepEnded, statusChanged } from './status.ts';
 
 type Ctx = Plugin.Context;
 
@@ -68,11 +67,7 @@ type SessionMessage = {
   content?: TextPart[];
 };
 
-type StepEnded = {
-  sessionID: string;
-  finish?: string;
-  tokens?: { input?: number; cache?: { read?: number; write?: number } };
-};
+type StepEnded = { sessionID: string; finish?: string };
 
 type FileStatus = { file: string; additions: number; deletions: number; status: string };
 
@@ -263,15 +258,15 @@ async function askHandoff(
   await statusChanged(ctx, session.id);
 }
 
-async function onStepEnded(ctx: Ctx, step: StepEnded): Promise<void> {
+/** Swamped warning and handoff advice after a request; the step tracker emits the status. */
+async function adviseAfterStep(ctx: Ctx, step: StepEnded): Promise<void> {
   const sessionID = step.sessionID;
   const session = (await ctx.session.get({ sessionID })) as SessionInfo;
   if (session.parentID != null) return;
   const ref = await sessionModel(ctx, session);
   const limit = contextLimit(await findModelInfo(ctx, ref));
-  const tokens = step.tokens ?? {};
-  const used = (tokens.input ?? 0) + (tokens.cache?.read ?? 0) + (tokens.cache?.write ?? 0);
-  const ratio = contextRatio(used, limit);
+  // The step tracker recorded this request's context size before running the handlers.
+  const ratio = contextRatio(getState(sessionID).contextTokens ?? 0, limit);
   const settings = await loadSettings(ctx);
 
   const state = getCare(sessionID);
@@ -291,7 +286,6 @@ async function onStepEnded(ctx: Ctx, step: StepEnded): Promise<void> {
     if (state.advice === 'handoff' && (ratio === null || ratio < settings.handoffAdviceFrom))
       state.advice = null;
   }
-  await statusChanged(ctx, sessionID);
 
   const turn = getState(sessionID).userTurn;
   if (
@@ -415,13 +409,5 @@ export async function registerContextCare(ctx: Ctx): Promise<void> {
       logOnce(event?.sessionID ?? 'unknown', 'compaction', error);
     }
   });
-  watchEvents(
-    ctx,
-    ['session.step.ended'],
-    async (event) => {
-      const step = event.data as StepEnded;
-      if (step?.sessionID) await onStepEnded(ctx, step);
-    },
-    'context advice',
-  );
+  onStepEnded(ctx, 'context advice', (step: StepEnded) => adviseAfterStep(ctx, step));
 }

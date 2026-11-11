@@ -13,8 +13,7 @@ import { resolveJudgeModel, runJudge } from './judge-model.ts';
 import { compactNow, handoff } from './care.ts';
 import { readSpend, readStats, recordStep, saveModeActive, usd } from './ledger.ts';
 import { findModelInfo } from './models.ts';
-import { buildStatus, statusChanged, trackUsage } from './status.ts';
-import { watchEvents } from './lifecycle.ts';
+import { buildStatus, onStepEnded, statusChanged } from './status.ts';
 import { logOnce, toast } from './notify.ts';
 import bench from '../../bench/judge-cases.json' with { type: 'json' };
 
@@ -93,14 +92,14 @@ async function priceTokens(
   );
 }
 
-async function onStepEnded(
-  ctx: Ctx,
-  deps: CommandDeps,
-  data: any,
-  model: ModelRef | undefined,
-): Promise<void> {
+/**
+ * One finished model request into stats and the budget (docs/api-probe.md §8). The request model
+ * comes from the step tracker, which records it on `session.step.started`.
+ */
+async function recordRequest(ctx: Ctx, deps: CommandDeps, data: any): Promise<void> {
   const sessionID: string = data.sessionID;
   const state = getState(sessionID);
+  const model = state.requestModel ?? undefined;
   const tokens = isObject(data.tokens) ? data.tokens : {};
   const t = {
     input: num(tokens.input),
@@ -124,23 +123,6 @@ async function onStepEnded(
       turn: state.requestTurn,
     },
     deps.now(),
-  );
-}
-
-/**
- * Feeds `session.step.ended` events into stats and the budget (docs/api-probe.md §8). The request
- * model comes from `trackUsage`, which records it on `session.step.started`.
- */
-function watchUsage(ctx: Ctx, deps: CommandDeps): void {
-  watchEvents(
-    ctx,
-    ['session.step.ended'],
-    async (event) => {
-      const sessionID = event.data?.sessionID;
-      if (typeof sessionID !== 'string') return;
-      await onStepEnded(ctx, deps, event.data, getState(sessionID).requestModel ?? undefined);
-    },
-    'usage',
   );
 }
 
@@ -439,6 +421,5 @@ export async function registerCommands(
     } as never);
   });
 
-  trackUsage(ctx);
-  watchUsage(ctx, deps);
+  onStepEnded(ctx, 'usage', (data) => recordRequest(ctx, deps, data));
 }

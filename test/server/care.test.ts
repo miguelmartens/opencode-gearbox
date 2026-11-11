@@ -380,7 +380,11 @@ test('a compactNow note goes into OpenCode\'s compaction while compactWith is "s
   const event = await fake.fire('compaction', compactionEvent('ses_n2'));
   assert.equal(fake.callsTo('generate.text').length, 0);
   assert.equal(event.result, undefined);
-  assert.match(event.system.join('\n'), /keep the API decisions/);
+  // `system` holds SystemPart objects; a bare string breaks OpenCode's compaction.
+  assert.deepEqual(event.system.at(-1), {
+    type: 'text',
+    text: 'Extra instructions from the user: keep the API decisions',
+  });
   // The note is used once.
   fake.storage.delete('settings');
   await fake.fire('compaction', compactionEvent('ses_n2'));
@@ -397,7 +401,11 @@ test("a compactNow note goes into OpenCode's compaction when the judge is not ch
   await compactNow(fake.ctx, 'ses_n3', 'keep the API decisions');
   const event = await fake.fire('compaction', compactionEvent('ses_n3'));
   assert.equal(event.result, undefined);
-  assert.match(event.system.join('\n'), /keep the API decisions/);
+  // `system` holds SystemPart objects; a bare string breaks OpenCode's compaction.
+  assert.deepEqual(event.system.at(-1), {
+    type: 'text',
+    text: 'Extra instructions from the user: keep the API decisions',
+  });
 });
 
 test('a compactNow note is kept for the next compaction when the event has no system list', async () => {

@@ -208,8 +208,9 @@ async function onCompaction(ctx: Ctx, event: any): Promise<void> {
     // OpenCode writes the summary: a `/gearbox compact` note goes into its compaction prompt, or
     // waits for the next compaction when the event has no system list.
     if (!summary && note) {
+      // `system` holds `SystemPart` objects; OpenCode's compaction fails on a bare string.
       if (Array.isArray(event.system))
-        event.system.push(`Extra instructions from the user: ${note}`);
+        event.system.push({ type: 'text', text: `Extra instructions from the user: ${note}` });
       else notes.set(sessionID, note);
     }
   }

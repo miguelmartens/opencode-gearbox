@@ -5,7 +5,7 @@
     "": {
       "name": "opencode-gearbox",
       "dependencies": {
-        "@opencode/plugin": "latest",
+        "@opencode/plugin": "^2.2.7",
       },
       "peerDependencies": {
         "@opentui/core": ">=0.8.1",

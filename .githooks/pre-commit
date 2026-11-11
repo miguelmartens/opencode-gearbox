@@ -1,0 +1,14 @@
+#!/bin/sh
+# Runs what CI runs, so a failing check never reaches a PR. Skip once with `git commit --no-verify`.
+# Output appears only when a check fails: the tests log expected errors on success too.
+set -e
+
+cd "$(git rev-parse --show-toplevel)"
+log=$(mktemp)
+trap 'rm -f "$log"' EXIT
+
+if ! bun run check >"$log" 2>&1; then
+  cat "$log" >&2
+  echo "pre-commit: \`bun run check\` failed. \`bun run format\` fixes formatting." >&2
+  exit 1
+fi

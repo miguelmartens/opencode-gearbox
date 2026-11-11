@@ -1,0 +1,24 @@
+#!/bin/sh
+# Checks that a commit subject follows Conventional Commits: `type(scope)!: subject`.
+# Git runs it with the message file; CI runs it on the PR title, which becomes the squash commit.
+set -e
+
+subject=$(grep -v '^#' "$1" | head -n 1)
+
+# Messages that Git writes itself.
+case "$subject" in
+  'Merge '* | 'Revert "'* | 'fixup! '* | 'squash! '* | 'amend! '*) exit 0 ;;
+esac
+
+types='feat|fix|deps|perf|refactor|docs|test|build|ci|chore|style|revert'
+if ! printf '%s\n' "$subject" | grep -Eq "^($types)(\([a-z0-9._/-]+\))?!?: [^ ]"; then
+  echo "commit-msg: \"$subject\" is not a Conventional Commit." >&2
+  echo "Use \`type(scope): subject\` with type one of: $(echo "$types" | tr '|' ' ')." >&2
+  echo "Add ! before the colon for a breaking change, e.g. \`feat(server)!: drop V1\`." >&2
+  exit 1
+fi
+
+if [ "${#subject}" -gt 100 ]; then
+  echo "commit-msg: the subject is ${#subject} characters; keep it to 100." >&2
+  exit 1
+fi

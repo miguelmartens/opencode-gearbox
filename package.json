@@ -1,6 +1,6 @@
 {
   "name": "opencode-gearbox",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Gearbox for OpenCode: picks the reasoning effort and model for every prompt and every subagent.",
   "keywords": [
     "opencode-plugin",

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/miguelmartens/opencode-gearbox/compare/v0.1.2...v0.1.3) (2026-11-11)
+
+
+### Bug Fixes
+
+* address audit findings in routing, cost and context care ([#14](https://github.com/miguelmartens/opencode-gearbox/issues/14)) ([b414495](https://github.com/miguelmartens/opencode-gearbox/commit/b4144955fc05f62d8983cfbd339dd1c5a8e0f28c))
+
 ## [0.1.2](https://github.com/miguelmartens/opencode-gearbox/compare/v0.1.1...v0.1.2) (2026-11-11)
 
 

@@ -1,14 +1,67 @@
-# opencode-gearbox
+<p align="center">
+  <a href="https://github.com/miguelmartens/opencode-gearbox">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/brand/banner-readme-dark.svg">
+      <img src="assets/brand/banner-readme-light.svg" width="880" alt="gearbox: automatic transmission for OpenCode">
+    </picture>
+  </a>
+</p>
 
-Gearbox for OpenCode: it picks the reasoning effort for every prompt and every subagent, and the model for subagents.
+<h3 align="center">Automatic transmission for OpenCode.</h3>
 
-You stop switching variants and models by hand. Easy prompts run at low effort, hard ones get full reasoning, and a subagent runs on the cheapest model of your provider that fits its task. A small judge model rates each prompt. A status bar shows what Gearbox chose and why.
+<p align="center">
+  Gearbox picks the reasoning effort for every prompt and every subagent,<br>
+  and the cheapest model that fits each subagent. <strong>You stop shifting by hand.</strong>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/opencode-gearbox"><img src="https://img.shields.io/npm/v/opencode-gearbox?style=flat-square&color=34343A&labelColor=0C0C0D&label=npm" alt="npm"></a>
+  <a href="https://github.com/miguelmartens/opencode-gearbox/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/miguelmartens/opencode-gearbox/ci.yml?style=flat-square&color=34343A&labelColor=0C0C0D&label=ci" alt="CI"></a>
+  <img src="https://img.shields.io/badge/opencode-V2%20%E2%89%A5%202.2.6-34343A?style=flat-square&labelColor=0C0C0D" alt="OpenCode V2 2.2.6+">
+  <img src="https://img.shields.io/badge/judge%20bench-75%20prompts-34343A?style=flat-square&labelColor=0C0C0D" alt="Judge benchmark: 75 labelled prompts">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-34343A?style=flat-square&labelColor=0C0C0D" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <a href="https://getgearbox.dev"><strong>Website</strong></a> ·
+  <a href="#install"><strong>Install</strong></a> ·
+  <a href="#the-five-gears">Gears</a> ·
+  <a href="#commands">Commands</a> ·
+  <a href="#options">Options</a> ·
+  <a href="#how-model-switching-decides">Model switching</a>
+</p>
+
+<p align="center">
+  <img src="assets/brand/statusbar.svg" width="720" alt="Status bar: High · haiku-5-5 · 38% context · cache 4:12 · Auto">
+</p>
+
+---
+
+## Why
+
+You pick a variant, forget it, and burn `max` effort on `rename this variable`. Or you leave it on `low` and the hard bug gets a shallow answer. Subagents inherit your most expensive model even when they only grep.
+
+Gearbox fixes that. A small judge model rates each prompt. Gearbox shifts the effort for the turn and gives each subagent its own level and a cheaper model when it fits. A status bar shows what it chose and why.
 
 ```
 ⚙ High · haiku-5-5 · ◔ 38% · cache 4:12 · Auto
 ```
 
 Inspired by [HeyCubit/effortless](https://github.com/HeyCubit/effortless) (a Claude Code mod), but written from scratch for OpenCode V2 and any provider.
+
+## The five gears
+
+<p align="center"><img src="assets/brand/gears.svg" width="760" alt="Gears 1 to 5: low, medium, high, xhigh, max"></p>
+
+| Gear | Level    | Typical prompt                      | Subagent model on the ladder | Expected output |
+| :--: | -------- | ----------------------------------- | ---------------------------- | --------------: |
+|  1   | `low`    | Renames, lookups, one-line fixes    | cheapest                     |      800 tokens |
+|  2   | `medium` | Everyday edits; also the fallback   | middle                       |    3 000 tokens |
+|  3   | `high`   | Debugging across files              | the chat model               |    8 000 tokens |
+|  4   | `xhigh`  | Refactors, design trade-offs        | the chat model               |   16 000 tokens |
+|  5   | `max`    | Full reasoning, or say "max effort" | the chat model               |   32 000 tokens |
+
+The "typical prompt" column is a guide; the judge decides.
 
 ## What it does
 
@@ -29,12 +82,9 @@ Inspired by [HeyCubit/effortless](https://github.com/HeyCubit/effortless) (a Cla
 
 Effort works with any model that exposes effort variants. Verified on OpenCode 2.2.6: Anthropic Messages, OpenAI Responses and OpenAI-compatible endpoints (DeepSeek). Google and other providers with effort variants should work the same way but are unverified. A model without effort variants runs unchanged, and the bar says `Paused: no effort control`.
 
-## Requirements
-
-- OpenCode **V2, 2.2.6 or later**. V1 is not supported.
-- Bun 1.4 or later, only to develop and run the tests.
-
 ## Install
+
+**Requirements:** OpenCode **V2, 2.2.6 or later** (V1 is not supported). Bun 1.4 or later only to develop and run the tests.
 
 Add the package to the `plugins` list of your global (`~/.config/opencode/opencode.jsonc`) or project `opencode.jsonc`:
 
@@ -193,6 +243,14 @@ bun run check           # both
 - `docs/api-probe.md`: the verified OpenCode V2 API facts.
 - `test/e2e/CHECKLIST.md`: the manual end-to-end run against a real OpenCode.
 
+## Brand
+
+Logo, emblems and banners live in [`assets/brand/`](assets/brand). They are free to use when you write or talk about Gearbox. Show that your project runs on it:
+
+```md
+[![Shifted by Gearbox](https://raw.githubusercontent.com/miguelmartens/opencode-gearbox/main/assets/brand/badge-shifted-by-gearbox.svg)](https://github.com/miguelmartens/opencode-gearbox)
+```
+
 ## Credits
 
 - The 75 labelled benchmark prompts in `bench/judge-cases.json` come from [HeyCubit/effortless](https://github.com/HeyCubit/effortless) (MIT). They were taken via [tehchaoz/effortless-opencode](https://github.com/tehchaoz/effortless-opencode) (MIT). See [NOTICE.md](./NOTICE.md).
@@ -200,4 +258,6 @@ bun run check           # both
 
 ## License
 
-MIT © Miguel Martens
+MIT © Miguel Martens. Gearbox is an independent project and is not affiliated with OpenCode.
+
+<p align="center"><br><img src="assets/brand/emblem-round.svg" width="140" alt="Gearbox emblem"></p>

@@ -1,0 +1,3 @@
+[test]
+# Only the plugin suite. bench/tasks/ fixtures carry tests that fail on purpose.
+root = "./test"

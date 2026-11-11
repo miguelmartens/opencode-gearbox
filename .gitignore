@@ -8,3 +8,6 @@ probe/
 .opencode/node_modules/
 .opencode/package.json
 .opencode/package-lock.json
+
+# Benchmark dry runs (`bun bench/run.ts --dry-run`) are for checking the harness, not published
+bench/results/raw/*-dry.jsonl

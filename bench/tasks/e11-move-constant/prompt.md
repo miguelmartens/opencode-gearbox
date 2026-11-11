@@ -1,0 +1,1 @@
+The page size limit `30` is hard-coded in both src/pager.ts and src/api.ts. Move it into a new file src/config.ts as an exported constant `MAX_PAGE_SIZE`, and use that constant in both places. Behaviour must stay exactly the same.

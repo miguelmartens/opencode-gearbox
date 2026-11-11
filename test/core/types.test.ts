@@ -1,13 +1,12 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'bun:test';
 import { DEFAULT_SETTINGS, LEVELS } from '../../src/core/types.ts';
 
 test('LEVELS are ordered lowest to highest', () => {
-  assert.deepEqual(LEVELS, ['low', 'medium', 'high', 'xhigh', 'max']);
+  expect(LEVELS).toStrictEqual(['low', 'medium', 'high', 'xhigh', 'max']);
 });
 
 test('DEFAULT_SETTINGS match the Global Constraints', () => {
-  assert.deepEqual(DEFAULT_SETTINGS, {
+  expect(DEFAULT_SETTINGS).toStrictEqual({
     auto: true,
     bias: 0,
     floor: 'low',

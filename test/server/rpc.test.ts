@@ -1,5 +1,4 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import { getCare, getState, resetState } from '../../src/server/state.ts';
 import { toast } from '../../src/server/notify.ts';
@@ -46,12 +45,12 @@ function setup(opts: Parameters<typeof makeFakeCtx>[0] = {}) {
 test('registerRpc registers the Gearbox contract with a status method', async () => {
   const { fake, registrations } = setup();
   await registerRpc(fake.ctx);
-  assert.equal(registrations.length, 1);
-  assert.equal(registrations[0].definition, Gearbox);
-  assert.equal(Gearbox.id, 'gearbox');
-  assert.ok(Gearbox.events[STATUS_EVENT]);
-  assert.ok(Gearbox.events[TOAST_EVENT]);
-  assert.equal(typeof registrations[0].handlers.status, 'function');
+  expect(registrations.length).toBe(1);
+  expect(registrations[0].definition).toBe(Gearbox);
+  expect(Gearbox.id).toBe('gearbox');
+  expect(Gearbox.events[STATUS_EVENT]).toBeTruthy();
+  expect(Gearbox.events[TOAST_EVENT]).toBeTruthy();
+  expect(typeof registrations[0].handlers.status).toBe('function');
 });
 
 test('status returns getState data for the session', async () => {
@@ -63,22 +62,22 @@ test('status returns getState data for the session', async () => {
   const { fake, status } = setup();
   await registerRpc(fake.ctx);
   const s = await status('ses_rpc_state');
-  assert.equal(s.sessionID, 'ses_rpc_state');
-  assert.equal(s.level, 'high');
-  assert.equal(s.judgeReason, 'multi-file change');
-  assert.equal(s.paused, 'manual variant');
-  assert.equal(s.auto, true);
-  assert.equal(s.model, null);
-  assert.equal(s.contextRatio, null);
-  assert.equal(s.cacheRemainingMs, null);
-  assert.equal(s.advice, null);
+  expect(s.sessionID).toBe('ses_rpc_state');
+  expect(s.level).toBe('high');
+  expect(s.judgeReason).toBe('multi-file change');
+  expect(s.paused).toBe('manual variant');
+  expect(s.auto).toBe(true);
+  expect(s.model).toBe(null);
+  expect(s.contextRatio).toBe(null);
+  expect(s.cacheRemainingMs).toBe(null);
+  expect(s.advice).toBe(null);
 });
 
 test('notify toasts go out through the RPC registration', async () => {
   const { fake, emitted } = setup();
   await registerRpc(fake.ctx);
   await toast({ sessionID: 'ses_t', message: 'Auto paused', variant: 'info' });
-  assert.deepEqual(emitted, [
+  expect(emitted).toStrictEqual([
     { name: TOAST_EVENT, payload: { sessionID: 'ses_t', message: 'Auto paused', variant: 'info' } },
   ]);
 });
@@ -104,14 +103,14 @@ test('step events feed model, context ratio and cache into the status and emit i
   await tick();
   await tick();
   const s = await status('ses_rpc_steps');
-  assert.deepEqual(s.model, { providerID: 'anthropic', id: 'claude-haiku-5-5' });
-  assert.equal(s.contextRatio, 0.38);
-  assert.ok(s.cacheRemainingMs !== null && s.cacheRemainingMs > 3_590_000);
-  assert.ok(s.cacheRemainingMs <= 3_600_000);
+  expect(s.model).toStrictEqual({ providerID: 'anthropic', id: 'claude-haiku-5-5' });
+  expect(s.contextRatio).toBe(0.38);
+  expect(s.cacheRemainingMs !== null && s.cacheRemainingMs > 3_590_000).toBeTruthy();
+  expect(s.cacheRemainingMs <= 3_600_000).toBeTruthy();
   const sent = emitted.filter((e) => e.name === STATUS_EVENT);
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].payload.sessionID, 'ses_rpc_steps');
-  assert.equal(sent[0].payload.contextRatio, 0.38);
+  expect(sent.length).toBe(1);
+  expect(sent[0].payload.sessionID).toBe('ses_rpc_steps');
+  expect(sent[0].payload.contextRatio).toBe(0.38);
 });
 
 test('cache defaults to 5 minutes and prefers limit.input', async () => {
@@ -134,9 +133,9 @@ test('cache defaults to 5 minutes and prefers limit.input', async () => {
   await tick();
   await tick();
   const s = await status('ses_rpc_default_ttl');
-  assert.equal(s.contextRatio, 0.25);
-  assert.ok(s.cacheRemainingMs !== null && s.cacheRemainingMs > 290_000);
-  assert.ok(s.cacheRemainingMs <= 300_000);
+  expect(s.contextRatio).toBe(0.25);
+  expect(s.cacheRemainingMs !== null && s.cacheRemainingMs > 290_000).toBeTruthy();
+  expect(s.cacheRemainingMs <= 300_000).toBeTruthy();
 });
 
 test('every status emit is built from the shared state, whatever the emitter', async () => {
@@ -156,10 +155,10 @@ test('every status emit is built from the shared state, whatever the emitter', a
   await tick();
   await statusChanged(fake.ctx, 'ses_rpc_sibling');
   const sent = emitted.filter((e) => e.name === STATUS_EVENT);
-  assert.equal(sent.length, 1);
-  assert.equal(sent[0].payload.paused, 'no effort control');
-  assert.equal(sent[0].payload.advice, 'swamped');
-  assert.deepEqual(sent[0].payload.model, { providerID: 'anthropic', id: 'claude-haiku-5-5' });
+  expect(sent.length).toBe(1);
+  expect(sent[0].payload.paused).toBe('no effort control');
+  expect(sent[0].payload.advice).toBe('swamped');
+  expect(sent[0].payload.model).toStrictEqual({ providerID: 'anthropic', id: 'claude-haiku-5-5' });
 });
 
 test('no effort control survives a care emit; advice survives a routing emit', async () => {
@@ -187,20 +186,20 @@ test('no effort control survives a care emit; advice survives a routing emit', a
 
   await fake.fire('prompt', { sessionID, prompt: { text: 'ok' } });
   await fake.fire('context', { sessionID, agent: 'build', model: ref, messages: [], options: {} });
-  assert.equal(last().paused, 'no effort control');
+  expect(last().paused).toBe('no effort control');
 
   fake.publish({
     type: 'session.step.ended',
     data: { sessionID, finish: 'stop', tokens: { input: 800, cache: { read: 0, write: 0 } } },
   });
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(last().advice, 'swamped');
-  assert.equal(last().paused, 'no effort control');
+  expect(last().advice).toBe('swamped');
+  expect(last().paused).toBe('no effort control');
 
   await fake.fire('prompt', { sessionID, prompt: { text: 'continue' } });
   await fake.fire('context', { sessionID, agent: 'build', model: ref, messages: [], options: {} });
-  assert.equal(last().advice, 'swamped');
-  assert.equal(last().paused, 'no effort control');
+  expect(last().advice).toBe('swamped');
+  expect(last().paused).toBe('no effort control');
 });
 
 test('status survives a failing model list', async () => {
@@ -227,19 +226,19 @@ test('status survives a failing model list', async () => {
   await tick();
   await tick();
   const s = await status('ses_rpc_fail');
-  assert.equal(s.level, 'medium');
-  assert.equal(s.contextRatio, null);
-  assert.ok(s.cacheRemainingMs !== null && s.cacheRemainingMs <= 300_000);
+  expect(s.level).toBe('medium');
+  expect(s.contextRatio).toBe(null);
+  expect(s.cacheRemainingMs !== null && s.cacheRemainingMs <= 300_000).toBeTruthy();
 });
 
 test('parseTtlMs reads OpenCode TTL strings', () => {
-  assert.equal(parseTtlMs('5m'), 300_000);
-  assert.equal(parseTtlMs('1h'), 3_600_000);
-  assert.equal(parseTtlMs('30s'), 30_000);
-  assert.equal(parseTtlMs('500ms'), 500);
-  assert.equal(parseTtlMs('1d'), 86_400_000);
-  assert.equal(parseTtlMs('soon'), null);
-  assert.equal(parseTtlMs(undefined), null);
+  expect(parseTtlMs('5m')).toBe(300_000);
+  expect(parseTtlMs('1h')).toBe(3_600_000);
+  expect(parseTtlMs('30s')).toBe(30_000);
+  expect(parseTtlMs('500ms')).toBe(500);
+  expect(parseTtlMs('1d')).toBe(86_400_000);
+  expect(parseTtlMs('soon')).toBe(null);
+  expect(parseTtlMs(undefined)).toBe(null);
 });
 
 test('session.deleted forgets the session state', async () => {
@@ -250,5 +249,5 @@ test('session.deleted forgets the session state', async () => {
   fake.publish({ type: 'session.deleted', data: { sessionID: 'ses_rpc_deleted', info: {} } });
   await tick();
   await tick();
-  assert.equal(getState('ses_rpc_deleted').lastLevel, null);
+  expect(getState('ses_rpc_deleted').lastLevel).toBe(null);
 });

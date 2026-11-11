@@ -1,7 +1,11 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import { evictIdle, getState, onForget, sweepIdle } from '../../src/server/state.ts';
 import { logOnce } from '../../src/server/notify.ts';
+
+// Restore console spies even when a test fails: all test files share one Bun process.
+afterEach(() => {
+  mock.restore();
+});
 
 const HOUR = 3_600_000;
 
@@ -19,16 +23,16 @@ test('evictIdle forgets sessions untouched for more than 24 h', () => {
   getState('ses_recent').userTurn = 3;
   getState('ses_recent').touchedAt = now - HOUR;
   evictIdle(now);
-  assert.ok(forgotten.includes('ses_old'));
-  assert.ok(!forgotten.includes('ses_recent'));
-  assert.equal(getState('ses_old').userTurn, 0);
-  assert.equal(getState('ses_recent').userTurn, 3);
+  expect(forgotten.includes('ses_old')).toBeTruthy();
+  expect(!forgotten.includes('ses_recent')).toBeTruthy();
+  expect(getState('ses_old').userTurn).toBe(0);
+  expect(getState('ses_recent').userTurn).toBe(3);
 });
 
 test('getState touches the session', () => {
   const state = getState('ses_touch');
   state.touchedAt = 0;
-  assert.ok(getState('ses_touch').touchedAt > Date.now() - 1000);
+  expect(getState('ses_touch').touchedAt > Date.now() - 1000).toBeTruthy();
 });
 
 test('evictIdle keeps the given session and sessions with a judge call running', () => {
@@ -38,8 +42,8 @@ test('evictIdle keeps the given session and sessions with a judge call running',
   getState('ses_judging').judging = 1;
   getState('ses_judging').touchedAt = now - 25 * HOUR;
   evictIdle(now, 'ses_keep');
-  assert.ok(!forgotten.includes('ses_keep'));
-  assert.ok(!forgotten.includes('ses_judging'));
+  expect(!forgotten.includes('ses_keep')).toBeTruthy();
+  expect(!forgotten.includes('ses_judging')).toBeTruthy();
 });
 
 test('sweepIdle evicts at most once an hour', () => {
@@ -48,18 +52,18 @@ test('sweepIdle evicts at most once an hour', () => {
   sweepIdle(now);
   getState('ses_sweep').touchedAt = now - 25 * HOUR;
   sweepIdle(now + 60_000);
-  assert.ok(!forgotten.includes('ses_sweep'));
+  expect(!forgotten.includes('ses_sweep')).toBeTruthy();
   sweepIdle(now + HOUR + 1);
-  assert.ok(forgotten.includes('ses_sweep'));
+  expect(forgotten.includes('ses_sweep')).toBeTruthy();
 });
 
-test('logOnce logs again after its session is evicted', (t) => {
-  const errors = t.mock.method(console, 'error', () => {});
+test('logOnce logs again after its session is evicted', () => {
+  const errors = spyOn(console, 'error').mockImplementation(() => {});
   getState('ses_log');
   logOnce('ses_log', 'scope', new Error('x'));
   logOnce('ses_log', 'scope', new Error('x'));
-  assert.equal(errors.mock.callCount(), 1);
+  expect(errors.mock.calls.length).toBe(1);
   evictIdle(Date.now() + 25 * HOUR);
   logOnce('ses_log', 'scope', new Error('x'));
-  assert.equal(errors.mock.callCount(), 2);
+  expect(errors.mock.calls.length).toBe(2);
 });

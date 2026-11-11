@@ -1,20 +1,19 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'bun:test';
 import { classifyPrompt } from '../../src/core/rules.ts';
 
 test('classifyPrompt detects follow-ups', () => {
   for (const text of ['ok', 'go!', 'yes please', 'continue', '  Thanks.  ', 'do it', 'K']) {
-    assert.deepEqual(classifyPrompt(text), { kind: 'followup' }, text);
+    expect(classifyPrompt(text), text).toStrictEqual({ kind: 'followup' });
   }
 });
 
 test('classifyPrompt detects a named level', () => {
-  assert.deepEqual(classifyPrompt('use max effort and refactor auth'), {
+  expect(classifyPrompt('use max effort and refactor auth')).toStrictEqual({
     kind: 'named',
     level: 'max',
   });
-  assert.deepEqual(classifyPrompt('low effort: fix typo'), { kind: 'named', level: 'low' });
-  assert.deepEqual(classifyPrompt('XHIGH Effort please'), { kind: 'named', level: 'xhigh' });
+  expect(classifyPrompt('low effort: fix typo')).toStrictEqual({ kind: 'named', level: 'low' });
+  expect(classifyPrompt('XHIGH Effort please')).toStrictEqual({ kind: 'named', level: 'xhigh' });
 });
 
 test('classifyPrompt sends everything else to the judge', () => {
@@ -24,6 +23,6 @@ test('classifyPrompt sends everything else to the judge', () => {
     'maximum effort',
     '',
   ]) {
-    assert.deepEqual(classifyPrompt(text), { kind: 'judge' }, text);
+    expect(classifyPrompt(text), text).toStrictEqual({ kind: 'judge' });
   }
 });

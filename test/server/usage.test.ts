@@ -1,5 +1,4 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import { trackUsage } from '../../src/server/status.ts';
 import { getState } from '../../src/server/state.ts';
@@ -21,8 +20,8 @@ test('a session resumed after more than 24 h idle keeps its state through its fi
   });
   await tick();
   const after = getState(sessionID);
-  assert.equal(after, state, 'not evicted');
-  assert.equal(after.userTurn, 3);
-  assert.equal(after.autoPaused, 'manual variant');
-  assert.ok(after.lastRequestAt && after.lastRequestAt > Date.now() - 1000);
+  expect(after, 'not evicted').toBe(state);
+  expect(after.userTurn).toBe(3);
+  expect(after.autoPaused).toBe('manual variant');
+  expect(after.lastRequestAt && after.lastRequestAt > Date.now() - 1000).toBeTruthy();
 });

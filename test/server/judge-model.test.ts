@@ -1,5 +1,4 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import {
   listModelInfos,
@@ -8,6 +7,11 @@ import {
   toModelLite,
 } from '../../src/server/judge-model.ts';
 import { DEFAULT_SETTINGS } from '../../src/core/types.ts';
+
+// Restore console spies even when a test fails: all test files share one Bun process.
+afterEach(() => {
+  mock.restore();
+});
 
 function model(
   id: string,
@@ -41,7 +45,7 @@ const haiku = model('claude-haiku-5-5', 5);
 const chat = { providerID: 'anthropic', id: 'claude-opus-5-5' };
 
 test('toModelLite maps the base cost tier, variants, tools and context limit', () => {
-  assert.deepEqual(toModelLite(haiku), {
+  expect(toModelLite(haiku)).toStrictEqual({
     ref: { providerID: 'anthropic', id: 'claude-haiku-5-5' },
     price: { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
     variants: ['none', 'low'],
@@ -49,13 +53,13 @@ test('toModelLite maps the base cost tier, variants, tools and context limit', (
     enabled: true,
     contextLimit: 200000,
   });
-  assert.equal(toModelLite(model('sub', 0, { cost: [] })), null);
-  assert.equal(toModelLite(model('in', 1, { limit: { context: 10, input: 8 } }))?.contextLimit, 8);
+  expect(toModelLite(model('sub', 0, { cost: [] }))).toBe(null);
+  expect(toModelLite(model('in', 1, { limit: { context: 10, input: 8 } }))?.contextLimit).toBe(8);
 });
 
 test('listModelInfos unwraps { location, data }', async () => {
   const fake = makeFakeCtx({ models: [haiku] });
-  assert.deepEqual(await listModelInfos(fake.ctx), [haiku]);
+  expect(await listModelInfos(fake.ctx)).toStrictEqual([haiku]);
 });
 
 test('resolveJudgeModel prefers settings.judge.model', async () => {
@@ -64,13 +68,13 @@ test('resolveJudgeModel prefers settings.judge.model', async () => {
     ...DEFAULT_SETTINGS,
     judge: { model: 'openai/gpt-6-mini#low', timeoutMs: 4000 },
   };
-  assert.deepEqual(await resolveJudgeModel(fake.ctx, chat, settings), {
+  expect(await resolveJudgeModel(fake.ctx, chat, settings)).toStrictEqual({
     providerID: 'openai',
     id: 'gpt-6-mini',
     variant: 'low',
   });
   const nested = { ...DEFAULT_SETTINGS, judge: { model: 'openrouter/a/b', timeoutMs: 4000 } };
-  assert.deepEqual(await resolveJudgeModel(fake.ctx, chat, nested), {
+  expect(await resolveJudgeModel(fake.ctx, chat, nested)).toStrictEqual({
     providerID: 'openrouter',
     id: 'a/b',
   });
@@ -81,7 +85,7 @@ test('resolveJudgeModel uses the title agent model (V1 small_model)', async () =
     models: [opus, haiku],
     agents: [{ id: 'title', model: { providerID: 'deepseek', id: 'v4-flash', variant: 'none' } }],
   });
-  assert.deepEqual(await resolveJudgeModel(fake.ctx, chat, DEFAULT_SETTINGS), {
+  expect(await resolveJudgeModel(fake.ctx, chat, DEFAULT_SETTINGS)).toStrictEqual({
     providerID: 'deepseek',
     id: 'v4-flash',
     variant: 'none',
@@ -101,7 +105,7 @@ test('resolveJudgeModel falls back to the cheapest tool-capable priced model, th
     ],
     agents: [{ id: 'title' }],
   });
-  assert.deepEqual(await resolveJudgeModel(fake.ctx, chat, DEFAULT_SETTINGS), {
+  expect(await resolveJudgeModel(fake.ctx, chat, DEFAULT_SETTINGS)).toStrictEqual({
     providerID: 'anthropic',
     id: 'claude-haiku-5-5',
     variant: 'none',
@@ -110,10 +114,9 @@ test('resolveJudgeModel falls back to the cheapest tool-capable priced model, th
 
 test('resolveJudgeModel returns the session model when nothing else fits', async () => {
   const fake = makeFakeCtx({ models: [] });
-  assert.deepEqual(
+  expect(
     await resolveJudgeModel(fake.ctx, { ...chat, variant: 'max' }, DEFAULT_SETTINGS),
-    chat,
-  );
+  ).toStrictEqual(chat);
 });
 
 test('runJudge returns the text, the time and an estimated cost', async () => {
@@ -123,12 +126,12 @@ test('runJudge returns the text, the time and an estimated cost', async () => {
   });
   const ref = { providerID: 'anthropic', id: 'claude-haiku-5-5', variant: 'none' };
   const result = await runJudge(fake.ctx, ref, 'x'.repeat(4000), 1000);
-  assert.ok(result);
-  assert.equal(result.text, 'LEVEL: low\nWHY: typo');
-  assert.ok(result.ms >= 0);
+  expect(result).toBeTruthy();
+  expect(result.text).toBe('LEVEL: low\nWHY: typo');
+  expect(result.ms >= 0).toBeTruthy();
   // 1000 input tokens at $1/M + 5 output tokens at $5/M
-  assert.ok(Math.abs((result.costUSD ?? 0) - (1000 * 1 + 5 * 5) / 1e6) < 1e-9);
-  assert.deepEqual(fake.callsTo('generate.text')[0].input, {
+  expect(Math.abs((result.costUSD ?? 0) - (1000 * 1 + 5 * 5) / 1e6) < 1e-9).toBeTruthy();
+  expect(fake.callsTo('generate.text')[0].input).toStrictEqual({
     model: ref,
     prompt: 'x'.repeat(4000),
   });
@@ -137,8 +140,8 @@ test('runJudge returns the text, the time and an estimated cost', async () => {
 test('runJudge returns null on timeout without waiting for the generator', async () => {
   const fake = makeFakeCtx({ generateText: () => new Promise(() => {}) });
   const start = Date.now();
-  assert.equal(await runJudge(fake.ctx, chat, 'p', 100), null);
-  assert.ok(Date.now() - start < 150);
+  expect(await runJudge(fake.ctx, chat, 'p', 100)).toBe(null);
+  expect(Date.now() - start < 150).toBeTruthy();
 });
 
 test('runJudge returns null when the generator throws or is missing', async () => {
@@ -147,15 +150,15 @@ test('runJudge returns null when the generator throws or is missing', async () =
       throw new Error('Insufficient balance');
     },
   });
-  assert.equal(await runJudge(failing.ctx, chat, 'p', 1000), null);
+  expect(await runJudge(failing.ctx, chat, 'p', 1000)).toBe(null);
   const missing = makeFakeCtx({ overrides: { experimental: { generate: null } } });
-  assert.equal(await runJudge(missing.ctx, chat, 'p', 1000), null);
+  expect(await runJudge(missing.ctx, chat, 'p', 1000)).toBe(null);
 });
 
 test('resolveJudgeModel lightens the session model when it is the last resort', async () => {
   const fake = makeFakeCtx({ models: [model('claude-agent-opus', 0, { cost: [] })] });
   const session = { providerID: 'anthropic', id: 'claude-agent-opus' };
-  assert.deepEqual(await resolveJudgeModel(fake.ctx, session, DEFAULT_SETTINGS), {
+  expect(await resolveJudgeModel(fake.ctx, session, DEFAULT_SETTINGS)).toStrictEqual({
     ...session,
     variant: 'none',
   });
@@ -164,22 +167,22 @@ test('resolveJudgeModel lightens the session model when it is the last resort', 
 test('an unknown session model skips the judge instead of calling generate without a model', async () => {
   const fake = makeFakeCtx({ generateText: async () => ({ text: 'LEVEL: low' }) });
   const judge = await resolveJudgeModel(fake.ctx, { providerID: '', id: '' }, DEFAULT_SETTINGS);
-  assert.equal(await runJudge(fake.ctx, judge, 'p', 1000), null);
-  assert.equal(fake.callsTo('generate.text').length, 0);
+  expect(await runJudge(fake.ctx, judge, 'p', 1000)).toBe(null);
+  expect(fake.callsTo('generate.text').length).toBe(0);
 });
 
-test('runJudge logs a provider error once and still returns null', async (t) => {
-  const errors = t.mock.method(console, 'error', () => {});
+test('runJudge logs a provider error once and still returns null', async () => {
+  const errors = spyOn(console, 'error').mockImplementation(() => {});
   const fake = makeFakeCtx({
     generateText: async () => {
       throw new Error('Insufficient balance');
     },
   });
   const meta = { sessionID: 'ses_judge_err' };
-  assert.equal(await runJudge(fake.ctx, chat, 'p', 1000, meta), null);
-  assert.equal(await runJudge(fake.ctx, chat, 'p', 1000, meta), null);
-  const logged = errors.mock.calls.filter((c) => /Insufficient balance/.test(String(c.arguments)));
-  assert.equal(logged.length, 1);
+  expect(await runJudge(fake.ctx, chat, 'p', 1000, meta)).toBe(null);
+  expect(await runJudge(fake.ctx, chat, 'p', 1000, meta)).toBe(null);
+  const logged = errors.mock.calls.filter((c) => /Insufficient balance/.test(String(c)));
+  expect(logged.length).toBe(1);
 });
 
 test('runJudge calls generate.text as a method, so a host that needs `this` works', async () => {
@@ -196,7 +199,7 @@ test('runJudge calls generate.text as a method, so a host that needs `this` work
     },
   });
   const result = await runJudge(fake.ctx, chat, 'p', 1000);
-  assert.equal(result?.text, 'LEVEL: low');
+  expect(result?.text).toBe('LEVEL: low');
 });
 
 test('a won race returns within timeoutMs even when the cost estimate is slow', async () => {
@@ -206,9 +209,9 @@ test('a won race returns within timeoutMs even when the cost estimate is slow', 
   });
   const start = Date.now();
   const result = await runJudge(fake.ctx, chat, 'p', 100);
-  assert.equal(result?.text, 'LEVEL: low');
-  assert.equal(result?.costUSD, undefined);
-  assert.ok(Date.now() - start <= 150, `took ${Date.now() - start} ms`);
+  expect(result?.text).toBe('LEVEL: low');
+  expect(result?.costUSD).toBe(undefined);
+  expect(Date.now() - start <= 150, `took ${Date.now() - start} ms`).toBeTruthy();
 });
 
 async function settle(check: () => boolean): Promise<void> {
@@ -220,9 +223,9 @@ test('runJudge records the call in session stats and daily spend by default', as
   const ref = { providerID: 'anthropic', id: 'claude-haiku-5-5' };
   await runJudge(fake.ctx, ref, 'x'.repeat(400), 1000, { sessionID: 'ses_jm_stats' });
   await settle(() => fake.storage.get('stats/ses_jm_stats') !== undefined);
-  assert.equal((fake.storage.get('stats/ses_jm_stats') as any)?.judgeCalls, 1);
+  expect((fake.storage.get('stats/ses_jm_stats') as any)?.judgeCalls).toBe(1);
   const spend = [...fake.storage.entries()].find(([k]) => k.startsWith('spend/'));
-  assert.ok((spend?.[1] as any)?.usd > 0);
+  expect((spend?.[1] as any)?.usd > 0).toBeTruthy();
 });
 
 test('runJudge with sessionStats false records daily spend only', async () => {
@@ -234,6 +237,6 @@ test('runJudge with sessionStats false records daily spend only', async () => {
   });
   await settle(() => [...fake.storage.keys()].some((k) => k.startsWith('spend/')));
   const spend = [...fake.storage.entries()].find(([k]) => k.startsWith('spend/'));
-  assert.ok((spend?.[1] as any)?.usd > 0);
-  assert.equal(fake.storage.get('stats/ses_jm_bench'), undefined);
+  expect((spend?.[1] as any)?.usd > 0).toBeTruthy();
+  expect(fake.storage.get('stats/ses_jm_bench')).toBe(undefined);
 });

@@ -1,8 +1,12 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import { setup } from '../../src/server/index.ts';
 import { lifecycleConfig, watchEvents } from '../../src/server/lifecycle.ts';
+
+// Restore console spies even when a test fails: all test files share one Bun process.
+afterEach(() => {
+  mock.restore();
+});
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -12,7 +16,7 @@ test('setup returns a cleanup that aborts every subscription and disposes the RP
   const fake = makeFakeCtx();
   const subscribe = fake.ctx.event.subscribe;
   fake.ctx.event.subscribe = (options: { signal?: AbortSignal }) => {
-    assert.ok(options.signal, 'every subscription gets a signal');
+    expect(options.signal, 'every subscription gets a signal').toBeTruthy();
     signals.push(options.signal);
     return subscribe(options);
   };
@@ -22,11 +26,11 @@ test('setup returns a cleanup that aborts every subscription and disposes the RP
     return { ...registration, dispose: async () => void disposed++ };
   };
   const cleanup = await setup(fake.ctx);
-  assert.equal(typeof cleanup, 'function');
-  assert.ok(signals.length > 0);
+  expect(typeof cleanup).toBe('function');
+  expect(signals.length > 0).toBeTruthy();
   await cleanup();
-  assert.ok(signals.every((signal) => signal.aborted));
-  assert.equal(disposed, 1);
+  expect(signals.every((signal) => signal.aborted)).toBeTruthy();
+  expect(disposed).toBe(1);
 });
 
 test('setup survives a context without event.subscribe', async () => {
@@ -35,8 +39,8 @@ test('setup survives a context without event.subscribe', async () => {
   await cleanup();
 });
 
-test('a stream that ends is re-subscribed and logged', async (t) => {
-  const errors = t.mock.method(console, 'error', () => {});
+test('a stream that ends is re-subscribed and logged', async () => {
+  const errors = spyOn(console, 'error').mockImplementation(() => {});
   lifecycleConfig.resubscribeMs = 5;
   const fake = makeFakeCtx();
   const subscribe = fake.ctx.event.subscribe;
@@ -56,12 +60,12 @@ test('a stream that ends is re-subscribed and logged', async (t) => {
   const controller = new AbortController();
   watchEvents(fake.ctx, ['x'], (event) => void seen.push(event.data), 'test', controller.signal);
   await wait(40);
-  assert.equal(calls, 3);
+  expect(calls).toBe(3);
   fake.publish({ type: 'x', data: 1 });
   await wait(5);
-  assert.deepEqual(seen, [1]);
-  assert.ok(errors.mock.calls.length >= 1);
+  expect(seen).toStrictEqual([1]);
+  expect(errors.mock.calls.length >= 1).toBeTruthy();
   controller.abort();
   await wait(20);
-  assert.equal(calls, 3, 'no re-subscribe after abort');
+  expect(calls, 'no re-subscribe after abort').toBe(3);
 });

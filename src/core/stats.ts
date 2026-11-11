@@ -20,8 +20,14 @@ export type SessionStats = Stats & {
   /** User turns Gearbox did not route (auto off, paused, no effort control). */
   manual: number;
   /** The user turn of the last request: a new value starts a new turn. */
-  lastTurn: number | null;
+  lastTurn: Turn | null;
 };
+
+/**
+ * A user turn: the ID of the prompt's user message, else a per-session counter. The message ID
+ * survives a restart, so the first prompt after one never repeats the stored last turn.
+ */
+export type Turn = number | string;
 
 /** One model request of user turn `turn`; `level` is `null` when Gearbox set no effort. */
 export type Request = {
@@ -30,7 +36,7 @@ export type Request = {
   output: number;
   cacheRead: number;
   costUSD: number;
-  turn: number;
+  turn: Turn;
 };
 
 export function emptySessionStats(): SessionStats {

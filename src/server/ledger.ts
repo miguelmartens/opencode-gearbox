@@ -7,11 +7,11 @@ import { LEVELS } from '../core/types.ts';
 import type { Level, ModelRef } from '../core/types.ts';
 import { addRequest, emptySessionStats, usd } from '../core/stats.ts';
 import { saveModeActive } from '../core/levels.ts';
-import type { SessionStats } from '../core/stats.ts';
+import type { SessionStats, Turn } from '../core/stats.ts';
 import { budgetState } from '../core/context.ts';
 import { isNumber, isObject, num } from '../core/guards.ts';
 import { getState, onForget } from './state.ts';
-import { loadSettings, updateSettings } from './settings-store.ts';
+import { loadSettings, serial, updateSettings } from './settings-store.ts';
 import { logOnce, toast } from './notify.ts';
 import { findModelInfo, toModelLite } from './models.ts';
 
@@ -40,7 +40,7 @@ function isStats(v: unknown): v is SessionStats {
     isNumber(v.turns) &&
     isNumber(v.requests) &&
     isNumber(v.manual) &&
-    (v.lastTurn === null || isNumber(v.lastTurn)) &&
+    (v.lastTurn === null || isNumber(v.lastTurn) || typeof v.lastTurn === 'string') &&
     isObject(v.byLevel) &&
     LEVELS.every((level) => isNumber(v.byLevel[level])) &&
     isObject(v.tokens) &&
@@ -59,17 +59,11 @@ export async function readStats(ctx: Ctx, sessionID: string): Promise<SessionSta
   return isStats(stored) ? stored : emptySessionStats();
 }
 
+/**
+ * Ledger writes, one at a time per context. Not the settings queue: a ledger write waits on
+ * `updateSettings`, so one shared queue would deadlock.
+ */
 const queues = new WeakMap<object, Promise<unknown>>();
-
-/** Runs `task` after every earlier ledger write of this context. */
-function serial<T>(ctx: Ctx, task: () => Promise<T>): Promise<T> {
-  const run = (queues.get(ctx) ?? Promise.resolve()).then(task, task);
-  queues.set(
-    ctx,
-    run.catch(() => {}),
-  );
-  return run;
-}
 
 /**
  * Recently deleted sessions: a judge call that settles after the delete must not write their
@@ -82,7 +76,7 @@ const DELETED_MAX = 1000;
 export function forgetStats(ctx: Ctx, sessionID: string): Promise<void> {
   deleted.add(sessionID);
   if (deleted.size > DELETED_MAX) deleted.delete(deleted.values().next().value as string);
-  return serial(ctx, () => ctx.storage.remove(`stats/${sessionID}`)).catch((error) =>
+  return serial(queues, ctx, () => ctx.storage.remove(`stats/${sessionID}`)).catch((error) =>
     logOnce(sessionID, 'forget stats', error),
   );
 }
@@ -165,7 +159,7 @@ export type StepUsage = {
   cacheRead: number;
   costUSD: number;
   /** The session's user turn: the first request of a turn counts the turn and its level. */
-  turn: number;
+  turn: Turn;
 };
 
 /** One model request: added to the session's stats and its cost to today's spend. */
@@ -175,7 +169,7 @@ export function recordStep(
   step: StepUsage,
   now = Date.now(),
 ): Promise<void> {
-  return serial(ctx, async () => {
+  return serial(queues, ctx, async () => {
     if (!deleted.has(sessionID))
       await writeStats(ctx, sessionID, addRequest(await readStats(ctx, sessionID), step));
     await addSpend(ctx, sessionID, step.costUSD, now);
@@ -250,7 +244,7 @@ export function recordJudgeCall(
   now = Date.now(),
   opts: { sessionStats?: boolean } = {},
 ): Promise<void> {
-  return serial(ctx, async () => {
+  return serial(queues, ctx, async () => {
     if (sessionID && opts.sessionStats !== false && !deleted.has(sessionID)) {
       const stats = await readStats(ctx, sessionID);
       await writeStats(ctx, sessionID, {

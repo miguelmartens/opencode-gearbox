@@ -52,6 +52,20 @@ export async function saveSettings(ctx: Ctx, s: Settings): Promise<void> {
   else await ctx.storage.set(SETTINGS_KEY, overrides as never);
 }
 
+/** Runs `task` after every earlier task of `queues` for this context, so writes never overlap. */
+export function serial<T>(
+  queues: WeakMap<object, Promise<unknown>>,
+  ctx: object,
+  task: () => Promise<T>,
+): Promise<T> {
+  const run = (queues.get(ctx) ?? Promise.resolve()).then(task, task);
+  queues.set(
+    ctx,
+    run.catch(() => {}),
+  );
+  return run;
+}
+
 const updates = new WeakMap<object, Promise<unknown>>();
 
 /**
@@ -63,15 +77,9 @@ export function updateSettings(
   ctx: Ctx,
   change: (s: Settings) => boolean | void,
 ): Promise<Settings> {
-  const task = async () => {
+  return serial(updates, ctx, async () => {
     const s = await loadSettings(ctx);
     if (change(s) !== false) await saveSettings(ctx, s);
     return s;
-  };
-  const run = (updates.get(ctx) ?? Promise.resolve()).then(task, task);
-  updates.set(
-    ctx,
-    run.catch(() => {}),
-  );
-  return run;
+  });
 }

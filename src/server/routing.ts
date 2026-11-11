@@ -8,10 +8,10 @@
 //   it switches the main-chat model if `modelSwitch.main` and `shouldSwitch` agree.
 
 import type { Plugin } from '@opencode/plugin';
-import { LEVELS } from '../core/types.ts';
 import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
 import { applyShaping, pickVariant } from '../core/levels.ts';
 import { classifyPrompt } from '../core/rules.ts';
+import { isLevel } from '../core/settings.ts';
 import { buildJudgePrompt, parseJudgeAnswer, REPLY_TAIL_MAX } from '../core/judge.ts';
 import { buildLadder, preferEffortRungs, routeModel, sameModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
@@ -20,7 +20,7 @@ import { textOf } from '../core/guards.ts';
 import { getState, onForget } from './state.ts';
 import type { SessionState } from './state.ts';
 import { loadSettings } from './settings-store.ts';
-import { NO_MODEL, resolveJudgeModel, runJudge } from './judge-model.ts';
+import { bounded, NO_MODEL, resolveJudgeModel, runJudge } from './judge-model.ts';
 import {
   cacheWarm,
   defaultModelRef,
@@ -50,8 +50,8 @@ type Lineage = {
   model: ModelRef | null;
 };
 
-/** An admitted prompt: its user turn and its effort decision. */
-type Admitted = { turn: number; decision: Promise<Decision> };
+/** An admitted prompt: its effort decision. */
+type Admitted = { decision: Promise<Decision> };
 
 /** Routing data that `SessionState` does not hold. */
 type Local = {
@@ -101,9 +101,9 @@ function getLocal(sessionID: string): Local {
   return local;
 }
 
-/** `undefined` and the literal `"default"` both mean "no variant picked" (probe §3). */
+/** A picked variant. `toModelRef` already drops `""` and `"default"`, "no variant picked" (probe §3). */
 function isManualVariant(variant: string | undefined): variant is string {
-  return variant !== undefined && variant !== '' && variant !== 'default';
+  return variant !== undefined;
 }
 
 /** The `effortModels` pattern; `mergeSettings` drops an invalid one. */
@@ -113,7 +113,7 @@ function effortRegex(settings: Settings): RegExp {
 
 /** Variant IDs that are effort levels; `none`, `minimal`, `thinking` are dropped. */
 function effortVariants(ids: string[]): string[] {
-  return ids.filter((id) => (LEVELS as readonly string[]).includes(id));
+  return ids.filter(isLevel);
 }
 
 function liteModels(infos: ModelInfo[]): ModelLite[] {
@@ -150,19 +150,6 @@ function lastReplyTail(messages: unknown): string | null {
 
 function fallbackDecision(state: SessionState, reason: string): Decision {
   return { level: state.lastLevel ?? 'medium', source: 'fallback', reason };
-}
-
-/** Resolves to `promise`, or to `fallback` after `ms`. */
-async function bounded<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(fallback), ms);
-  });
-  try {
-    return await Promise.race([promise.catch(() => fallback), timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /** `bounded`, until the absolute time `deadline`. */
@@ -454,7 +441,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
           reason: `asked for ${kind.level} effort`,
         });
       else state.pending = judge(settings, state, model, text, subagent, sessionID);
-      const entry: Admitted = { turn: state.userTurn, decision: state.pending };
+      const entry: Admitted = { decision: state.pending };
       rememberAdmitted(getLocal(sessionID), event?.messageID, entry);
 
       // Effort stays non-blocking. A subagent model can only change here, so wait for the level.
@@ -504,7 +491,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const promptID = lastUserMessageID(event?.messages);
       const entry = promptID === undefined ? undefined : local.admitted.get(promptID);
       // Before anything that can fail: stats must never count this request under the last one.
-      state.requestTurn = entry?.turn ?? state.userTurn;
+      state.requestTurn = promptID ?? state.userTurn;
       // Set below only when Gearbox applies an effort level to this request.
       state.requestLevel = null;
       const settings = await load(ctx);
@@ -538,8 +525,8 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       state.requestModel = variantID
         ? { providerID: model.providerID, id: model.id, variant: variantID }
         : { providerID: model.providerID, id: model.id };
-      const paused = options ? null : NO_EFFORT_CONTROL;
-      await bounded(publishStatus(sessionID, state, paused), settings.judge.timeoutMs, undefined);
+      // Not awaited: the request never waits on the status bar. `statusChanged` never throws.
+      void publishStatus(sessionID, state, options ? null : NO_EFFORT_CONTROL);
     } catch (error) {
       logOnce(sessionID, 'routing.context', error);
     }

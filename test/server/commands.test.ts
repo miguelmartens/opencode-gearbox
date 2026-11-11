@@ -581,3 +581,26 @@ test('a failing command reports an error and does not throw', async () => {
   expect(fake.lastMessage()).toMatch(/boom/);
   expect(fake.toasts.at(-1)?.variant).toBe('error');
 });
+
+test('stored stats keyed by message ID count the next prompt as a new turn', async () => {
+  resetState('ses_restart');
+  const state = getState('ses_restart');
+  const stored = {
+    ...addRequest(emptySessionStats(), {
+      level: 'low',
+      input: 1,
+      output: 1,
+      cacheRead: 0,
+      costUSD: 0,
+      turn: 'msg_A',
+    }),
+  };
+  const fake = await setup({ storage: { 'stats/ses_restart': stored } });
+  state.requestTurn = 'msg_B';
+  state.requestLevel = 'high';
+  fake.publish(stepEnded('ses_restart', 0));
+  await waitFor(() => (fake.storage.get('stats/ses_restart') as any)?.requests === 2);
+  const stats = fake.storage.get('stats/ses_restart') as any;
+  expect(stats.turns).toBe(2);
+  expect(stats.byLevel).toStrictEqual({ low: 1, medium: 0, high: 1, xhigh: 0, max: 0 });
+});

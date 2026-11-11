@@ -26,3 +26,14 @@ test('classifyPrompt sends everything else to the judge', () => {
     expect(classifyPrompt(text), text).toStrictEqual({ kind: 'judge' });
   }
 });
+
+test('classifyPrompt ignores a negated named level', () => {
+  for (const text of [
+    'no need for max effort, just rename x',
+    "don't use high effort here",
+    'without xhigh effort please',
+    'This is not low effort work: debug the scheduler',
+  ]) {
+    expect(classifyPrompt(text), text).toStrictEqual({ kind: 'judge' });
+  }
+});

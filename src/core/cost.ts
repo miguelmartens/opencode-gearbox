@@ -17,7 +17,7 @@ export function expectedOutput(level: Level): number {
 
 /**
  * Staying reads the context from cache when warm; switching writes it to the new
- * model's cache (or pays full input when the model has no cache price).
+ * model's cache. A missing cache price on either side means full input.
  */
 export function shouldSwitch(i: {
   contextTokens: number;
@@ -28,7 +28,7 @@ export function shouldSwitch(i: {
   minSavingRatio: number;
 }): { switch: boolean; stayUSD: number; goUSD: number } {
   const stayUSD =
-    (i.contextTokens * (i.cacheWarm ? i.from.cacheRead : i.from.input)) / 1e6 +
+    (i.contextTokens * (i.cacheWarm ? i.from.cacheRead || i.from.input : i.from.input)) / 1e6 +
     (i.expectedOutput * i.from.output) / 1e6;
   const goUSD =
     (i.contextTokens * (i.to.cacheWrite || i.to.input)) / 1e6 +

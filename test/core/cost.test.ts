@@ -93,3 +93,15 @@ test('shouldSwitch needs the saving to reach minSavingRatio', () => {
   expect(shouldSwitch({ ...base, minSavingRatio: 0.2 }).switch).toBe(true);
   expect(shouldSwitch({ ...base, minSavingRatio: 0.21 }).switch).toBe(false);
 });
+
+test('shouldSwitch prices a warm context at input when the model has no cache-read price', () => {
+  const r = shouldSwitch({
+    contextTokens: 100_000,
+    cacheWarm: true,
+    from: { ...from, cacheRead: 0 },
+    to,
+    expectedOutput: 0,
+    minSavingRatio: 0.2,
+  });
+  near(r.stayUSD, 0.5);
+});

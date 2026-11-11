@@ -1,7 +1,7 @@
 // Status bar text. Pure, so it is tested without the TUI.
 
-import { LEVELS } from '../core/types.ts';
 import type { GearboxStatus, Level } from '../core/types.ts';
+import { isLevel } from '../core/settings.ts';
 
 /** Model id without a provider path or a leading `claude-`: `claude-opus-5-5` → `opus-5-5`. */
 export function shortModel(id: string): string {
@@ -17,7 +17,7 @@ function clock(ms: number): string {
 function sentLevel(s: GearboxStatus): Level | null {
   const variant = s.model?.variant;
   if (!s.auto || s.paused || !variant || variant === s.level) return null;
-  return (LEVELS as readonly string[]).includes(variant) ? (variant as Level) : null;
+  return isLevel(variant) ? variant : null;
 }
 
 /** Level colors, the same as the site palette (`site/index.html`). */
@@ -53,13 +53,6 @@ export function statusSegments(s: GearboxStatus): Segment[] {
   if (s.advice === 'swamped') parts.push('⚠ swamped');
   segments.push({ text: (s.level ? ' · ' : '') + parts.join(' · ') });
   return segments;
-}
-
-/** The bar as plain text. */
-export function formatStatus(s: GearboxStatus): string {
-  return statusSegments(s)
-    .map((segment) => segment.text)
-    .join('');
 }
 
 /** The status `elapsedMs` after it was received, so the cache timer counts down between events. */

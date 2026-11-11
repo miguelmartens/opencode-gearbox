@@ -100,6 +100,14 @@ async function generate(
   return result?.text.trim() || null;
 }
 
+/**
+ * True when the judge model was picked implicitly (no `judge.model`) and sits on another provider
+ * than the session: a whole transcript must not go to a vendor the user did not pick for it.
+ */
+function otherProvider(judge: ModelRef, session: ModelRef, settings: Settings): boolean {
+  return !settings.judge.model && judge.providerID !== session.providerID;
+}
+
 function summaryPrompt(transcript: string, note?: string): string {
   return `<conversation>\n${transcript}\n</conversation>\n\n${buildCompactionPrompt(note)}`;
 }
@@ -172,6 +180,7 @@ async function judgeSummary(
   const sessionRef = event.model as ModelRef | undefined;
   if (typeof sessionRef?.providerID !== 'string' || typeof sessionRef?.id !== 'string') return null;
   const model = await resolveJudgeModel(ctx, sessionRef, settings);
+  if (otherProvider(model, sessionRef, settings)) return null;
   const transcript = formatHookMessages(event.messages ?? []);
   const prompt = summaryPrompt(transcript, note);
   if (!(await judgeIsCheaper(ctx, sessionID, sessionRef, model, prompt))) return null;
@@ -249,6 +258,8 @@ async function askHandoff(
 /** Swamped warning and handoff advice after a request; the step tracker emits the status. */
 async function adviseAfterStep(ctx: Ctx, step: StepEnded): Promise<void> {
   const sessionID = step.sessionID;
+  // Routing usually knows already; otherwise the session lookup below decides.
+  if (getState(sessionID).isSubagent === true) return;
   const session = (await ctx.session.get({ sessionID })) as SessionInfo;
   if (session.parentID != null) return;
   const ref = await sessionModel(ctx, session);
@@ -345,7 +356,8 @@ export async function handoff(
   const ref = await sessionModel(ctx, session);
   const settings = await loadSettings(ctx);
   const messages = dataOf<SessionMessage>(await ctx.session.context({ sessionID }));
-  const judge = await resolveJudgeModel(ctx, ref, settings);
+  const resolved = await resolveJudgeModel(ctx, ref, settings);
+  const judge = otherProvider(resolved, ref, settings) ? ref : resolved;
   // A handoff is advised when the context is full: keep the newest part that fits the judge.
   let transcript = formatSessionMessages(messages);
   const limit = contextLimit(await findModelInfo(ctx, judge));

@@ -1,6 +1,7 @@
 // Per-session in-memory state. Lost on restart by design.
 
 import type { Decision, GearboxStatus, Level, ModelRef } from '../core/types.ts';
+import type { Turn } from '../core/stats.ts';
 
 export type SessionState = {
   lastLevel: Level | null;
@@ -14,15 +15,18 @@ export type SessionState = {
   effortPaused: string | null;
   /** Model and variant of the last request (`session.step.started`, or routing's choice). */
   requestModel: ModelRef | null;
-  /** User turn the last request belongs to (a queued prompt does not move it early). */
-  requestTurn: number;
+  /**
+   * User turn the last request belongs to: its prompt's message ID when known (a queued prompt
+   * does not move it early).
+   */
+  requestTurn: Turn;
   /** Effort level Gearbox set on the last request; `null` when it left the request alone. */
   requestLevel: Level | null;
   /**
    * Turn, level and model of the running request, copied on `session.step.started`. The next
    * request's `context` hook can overwrite the fields above before this step's end arrives.
    */
-  step: { turn: number; level: Level | null; model: ModelRef | null } | null;
+  step: { turn: Turn; level: Level | null; model: ModelRef | null } | null;
   /** Context size of the last request (`session.step.ended`). */
   contextTokens: number | null;
   /** Raw text of the last judge answer, for `/gearbox debug`. */

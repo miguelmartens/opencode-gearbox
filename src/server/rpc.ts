@@ -9,9 +9,6 @@ import { getState } from './state.ts';
 import { buildStatus, trackUsage } from './status.ts';
 import { onDispose } from './lifecycle.ts';
 
-export { parseTtlMs } from './models.ts';
-export { buildStatus } from './status.ts';
-
 type Ctx = Plugin.Context;
 
 function minimalStatus(sessionID: string): GearboxStatus {

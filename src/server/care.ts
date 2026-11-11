@@ -6,17 +6,15 @@ import type { Plugin } from '@opencode/plugin';
 import { buildCompactionPrompt, buildHandoffAdvicePrompt, parseYesNo } from '../core/judge.ts';
 import { contextRatio, shouldAskHandoff, shouldWarnSwamped } from '../core/context.ts';
 import { shouldSwitch } from '../core/cost.ts';
-import type { GearboxStatus, ModelRef, Settings } from '../core/types.ts';
+import type { ModelRef, Settings } from '../core/types.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
-import { cacheWarm, contextLimit, findModelInfo, toModelLite } from './models.ts';
+import { cacheWarm, contextLimit, findModelInfo, sessionModelRef, toModelLite } from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { loadSettings } from './settings-store.ts';
-import { getCare, getState, onForget, peekCare } from './state.ts';
+import { getCare, getState, onForget } from './state.ts';
 import { onStepEnded, statusChanged } from './status.ts';
 
 type Ctx = Plugin.Context;
-
-type Advice = GearboxStatus['advice'];
 
 /**
  * Summaries are long answers; they get more time than a judge verdict. Compaction waits for its
@@ -37,12 +35,6 @@ const HANDOFF_FILE = 'HANDOFF.md';
 const notes = new Map<string, string>();
 onForget((sessionID) => notes.delete(sessionID));
 
-/** Context ratio and advice for the status bar. */
-export function getCareState(sessionID: string): { contextRatio: number | null; advice: Advice } {
-  const state = peekCare(sessionID);
-  return { contextRatio: state?.contextRatio ?? null, advice: state?.advice ?? null };
-}
-
 // ---------------------------------------------------------------------------------------------
 // OpenCode shapes (docs/api-probe.md)
 
@@ -51,7 +43,7 @@ type SessionInfo = {
   parentID?: string | null;
   agent?: string;
   title?: string;
-  model?: ModelRef;
+  model?: unknown;
 };
 
 type TextPart = { type: string; text?: string };
@@ -91,10 +83,9 @@ const tail = (text: string, max: number): string =>
 const percent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
 
 async function sessionModel(ctx: Ctx, session: SessionInfo): Promise<ModelRef> {
-  if (session.model) return session.model;
-  const fallback = (await ctx.model.default()).data;
-  if (!fallback) throw new Error('no model for the session');
-  return { providerID: fallback.providerID, id: fallback.id };
+  const ref = await sessionModelRef(ctx, session);
+  if (!ref) throw new Error('no model for the session');
+  return ref;
 }
 
 /**
@@ -366,11 +357,7 @@ export async function handoff(
   const created = await ctx.session.create({
     title: `Handoff: ${session.title ?? sessionID}`,
     ...(session.agent ? { agent: session.agent } : {}),
-    model: {
-      providerID: ref.providerID,
-      id: ref.id,
-      ...(ref.variant && ref.variant !== 'default' ? { variant: ref.variant } : {}),
-    },
+    model: { ...ref },
   });
   // The session exists now: a failed file write must not leave it empty.
   let file: string | undefined;

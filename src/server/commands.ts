@@ -12,7 +12,7 @@ import { loadSettings, saveSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
 import { compactNow, handoff } from './care.ts';
 import { readSpend, readStats, recordStep, saveModeActive, usd } from './ledger.ts';
-import { findModelInfo } from './models.ts';
+import { findModelInfo, parseModelString, sessionModelRef, toModelLite } from './models.ts';
 import { buildStatus, onStepEnded, statusChanged } from './status.ts';
 import { logOnce, toast } from './notify.ts';
 import bench from '../../bench/judge-cases.json' with { type: 'json' };
@@ -67,27 +67,20 @@ const clip = (text: string): string =>
 const formatModel = (m: ModelRef | null | undefined): string =>
   m ? `${m.providerID}/${m.id}${m.variant ? `#${m.variant}` : ''}` : 'unknown';
 
-function parseModelRef(text: string): ModelRef | null {
-  const match = /^([^/\s]+)\/([^#\s]+)(?:#(\S+))?$/.exec(text);
-  if (!match) return null;
-  const [, providerID, id, variant] = match;
-  return variant ? { providerID, id, variant } : { providerID, id };
-}
-
 /** USD for a request from its tokens and the model's base-tier price (docs/api-probe.md §2, §8). */
 async function priceTokens(
   ctx: Ctx,
   model: ModelRef,
   t: { input: number; output: number; cacheRead: number; cacheWrite: number },
 ): Promise<number> {
-  const info = (await findModelInfo(ctx, model)) as any;
-  const base = Array.isArray(info?.cost) ? info.cost.find((c: any) => !c?.tier) : undefined;
-  if (!base) return 0;
+  const info = await findModelInfo(ctx, model);
+  const p = info ? toModelLite(info)?.price : undefined;
+  if (!p) return 0;
   return (
-    (t.input * num(base.input) +
-      t.output * num(base.output) +
-      t.cacheRead * num(base.cache?.read) +
-      t.cacheWrite * num(base.cache?.write)) /
+    (t.input * p.input +
+      t.output * p.output +
+      t.cacheRead * p.cacheRead +
+      t.cacheWrite * p.cacheWrite) /
     1e6
   );
 }
@@ -215,14 +208,6 @@ async function runBench(
   return lines.join('\n');
 }
 
-async function sessionModel(ctx: Ctx, sessionID: string): Promise<ModelRef | null> {
-  const session = (await ctx.session.get({ sessionID } as never)) as any;
-  if (isObject(session?.model))
-    return { providerID: session.model.providerID, id: session.model.id };
-  const fallback = ((await ctx.model.default()) as any)?.data;
-  return fallback ? { providerID: fallback.providerID, id: fallback.id } : null;
-}
-
 function nested(key: string, value: unknown): Record<string, unknown> {
   return key.split('.').reduceRight<unknown>((inner, part) => ({ [part]: inner }), value) as Record<
     string,
@@ -338,10 +323,10 @@ export async function registerCommands(
       const s = await loadSettings(ctx);
       let model: ModelRef | null;
       if (arg) {
-        model = parseModelRef(arg);
+        model = parseModelString(arg);
         if (!model) return say(sessionID, 'Usage: /gearbox bench [provider/model]', 'error');
       } else {
-        const chat = await sessionModel(ctx, sessionID);
+        const chat = await sessionModelRef(ctx, await ctx.session.get({ sessionID } as never));
         if (!chat)
           return say(sessionID, 'Gearbox: no model to bench; pass provider/model', 'error');
         model = await deps.resolveJudgeModel(ctx, chat, s);

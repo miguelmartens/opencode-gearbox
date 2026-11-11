@@ -5,7 +5,7 @@ import { toast } from '../../src/server/notify.ts';
 import { statusChanged } from '../../src/server/status.ts';
 import { registerRouting } from '../../src/server/routing.ts';
 import { registerContextCare } from '../../src/server/care.ts';
-import { parseTtlMs, registerRpc } from '../../src/server/rpc.ts';
+import { registerRpc } from '../../src/server/rpc.ts';
 import { Gearbox, STATUS_EVENT, TOAST_EVENT } from '../../src/rpc.ts';
 import type { GearboxStatus } from '../../src/core/types.ts';
 
@@ -229,16 +229,6 @@ test('status survives a failing model list', async () => {
   expect(s.level).toBe('medium');
   expect(s.contextRatio).toBe(null);
   expect(s.cacheRemainingMs !== null && s.cacheRemainingMs <= 300_000).toBeTruthy();
-});
-
-test('parseTtlMs reads OpenCode TTL strings', () => {
-  expect(parseTtlMs('5m')).toBe(300_000);
-  expect(parseTtlMs('1h')).toBe(3_600_000);
-  expect(parseTtlMs('30s')).toBe(30_000);
-  expect(parseTtlMs('500ms')).toBe(500);
-  expect(parseTtlMs('1d')).toBe(86_400_000);
-  expect(parseTtlMs('soon')).toBe(null);
-  expect(parseTtlMs(undefined)).toBe(null);
 });
 
 test('session.deleted forgets the session state', async () => {

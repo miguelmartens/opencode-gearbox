@@ -54,6 +54,46 @@ function remember<T>(
   return value;
 }
 
+/**
+ * A model reference from runtime data; `null` when it is not one. The variant `"default"` (and
+ * `""`) means "no variant picked" (docs/api-probe.md §3), so it is dropped.
+ */
+export function toModelRef(value: unknown): ModelRef | null {
+  const model = value as Partial<ModelRef> | null | undefined;
+  if (typeof model?.providerID !== 'string' || typeof model?.id !== 'string') return null;
+  const ref: ModelRef = { providerID: model.providerID, id: model.id };
+  if (typeof model.variant === 'string' && model.variant !== '' && model.variant !== 'default')
+    ref.variant = model.variant;
+  return ref;
+}
+
+/** `provider/model[#variant]`, as typed in settings and commands; the model part may contain `/`. */
+export function parseModelString(value: string): ModelRef | null {
+  const [path, variant] = value.trim().split('#', 2);
+  const slash = path.indexOf('/');
+  if (slash <= 0 || slash === path.length - 1 || /\s/.test(path)) return null;
+  const ref: ModelRef = { providerID: path.slice(0, slash), id: path.slice(slash + 1) };
+  if (variant) ref.variant = variant;
+  return ref;
+}
+
+/** OpenCode's default model (`ctx.model.default()` returns `{ location, data }`). */
+export async function defaultModelRef(ctx: Ctx): Promise<ModelRef | null> {
+  try {
+    return toModelRef(((await ctx.model.default()) as unknown as { data?: unknown })?.data);
+  } catch {
+    return null;
+  }
+}
+
+/** The model a session runs on: its own, else OpenCode's default; `null` when neither is known. */
+export async function sessionModelRef(
+  ctx: Ctx,
+  session: { model?: unknown },
+): Promise<ModelRef | null> {
+  return toModelRef(session.model) ?? (await defaultModelRef(ctx));
+}
+
 /** `ctx.model.list()` returns `{ location, data }`. */
 export function listModelInfos(ctx: Ctx): Promise<ModelInfo[]> {
   return remember(

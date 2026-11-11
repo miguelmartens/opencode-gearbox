@@ -13,14 +13,14 @@ import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
 import { applyShaping, pickVariant } from '../core/levels.ts';
 import { classifyPrompt } from '../core/rules.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
-import { buildLadder, preferEffortRungs, routeModel } from '../core/ladder.ts';
+import { buildLadder, preferEffortRungs, routeModel, sameModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
 import { contextRatio } from '../core/context.ts';
 import { getState, onForget } from './state.ts';
 import type { SessionState } from './state.ts';
 import { loadSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
-import { cacheWarm, listModelInfos, toModelLite } from './models.ts';
+import { cacheWarm, defaultModelRef, listModelInfos, toModelLite, toModelRef } from './models.ts';
 import type { ModelInfo } from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { statusChanged, trackUsage } from './status.ts';
@@ -95,14 +95,6 @@ function getLocal(sessionID: string): Local {
   return local;
 }
 
-function toRef(value: unknown): ModelRef | null {
-  const ref = value as ModelRef | null | undefined;
-  if (typeof ref?.providerID !== 'string' || typeof ref?.id !== 'string') return null;
-  return typeof ref.variant === 'string'
-    ? { providerID: ref.providerID, id: ref.id, variant: ref.variant }
-    : { providerID: ref.providerID, id: ref.id };
-}
-
 /** `undefined` and the literal `"default"` both mean "no variant picked" (probe §3). */
 function isManualVariant(variant: string | undefined): variant is string {
   return variant !== undefined && variant !== '' && variant !== 'default';
@@ -121,10 +113,6 @@ function effortRegex(settings: Settings): RegExp {
 /** Variant IDs that are effort levels; `none`, `minimal`, `thinking` are dropped. */
 function effortVariants(ids: string[]): string[] {
   return ids.filter((id) => (LEVELS as readonly string[]).includes(id));
-}
-
-function sameModel(a: ModelRef, b: ModelRef): boolean {
-  return a.providerID === b.providerID && a.id === b.id;
 }
 
 function findInfo(infos: ModelInfo[], ref: ModelRef): ModelInfo | undefined {
@@ -216,7 +204,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     let model: ModelRef | null = null;
     for (let depth = 1; ; depth++) {
       const info = await getSession(id);
-      const ref = toRef(info.model);
+      const ref = toModelRef(info.model);
       model ??= ref;
       if (info.parentID == null || depth >= MAX_DEPTH)
         return { rootID: id, rootVariant: ref?.variant, model };
@@ -255,15 +243,6 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     return isManualVariant(variant) && locals.get(lineage.rootID)?.pausedVariant !== variant;
   }
 
-  async function defaultModel(): Promise<ModelRef | null> {
-    try {
-      const result = (await ctx.model.default()) as unknown as { data?: unknown };
-      return toRef(result?.data);
-    } catch {
-      return null;
-    }
-  }
-
   /** An agent file with `model` keeps it. Unknown or missing agents count as explicit. */
   async function hasExplicitModel(agentID: string | undefined): Promise<boolean> {
     if (!agentID) return true;
@@ -271,7 +250,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const result = (await ctx.agent.get({ agentID } as never)) as unknown as {
         data?: { model?: unknown };
       };
-      return toRef(result?.data?.model) !== null;
+      return toModelRef(result?.data?.model) !== null;
     } catch {
       return true;
     }
@@ -288,7 +267,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     state.judging += 1;
     try {
       // A session without a model runs on OpenCode's default model; unknown → the judge is skipped.
-      const chat = sessionModel ?? (await defaultModel()) ?? NO_MODEL;
+      const chat = sessionModel ?? (await defaultModelRef(ctx)) ?? NO_MODEL;
       const model = await resolveJudgeModel(ctx, chat, settings);
       const local = getLocal(sessionID);
       const info = chat.id ? findInfo(await listModelInfos(ctx).catch(() => []), chat) : undefined;
@@ -450,7 +429,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (!session) return;
       const subagent = session.parentID != null;
       state.isSubagent = subagent;
-      const own = toRef(session.model);
+      const own = toModelRef(session.model);
       const lineage = subagent
         ? await within(childLineage(sessionID, session.parentID), deadline, null)
         : null;
@@ -458,7 +437,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (subagent && !lineage) return;
       // A child without a model of its own runs on its nearest ancestor's, else on the default.
       const model = lineage
-        ? (own ?? lineage.model ?? (await within(defaultModel(), deadline, null)))
+        ? (own ?? lineage.model ?? (await within(defaultModelRef(ctx), deadline, null)))
         : own;
       if (subagent && model && !state.firstModel)
         state.firstModel = { providerID: model.providerID, id: model.id };
@@ -542,7 +521,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       // Set below only when Gearbox applies an effort level to this request.
       state.requestLevel = null;
 
-      const model = toRef(event?.model);
+      const model = toModelRef(event?.model);
       if (!settings.auto || !model) return;
       if (!effortRegex(settings).test(model.id)) return;
       const subagent = await isSubagent(state, sessionID);
@@ -606,7 +585,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const settings = await load(ctx);
       if (!settings.auto || !settings.modelSwitch.main) return;
       const state = getState(sessionID);
-      const model = toRef(event?.model);
+      const model = toModelRef(event?.model);
       if (!model || !effortRegex(settings).test(model.id)) return;
       if (await isSubagent(state, sessionID)) return;
       // Anti-goal 2: an agent with an explicit model (or an unknown agent) keeps its model.

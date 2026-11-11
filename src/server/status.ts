@@ -6,22 +6,18 @@ import type { GearboxStatus, ModelRef } from '../core/types.ts';
 import { cacheRemainingMs, contextRatio } from '../core/context.ts';
 import { getState, peekCare, resetState, sweepIdle } from './state.ts';
 import { loadSettings } from './settings-store.ts';
-import { cacheTtlMs, contextLimit, findModelInfo, DEFAULT_CACHE_TTL_MS } from './models.ts';
+import {
+  cacheTtlMs,
+  contextLimit,
+  findModelInfo,
+  toModelRef,
+  DEFAULT_CACHE_TTL_MS,
+} from './models.ts';
 import { emitStatus, hasEmitter, logOnce } from './notify.ts';
 import { onDispose, watchEvents } from './lifecycle.ts';
 import { forgetStats } from './ledger.ts';
 
 type Ctx = Plugin.Context;
-
-export function toModelRef(value: unknown): ModelRef | null {
-  const model = value as Partial<ModelRef> | null | undefined;
-  if (typeof model?.providerID !== 'string' || typeof model?.id !== 'string') return null;
-  const ref: ModelRef = { providerID: model.providerID, id: model.id };
-  // "default" means no variant selected (docs/api-probe.md §3).
-  if (typeof model.variant === 'string' && model.variant !== '' && model.variant !== 'default')
-    ref.variant = model.variant;
-  return ref;
-}
 
 async function modelFacts(
   ctx: Ctx,

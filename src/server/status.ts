@@ -4,6 +4,7 @@
 import type { Plugin } from '@opencode/plugin';
 import type { GearboxStatus, ModelRef } from '../core/types.ts';
 import { cacheRemainingMs, contextRatio } from '../core/context.ts';
+import { sameModel } from '../core/ladder.ts';
 import { getState, resetState, sweepIdle } from './state.ts';
 import { loadSettings } from './settings-store.ts';
 import {
@@ -124,7 +125,14 @@ export function trackUsage(ctx: Ctx): void {
       }
       const state = getState(sessionID);
       if (event.type === 'session.step.started') {
-        state.requestModel = toModelRef(data.model) ?? state.requestModel;
+        const reported = toModelRef(data.model);
+        // Effort goes into the request options over any picked variant, and OpenCode does not
+        // report it: when Gearbox routed this request, keep the variant it sent.
+        const sent = state.requestModel;
+        if (reported && state.requestLevel && sent?.variant && sameModel(reported, sent)) {
+          reported.variant = sent.variant;
+        }
+        state.requestModel = reported ?? state.requestModel;
         state.step = {
           turn: state.requestTurn,
           level: state.requestLevel,

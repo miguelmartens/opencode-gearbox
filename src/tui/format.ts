@@ -1,5 +1,6 @@
 // Status bar text. Pure, so it is tested without the TUI.
 
+import { LEVELS } from '../core/types.ts';
 import type { GearboxStatus, Level } from '../core/types.ts';
 
 const LABELS: Record<Level, string> = {
@@ -20,10 +21,21 @@ function clock(ms: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
-/** `⚙ <Level> · <short model> · ◔ <pct>% · cache <m:ss> · <Auto|Manual|Paused: reason>`. */
+/** The level actually sent, when Gearbox routed the request and it differs from the judged one. */
+function sentLevel(s: GearboxStatus): Level | null {
+  const variant = s.model?.variant;
+  if (!s.auto || s.paused || !variant || variant === s.level) return null;
+  return (LEVELS as readonly string[]).includes(variant) ? (variant as Level) : null;
+}
+
+/**
+ * `⚙ <Level>[→<Sent>] · <short model> · ◔ <pct>% · cache <m:ss> · <Auto|Manual|Paused: reason>`.
+ * `→<Sent>` shows the variant used when the model lacks the judged level.
+ */
 export function formatStatus(s: GearboxStatus): string {
   const parts: string[] = [];
-  if (s.level) parts.push(LABELS[s.level]);
+  const sent = sentLevel(s);
+  if (s.level) parts.push(LABELS[s.level] + (sent ? `→${LABELS[sent]}` : ''));
   if (s.model) parts.push(shortModel(s.model.id));
   if (s.contextRatio !== null) parts.push(`◔ ${Math.round(s.contextRatio * 100)}%`);
   if (s.cacheRemainingMs !== null) parts.push(`cache ${clock(s.cacheRemainingMs)}`);

@@ -128,6 +128,52 @@ test('step events feed model, context ratio and cache into the status and emit i
   expect(sent[0].payload.contextRatio).toBe(0.38);
 });
 
+test('a step without a variant keeps the effort variant Gearbox sent', async () => {
+  resetState('ses_rpc_sent');
+  const state = getState('ses_rpc_sent');
+  // As routing's `context` hook leaves it: effort `high` applied as the model's `high` variant.
+  state.requestLevel = 'high';
+  state.requestModel = { providerID: 'anthropic', id: 'claude-haiku-5-5', variant: 'high' };
+  const { fake, status } = setup({ models: [haiku] });
+  await registerRpc(fake.ctx);
+  fake.publish({
+    type: 'session.step.started',
+    data: {
+      sessionID: 'ses_rpc_sent',
+      model: { providerID: 'anthropic', id: 'claude-haiku-5-5', variant: 'default' },
+    },
+  });
+  await tick();
+  expect((await status('ses_rpc_sent')).model).toStrictEqual({
+    providerID: 'anthropic',
+    id: 'claude-haiku-5-5',
+    variant: 'high',
+  });
+  // Gearbox's effort overrides a picked variant (a session resumed with `/gearbox auto on`).
+  state.requestLevel = 'low';
+  state.requestModel = { providerID: 'anthropic', id: 'claude-haiku-5-5', variant: 'low' };
+  fake.publish({
+    type: 'session.step.started',
+    data: {
+      sessionID: 'ses_rpc_sent',
+      model: { providerID: 'anthropic', id: 'claude-haiku-5-5', variant: 'max' },
+    },
+  });
+  await tick();
+  expect((await status('ses_rpc_sent')).model?.variant).toBe('low');
+  // A request Gearbox left alone reports the model as OpenCode sent it.
+  state.requestLevel = null;
+  fake.publish({
+    type: 'session.step.started',
+    data: { sessionID: 'ses_rpc_sent', model: { providerID: 'anthropic', id: 'claude-haiku-5-5' } },
+  });
+  await tick();
+  expect((await status('ses_rpc_sent')).model).toStrictEqual({
+    providerID: 'anthropic',
+    id: 'claude-haiku-5-5',
+  });
+});
+
 test('cache defaults to 5 minutes and prefers limit.input', async () => {
   resetState('ses_rpc_default_ttl');
   const model = {

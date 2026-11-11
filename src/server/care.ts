@@ -24,7 +24,7 @@ import {
 } from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { loadSettings } from './settings-store.ts';
-import { getCare, getState, onForget } from './state.ts';
+import { getState, onForget } from './state.ts';
 import { onStepEnded, statusChanged } from './status.ts';
 
 type Ctx = Plugin.Context;
@@ -235,7 +235,7 @@ async function askHandoff(
   const judge = await resolveJudgeModel(ctx, ref, settings);
   const answer = await generate(ctx, session.id, judge, prompt, settings.judge.timeoutMs);
   if (answer === null || parseYesNo(answer) !== true) return;
-  const state = getCare(session.id);
+  const state = getState(session.id);
   if (state.advice !== null) return;
   state.advice = 'handoff';
   await toast(ctx, {
@@ -257,7 +257,7 @@ async function adviseAfterStep(ctx: Ctx, step: StepEnded): Promise<void> {
   const ratio = contextRatio(getState(sessionID).contextTokens ?? 0, limit);
   const settings = await loadSettings(ctx);
 
-  const state = getCare(sessionID);
+  const state = getState(sessionID);
   state.contextRatio = ratio;
   const swamped = shouldWarnSwamped(ratio, settings);
   if (swamped && !state.swamped) {

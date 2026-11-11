@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
-import { getCare, getState, resetState } from '../../src/server/state.ts';
+import { getState, resetState } from '../../src/server/state.ts';
 import { toast } from '../../src/server/notify.ts';
 import { statusChanged } from '../../src/server/status.ts';
 import { registerRouting } from '../../src/server/routing.ts';
@@ -157,7 +157,7 @@ test('every status emit is built from the shared state, whatever the emitter', a
   resetState('ses_rpc_sibling');
   getState('ses_rpc_sibling').lastLevel = 'low';
   getState('ses_rpc_sibling').effortPaused = 'no effort control';
-  getCare('ses_rpc_sibling').advice = 'swamped';
+  getState('ses_rpc_sibling').advice = 'swamped';
   const { fake, emitted } = setup({ models: [haiku] });
   await registerRpc(fake.ctx);
   fake.publish({

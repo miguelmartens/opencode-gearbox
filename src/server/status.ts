@@ -4,7 +4,7 @@
 import type { Plugin } from '@opencode/plugin';
 import type { GearboxStatus, ModelRef } from '../core/types.ts';
 import { cacheRemainingMs, contextRatio } from '../core/context.ts';
-import { getState, peekCare, resetState, sweepIdle } from './state.ts';
+import { getState, resetState, sweepIdle } from './state.ts';
 import { loadSettings } from './settings-store.ts';
 import {
   cacheTtlMs,
@@ -48,12 +48,11 @@ export async function buildStatus(
   now = Date.now(),
 ): Promise<GearboxStatus> {
   const state = getState(sessionID);
-  const care = peekCare(sessionID);
   const model = state.requestModel;
   const auto = await autoSetting(ctx, sessionID);
   const facts = model ? await modelFacts(ctx, sessionID, model) : null;
   const ratio =
-    care?.contextRatio ??
+    state.contextRatio ??
     (facts && state.contextTokens !== null ? contextRatio(state.contextTokens, facts.limit) : null);
   return {
     sessionID,
@@ -68,7 +67,7 @@ export async function buildStatus(
       now,
     ),
     judgeReason: state.lastDecision?.reason ?? null,
-    advice: care?.advice ?? null,
+    advice: state.advice,
   };
 }
 

@@ -1,0 +1,3 @@
+[run]
+# Run package bins with a `#!/usr/bin/env node` shebang (prettier) on Bun, not Node.
+bun = true

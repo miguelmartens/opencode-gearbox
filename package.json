@@ -38,12 +38,12 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "test": "node --test",
+    "test": "bun test",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "engines": {
-    "node": ">=22.18"
+    "bun": ">=1.4"
   },
   "publishConfig": {
     "access": "public"

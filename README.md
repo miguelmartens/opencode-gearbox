@@ -32,7 +32,7 @@ Effort works with any model that exposes effort variants. Verified on OpenCode 2
 ## Requirements
 
 - OpenCode **V2, 2.2.6 or later**. V1 is not supported.
-- Node.js 22.18 or later, only to run the tests.
+- Bun 1.4 or later, only to develop and run the tests.
 
 ## Install
 
@@ -181,8 +181,9 @@ Expected output per level is 800, 3 000, 8 000, 16 000 and 32 000 tokens.
 ## Development
 
 ```
-npm test               # node --test
-npx prettier --check . # formatting
+bun install
+bun test                # tests
+bun run format:check    # formatting
 ```
 
 - `src/core/`: pure decisions, with no OpenCode imports.

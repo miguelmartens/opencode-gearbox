@@ -6,6 +6,7 @@ import { statusChanged } from '../../src/server/status.ts';
 import { registerRouting } from '../../src/server/routing.ts';
 import { registerContextCare } from '../../src/server/care.ts';
 import { registerRpc } from '../../src/server/rpc.ts';
+import { disposeLifecycle } from '../../src/server/lifecycle.ts';
 import { Gearbox, STATUS_EVENT, TOAST_EVENT } from '../../src/rpc.ts';
 import type { GearboxStatus } from '../../src/core/types.ts';
 
@@ -76,10 +77,24 @@ test('status returns getState data for the session', async () => {
 test('notify toasts go out through the RPC registration', async () => {
   const { fake, emitted } = setup();
   await registerRpc(fake.ctx);
-  await toast({ sessionID: 'ses_t', message: 'Auto paused', variant: 'info' });
+  await toast(fake.ctx, { sessionID: 'ses_t', message: 'Auto paused', variant: 'info' });
   expect(emitted).toStrictEqual([
     { name: TOAST_EVENT, payload: { sessionID: 'ses_t', message: 'Auto paused', variant: 'info' } },
   ]);
+});
+
+test('each plugin instance notifies through its own RPC registration', async () => {
+  const a = setup();
+  const b = setup();
+  await registerRpc(a.fake.ctx);
+  await registerRpc(b.fake.ctx);
+  await toast(a.fake.ctx, { message: 'for A' });
+  expect(a.emitted.map((e) => e.payload.message)).toStrictEqual(['for A']);
+  expect(b.emitted).toStrictEqual([]);
+  // Disposing B leaves A's notifications alone.
+  await disposeLifecycle(b.fake.ctx);
+  await toast(a.fake.ctx, { message: 'still A' });
+  expect(a.emitted.map((e) => e.payload.message)).toStrictEqual(['for A', 'still A']);
 });
 
 test('step events feed model, context ratio and cache into the status and emit it', async () => {

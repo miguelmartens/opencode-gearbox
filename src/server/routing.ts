@@ -336,7 +336,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     if (state.autoPaused !== null) return true;
     state.autoPaused = MANUAL_VARIANT;
     // Not awaited: this runs in the prompt hook, and admission never waits on notifications.
-    void toast({
+    void toast(ctx, {
       sessionID,
       title: 'Gearbox paused',
       message: `You picked the "${variant}" variant, so Gearbox stopped choosing effort. Run /gearbox auto on to resume.`,

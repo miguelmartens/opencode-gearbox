@@ -39,9 +39,9 @@ export async function registerRpc(ctx: Ctx): Promise<void> {
   });
   const emit = (name: string, payload: Record<string, unknown>) =>
     registration.events.emit(name, payload);
-  setEmitter(emit);
+  setEmitter(ctx, emit);
   onDispose(ctx, async () => {
-    clearEmitter(emit);
+    clearEmitter(ctx, emit);
     await registration.dispose?.();
   });
   // Emits the status after every model request.

@@ -74,9 +74,9 @@ export async function buildStatus(
 
 /** "The status of `sessionID` changed": builds it once and emits it. Never throws. */
 export async function statusChanged(ctx: Ctx, sessionID: string): Promise<void> {
-  if (!hasEmitter()) return;
+  if (!hasEmitter(ctx)) return;
   try {
-    await emitStatus(await buildStatus(ctx, sessionID));
+    await emitStatus(ctx, await buildStatus(ctx, sessionID));
   } catch (error) {
     logOnce(sessionID, 'status', error);
   }

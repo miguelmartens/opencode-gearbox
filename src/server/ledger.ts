@@ -144,7 +144,7 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
       await saveSettings(ctx, settings);
     }
     if (level === 'warn') {
-      await toast({
+      await toast(ctx, {
         ...(sessionID ? { sessionID } : {}),
         title: 'Gearbox',
         message: `Gearbox: ${usd(spend.usd)} of the ${usd(daily ?? 0)} daily budget spent; save mode on for ${settings.saveMode.hours} h.`,
@@ -157,7 +157,7 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
     const turn = getState(sessionID).userTurn;
     if (overToastTurn.get(sessionID) !== turn) {
       overToastTurn.set(sessionID, turn);
-      await toast({
+      await toast(ctx, {
         sessionID,
         title: 'Gearbox',
         message: `Gearbox: over the daily budget (${usd(spend.usd)} of ${usd(daily ?? 0)}).`,

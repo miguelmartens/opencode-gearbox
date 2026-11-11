@@ -101,7 +101,6 @@ export function makeFakeCtx(opts: FakeCtxOptions = {}): FakeCtx {
     events.push({ name, payload });
     if (name === TOAST_EVENT) toasts.push(payload as FakeCtx['toasts'][number]);
   };
-  setEmitter(emitEvent);
 
   const rpcCaller: any = () => ({});
   rpcCaller.register = async (
@@ -232,6 +231,7 @@ export function makeFakeCtx(opts: FakeCtxOptions = {}): FakeCtx {
   };
 
   if (opts.overrides) deepMerge(ctx, opts.overrides);
+  setEmitter(ctx, emitEvent);
 
   return {
     ctx,

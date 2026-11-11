@@ -240,7 +240,7 @@ export async function registerCommands(
     sessionID: string,
     message: string,
     variant: 'info' | 'warning' | 'error' = 'info',
-  ) => toast({ sessionID, title: 'Gearbox', message, variant });
+  ) => toast(ctx, { sessionID, title: 'Gearbox', message, variant });
 
   const subcommands: Record<string, (sessionID: string, arg: string) => Promise<void>> = {
     async status(sessionID) {

@@ -51,7 +51,7 @@ test('fake ctx feeds bus events to matching subscribers', async () => {
 
 test('notify toasts reach the fake ctx', async () => {
   const fake = makeFakeCtx();
-  await toast({ sessionID: 'ses_a', message: 'hi', variant: 'info' });
+  await toast(fake.ctx, { sessionID: 'ses_a', message: 'hi', variant: 'info' });
   expect(fake.toasts).toStrictEqual([{ sessionID: 'ses_a', message: 'hi', variant: 'info' }]);
   logOnce('ses_a', 'test', new Error('x'));
 });

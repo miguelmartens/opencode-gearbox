@@ -243,7 +243,7 @@ async function askHandoff(
   const state = getCare(session.id);
   if (state.advice !== null) return;
   state.advice = 'handoff';
-  await toast({
+  await toast(ctx, {
     sessionID: session.id,
     variant: 'info',
     message: `Context ${percent(ratio)}: the work has moved on. /gearbox handoff starts fresh with a summary.`,
@@ -268,7 +268,7 @@ async function adviseAfterStep(ctx: Ctx, step: StepEnded): Promise<void> {
   if (swamped && !state.swamped) {
     state.swamped = true;
     state.advice = 'swamped';
-    await toast({
+    await toast(ctx, {
       sessionID,
       variant: 'warning',
       message: `Context ${percent(ratio ?? 0)} full: swamped. Try /gearbox handoff or /gearbox compact.`,

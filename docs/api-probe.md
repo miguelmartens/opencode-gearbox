@@ -355,7 +355,7 @@ Approved by Miguel on 2026-11-10 after this probe. These override the plan where
 
 ### Packaging (Task 9)
 
-- TUI peers (`@opentui/core`, `@opentui/solid`, `solid-js`, `@opencode/theme` if imported) are host-provided like `effect`. Declare them as `peerDependencies` (and `peerDependenciesMeta.optional` where the server part does not need them). `dependencies` stays `@opencode/plugin` only. Check the exact peer ranges in `node_modules/@opencode/plugin/package.json` (2.2.7 lists `>=0.8.1` for `@opentui/*`).
+- TUI peers (`@opentui/core`, `@opentui/solid`, `solid-js`, `@opencode/theme` if imported) are resolved from the plugin's own `node_modules`, not from the host. Declare them as required `peerDependencies` so npm installs them with the plugin. Do not mark them `peerDependenciesMeta.optional`: npm then skips them, and the TUI part fails with `Cannot find package '@opentui/solid'` (verified on OpenCode 2.2.6). `dependencies` stays `@opencode/plugin` only. Check the exact peer ranges in `node_modules/@opencode/plugin/package.json` (2.2.7 lists `>=0.8.1` for `@opentui/*`).
 
 ### Tests
 

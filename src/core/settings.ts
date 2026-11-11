@@ -18,6 +18,9 @@ const isRegex: Check = (v) => {
   }
 };
 
+/** `provider/model[#variant]`; the model part may contain `/`. */
+const MODEL_STRING = /^[^\s/#]+\/[^\s#]+(#[^\s#]+)?$/;
+
 /** Every settable leaf, by dotted path. `null` for `judge.model` clears it. */
 const CHECKS: Record<string, Check> = {
   auto: isBoolean,
@@ -27,7 +30,7 @@ const CHECKS: Record<string, Check> = {
   'saveMode.until': (v) => v === null || isNumber(v),
   'saveMode.cap': isLevel,
   'saveMode.hours': isPositive,
-  'judge.model': (v) => v === null || (typeof v === 'string' && v !== ''),
+  'judge.model': (v) => v === null || (typeof v === 'string' && MODEL_STRING.test(v)),
   'judge.timeoutMs': isPositive,
   'modelSwitch.main': isBoolean,
   'modelSwitch.subagents': isBoolean,

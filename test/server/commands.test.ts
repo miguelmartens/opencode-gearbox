@@ -97,6 +97,13 @@ test('set judge.model null clears the judge model', async () => {
   expect((await loadSettings(fake.ctx)).judge.model).toBe(undefined);
 });
 
+test('set judge.model without a provider is rejected, not stored', async () => {
+  const fake = await setup();
+  await fake.runCommand('gearbox', 'set judge.model claude-haiku-5-5');
+  expect(fake.storage.get('settings')).toBe(undefined);
+  expect(fake.lastMessage()).toMatch(/invalid value for judge\.model/i);
+});
+
 test('auto off persists auto: false', async () => {
   const fake = await setup();
   await fake.runCommand('gearbox', 'auto off');

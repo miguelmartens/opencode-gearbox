@@ -10,6 +10,15 @@ Bun 1.4 or later. `package.json` pins the exact version in `packageManager`.
     bun test                # tests
     bun run format:check    # formatting
 
+`bun install` also points Git at the hooks in `.githooks/`. If you skip the install, enable them by hand once per clone:
+
+    git config core.hooksPath .githooks
+
+- `pre-commit` runs `bun run format:check` and `bun test`, the same checks as CI.
+- `commit-msg` rejects a subject that is not a Conventional Commit (see [Commits](#commits)).
+
+Skip both once with `git commit --no-verify`. CI still runs the checks.
+
 `bun run format` rewrites files with Prettier. `LICENSE`, `NOTICE.md` and `bench/judge-cases.json` are excluded on purpose and must stay byte-identical.
 
 ## Code rules
@@ -25,22 +34,50 @@ Bun 1.4 or later. `package.json` pins the exact version in `packageManager`.
 
 `test/e2e/CHECKLIST.md` records the manual run against a real OpenCode, with its setup. Repeat the parts your change touches, in a temporary project with an empty `XDG_CONFIG_HOME`, and record the result there.
 
+## Branches
+
+Trunk-based: `main` is the only long-lived branch and is always releasable. There is no `develop` branch.
+
+1. Branch off `main` with a short-lived branch named `<type>/<topic>`, e.g. `feat/save-mode` or `fix/judge-timeout`.
+2. Open a PR into `main` early. Rebase on `main` rather than merging it in.
+3. Squash-merge once CI is green. The branch is deleted on merge.
+
+`main` is protected: changes land through PRs only, as squash merges, with the checks green. Work that is not ready for users goes behind an option or stays on its branch, never half-finished on `main`.
+
+## Commits
+
+Use [Conventional Commits](https://www.conventionalcommits.org/): `type(scope)!: subject`, at most 100 characters.
+
+| Type                                      | Use for                               | Release |
+| ----------------------------------------- | ------------------------------------- | ------- |
+| `feat`                                    | A new user-facing capability          | minor   |
+| `fix`                                     | A bug fix                             | patch   |
+| `deps`                                    | A runtime dependency update by hand   | patch   |
+| `perf`                                    | A faster path with the same behaviour | patch   |
+| `revert`                                  | Undoing an earlier commit             | patch   |
+| `refactor`, `test`, `docs`, `build`, `ci` | Changes that ship no behaviour        | none    |
+| `chore`, `style`                          | Housekeeping and formatting           | none    |
+
+- Scopes name the area: `core`, `server`, `tui`, `e2e`, `bench`.
+- Renovate titles its PRs itself: `fix(deps):` for runtime dependencies, `chore(deps):` for the rest.
+- `!` before the colon, or a `BREAKING CHANGE:` footer, marks a breaking change. Before 1.0 it bumps the minor version, after 1.0 the major.
+- The PR title becomes the squash commit on `main`, so it follows the same rules. The `PR title` workflow checks it, and the commits inside a PR only need to pass the hook.
+
 ## Pull requests
 
 - Keep the diff focused: one concern per PR.
-- `bun test` and `bun run format:check` must pass. CI runs both.
-- Use [Conventional Commits](https://www.conventionalcommits.org/).
+- `bun test`, `bun run format:check` and the PR title check must pass.
 - Do not add dependencies for what a few lines of TypeScript can do.
 
 ## Releases
 
-Work lands on `main` through PRs. [`release-please`](https://github.com/googleapis/release-please) owns the version and `CHANGELOG.md`. Publishing runs in `.github/workflows/release.yml`.
+[`release-please`](https://github.com/googleapis/release-please) owns the version and `CHANGELOG.md`, and releases from `main`. Publishing runs in `.github/workflows/release.yml`.
 
-1. Merge Conventional Commit PRs (`feat:`, `fix:`, `chore:`; `!` or `BREAKING CHANGE:` for breaking changes) into `main`.
+1. Squash-merge Conventional Commit PRs into `main`.
 2. `release-please` opens or updates a release PR with the version bump and changelog.
-3. Merge the release PR: the tag and GitHub release are created, and CI publishes that version to npm.
+3. Merge the release PR when you want to ship: the tag and GitHub release are created, and CI publishes that version to npm.
 
-Only `feat:`, `fix:` and `deps:` commits open release PRs. Use `chore(ci):`, `chore:`, `docs:` or `test:` for changes that ship nothing, so `release-please` does not propose a no-op version. Force a specific version with `Release-As: x.y.z` in a commit body.
+Unreleased changes collect in the release PR, so batch as many PRs as you like before you merge it. A fix for a released bug is a normal `fix:` PR into `main`, followed by a release. Force a specific version with `Release-As: x.y.z` in a commit body.
 
 ### First release
 

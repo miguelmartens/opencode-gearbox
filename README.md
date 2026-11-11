@@ -95,7 +95,7 @@ All output appears as a toast or, for long text, as a dialog. No model turn is s
 
 Plugin commands run from the TUI (or `client.session.command`). `opencode run "/gearbox …"` sends the text as a normal prompt.
 
-In `/gearbox stats` a **turn** is one user prompt, counted once at the level it ran at. A **request** is one model call; a turn with tool calls makes several. Tokens and cost add up per request.
+In `/gearbox stats` a **turn** is one user prompt, counted once at the level Gearbox set for it. A turn Gearbox did not route (auto off, paused by a manual variant, or a model without effort control) counts as **manual**. A **request** is one model call; a turn with tool calls makes several. Tokens and cost add up per request. Stats of a deleted session are removed, and daily spend is kept for 30 days.
 
 `/gearbox bench` retries a failed judge call (timeout or provider error) once. It prints how many cases were answered, the score over the answered cases and over all 75, and lists wrong answers ("Misses") apart from cases that got no answer. Bench calls are real spend: they count in today's spend (and the budget), and the bench output shows their cost, but they stay out of the session's stats.
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/miguelmartens/opencode-gearbox/compare/v0.2.0...v0.2.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* harden handoff sizing, budget guard and subagent routing ([#23](https://github.com/miguelmartens/opencode-gearbox/issues/23)) ([1b463cd](https://github.com/miguelmartens/opencode-gearbox/commit/1b463cd75a04c107067b0458491df1d6172a6ec1))
+
 ## [0.2.0](https://github.com/miguelmartens/opencode-gearbox/compare/v0.1.4...v0.2.0) (2026-11-11)
 
 

@@ -82,8 +82,17 @@ function serial<T>(ctx: Ctx, task: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/**
+ * Recently deleted sessions: a judge call that settles after the delete must not write their
+ * stats again. Capped, oldest first; a late call is a few seconds, not hundreds of sessions.
+ */
+const deleted = new Set<string>();
+const DELETED_MAX = 1000;
+
 /** Removes a deleted session's stored stats, after any ledger write still queued for it. */
 export function forgetStats(ctx: Ctx, sessionID: string): Promise<void> {
+  deleted.add(sessionID);
+  if (deleted.size > DELETED_MAX) deleted.delete(deleted.values().next().value as string);
   return serial(ctx, () => ctx.storage.remove(`stats/${sessionID}`)).catch((error) =>
     logOnce(sessionID, 'forget stats', error),
   );
@@ -95,18 +104,24 @@ const DAY_MS = 24 * HOUR_MS;
 /** The day spend was last pruned, per context: pruning runs once a day. */
 const prunedOn = new WeakMap<object, string>();
 
+/** Removes spend older than 30 days, once a day; a failure is logged and retried the next day. */
 async function pruneSpend(ctx: Ctx, now: number): Promise<void> {
   const today = dayKey(now);
   if (prunedOn.get(ctx) === today) return;
-  prunedOn.set(ctx, today);
-  // `spend/YYYY-MM-DD` keys sort by date.
-  const oldest = dayKey(now - SPEND_KEEP_DAYS * DAY_MS);
-  let after: string | undefined;
-  do {
-    const page = await ctx.storage.scan({ prefix: 'spend/', ...(after ? { after } : {}) });
-    for (const { key } of page.entries) if (key < oldest) await ctx.storage.remove(key);
-    after = page.next;
-  } while (after);
+  try {
+    // `scan` returns full `spend/YYYY-MM-DD` keys (docs/api-probe.md), which sort by date.
+    const oldest = dayKey(now - SPEND_KEEP_DAYS * DAY_MS);
+    let after: string | undefined;
+    do {
+      const page = await ctx.storage.scan({ prefix: 'spend/', ...(after ? { after } : {}) });
+      for (const { key } of page.entries) if (key < oldest) await ctx.storage.remove(key);
+      after = page.next;
+    } while (after);
+  } catch (error) {
+    logOnce('*', 'prune spend', error);
+  } finally {
+    prunedOn.set(ctx, today);
+  }
 }
 
 async function writeStats(ctx: Ctx, sessionID: string, stats: SessionStats): Promise<void> {
@@ -138,7 +153,6 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
     }
   }
   await ctx.storage.set(dayKey(now), spend as never);
-  await pruneSpend(ctx, now);
   if (level === 'over' && sessionID) {
     const turn = getState(sessionID).userTurn;
     if (overToastTurn.get(sessionID) !== turn) {
@@ -151,6 +165,7 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
       });
     }
   }
+  await pruneSpend(ctx, now);
 }
 
 export type StepUsage = {
@@ -172,8 +187,8 @@ export function recordStep(
   now = Date.now(),
 ): Promise<void> {
   return serial(ctx, async () => {
-    const stats = addRequest(await readStats(ctx, sessionID), step);
-    await writeStats(ctx, sessionID, stats);
+    if (!deleted.has(sessionID))
+      await writeStats(ctx, sessionID, addRequest(await readStats(ctx, sessionID), step));
     await addSpend(ctx, sessionID, step.costUSD, now);
   });
 }
@@ -190,7 +205,7 @@ export function recordJudgeCall(
   opts: { sessionStats?: boolean } = {},
 ): Promise<void> {
   return serial(ctx, async () => {
-    if (sessionID && opts.sessionStats !== false) {
+    if (sessionID && opts.sessionStats !== false && !deleted.has(sessionID)) {
       const stats = await readStats(ctx, sessionID);
       await writeStats(ctx, sessionID, {
         ...stats,

@@ -328,6 +328,7 @@ await ctx.command.transform((editor) => {
 
 ## Other facts for Wave 2
 
+- `ctx.storage.scan({ prefix })` (runtime, 2.2.6, verified 2026-11-11): `entries[].key` is the full key including the prefix (`spend/2020-01-01`), and `ctx.storage.remove(key)` with that key deletes it. A routed request's `context` hook messages carry the user message `id`, equal to the `prompt` hook's `messageID`, and a prompt sent with `delivery: "queue"` runs its `prompt` hook immediately, while the earlier turn is still running.
 - Plugin storage, settings and option shapes match the docs: `ctx.options` holds the `options` object from the plugin entry.
 - Compaction hook (runtime): event `{ sessionID, agent, model, options, system, messages, tools, result? }`. `messages` items are `{ id, role: "user" | "assistant", content: [{ type: "text", text }] }` (the first user message also carries injected instructions). Setting `event.result = { summary }` skipped the model call; the stored compaction message and `session.compaction.ended.text` used that summary. `ctx.session.compact({ sessionID })` returns the inbox item `{ id, type: "compaction", ... }` and compaction runs at the next step boundary.
 - The `title` hook (kind `title`) and title `http.request` run in parallel with the first primary request. `context` does not run for titles.

@@ -154,3 +154,24 @@ test('a step and a judge call finishing together are both counted (writes run on
   expect(stats.judgeCalls).toBe(1);
   expect((fake.storage.get('spend/2026-11-10') as any).usd).toBe(0.75);
 });
+
+test('a judge call settling after its session is deleted does not write its stats again', async () => {
+  const fake = makeFakeCtx({ models: MODELS, storage: { 'stats/ses_late': { turns: 1 } } });
+  await registerCommands(fake.ctx);
+  fake.publish({ type: 'session.deleted', data: { sessionID: 'ses_late' } });
+  await waitFor(() => !fake.storage.has('stats/ses_late'));
+  await recordJudgeCall(fake.ctx, 'ses_late', 0.01, NOW);
+  expect(fake.storage.has('stats/ses_late')).toBe(false);
+  expect((fake.storage.get('spend/2026-11-10') as any).usd, 'still real spend').toBe(0.01);
+});
+
+test('a failing spend prune never fails the request record', async () => {
+  const fake = makeFakeCtx({ models: MODELS });
+  fake.ctx.storage.scan = async () => {
+    throw new Error('scan down');
+  };
+  const step = { level: 'low' as const, input: 1, output: 1, cacheRead: 0, costUSD: 0.1, turn: 1 };
+  await recordStep(fake.ctx, 'ses_prune_fail', step, NOW);
+  expect((fake.storage.get('stats/ses_prune_fail') as any).costUSD).toBe(0.1);
+  expect((fake.storage.get('spend/2026-11-10') as any).usd).toBe(0.1);
+});

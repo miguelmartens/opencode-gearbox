@@ -511,15 +511,16 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
   async function onContext(event: any): Promise<void> {
     const sessionID: string = event?.sessionID;
     try {
-      const settings = await load(ctx);
       const state = getState(sessionID);
       const local = getLocal(sessionID);
-      local.replyTail = lastReplyTail(event?.messages) ?? local.replyTail;
       const promptID = lastUserMessageID(event?.messages);
       const entry = promptID === undefined ? undefined : local.admitted.get(promptID);
+      // Before anything that can fail: stats must never count this request under the last one.
       state.requestTurn = entry?.turn ?? state.userTurn;
       // Set below only when Gearbox applies an effort level to this request.
       state.requestLevel = null;
+      const settings = await load(ctx);
+      local.replyTail = lastReplyTail(event?.messages) ?? local.replyTail;
 
       const model = toModelRef(event?.model);
       if (!settings.auto || !model) return;

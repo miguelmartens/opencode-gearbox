@@ -149,6 +149,23 @@ test('a prompt queued during a turn does not change that turn’s effort', async
   expect(getState(sessionID).requestTurn).toBe(2);
 });
 
+test('the request level is cleared even when reading the settings fails', async () => {
+  const sessionID = newSession();
+  const fake = makeFakeCtx({ models: MODELS });
+  let fail = false;
+  const settings = structuredClone(DEFAULT_SETTINGS);
+  await registerRouting(fake.ctx, {
+    loadSettings: async () => {
+      if (fail) throw new Error('storage down');
+      return settings;
+    },
+  });
+  getState(sessionID).requestLevel = 'max';
+  fail = true;
+  await fake.fire('context', contextEvent(sessionID));
+  expect(getState(sessionID).requestLevel).toBe(null);
+});
+
 test('the effort level of the request is recorded only when Gearbox set it', async () => {
   const sessionID = newSession();
   const fake = await setup({ generateText: async () => ({ text: 'LEVEL: high' }) });

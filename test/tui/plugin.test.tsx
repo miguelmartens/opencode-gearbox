@@ -17,8 +17,8 @@ const status = (sessionID: string, level: Level): GearboxStatus => ({
   advice: null,
 });
 
-/** The TUI plugin on a fake context; the `status` RPC answers `fetched`. */
-function fakeTui(fetched: Level) {
+/** The TUI plugin on a fake context; the `status` RPC answers `fetched`; `models` is the catalog. */
+function fakeTui(fetched: Level, models?: Array<{ providerID: string; id: string; name: string }>) {
   const handlers: Record<string, (event: { data: unknown }) => void> = {};
   let render!: (input: { sessionID?: string }) => unknown;
   const context: any = {
@@ -42,6 +42,7 @@ function fakeTui(fetched: Level) {
       toast: { show: () => {} },
       dialog: { alert: async () => {} },
     },
+    data: { location: { model: { list: () => models, sync: async () => {} } } },
   };
   const dispose = (plugin as any).setup(context) as () => void;
   return {
@@ -71,6 +72,26 @@ test('the bar keeps statuses only for sessions it has shown', async () => {
     // Shown now: later events are kept.
     tui.emit('status', status('ses_bar', 'high'));
     expect(await frame()).toContain('high');
+  } finally {
+    tui.dispose();
+  }
+});
+
+test('the bar names an alias model by its catalog name', async () => {
+  const tui = fakeTui('low', [{ providerID: 'claude-agent', id: 'opus', name: 'Opus 5.5' }]);
+  try {
+    createRoot((dispose) => {
+      tui.bar('ses_alias');
+      dispose();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    tui.emit('status', {
+      ...status('ses_alias', 'high'),
+      model: { providerID: 'claude-agent', id: 'opus' },
+    });
+    const t = await testRender(() => <box>{tui.bar('ses_alias')}</box>, { width: 60, height: 1 });
+    await t.renderOnce();
+    expect(t.captureCharFrame()).toContain('opus-5-5');
   } finally {
     tui.dispose();
   }

@@ -25,6 +25,7 @@
 <p align="center">
   <a href="https://getgearbox.dev"><strong>Website</strong></a> ·
   <a href="#install"><strong>Install</strong></a> ·
+  <a href="#supported-models">Models</a> ·
   <a href="#the-five-gears">Gears</a> ·
   <a href="#commands">Commands</a> ·
   <a href="#options">Options</a> ·
@@ -47,7 +48,7 @@ Gearbox fixes that. A small judge model rates each prompt. Gearbox shifts the ef
 ⚙ High · haiku-5-5 · ◔ 38% · cache 4:12 · Auto
 ```
 
-Inspired by [HeyCubit/effortless](https://github.com/HeyCubit/effortless) (a Claude Code mod), but written from scratch for OpenCode V2 and any provider.
+Gearbox is built for **Claude models** first; other models with effort variants work too (see [Supported models](#supported-models)). It is an OpenCode plugin and does not run in Claude Code. It was inspired by [HeyCubit/effortless](https://github.com/HeyCubit/effortless), a Claude Code mod, but written from scratch for OpenCode V2.
 
 ## The five gears
 
@@ -80,7 +81,33 @@ The "typical prompt" column is a guide; the judge decides.
   - An optional daily spend budget turns save mode on at 80%. It counts the cost each provider reports per request. A reported cost of 0 (subscriptions) is trusted, so on those providers only judge calls add to the spend.
 - **Benchmark.** `/gearbox bench` scores a judge model on 75 labelled prompts.
 
-Effort works with any model that exposes effort variants. Verified on OpenCode 2.2.6: Anthropic Messages, OpenAI Responses and OpenAI-compatible endpoints (DeepSeek). Google and other providers with effort variants should work the same way but are unverified. A model without effort variants runs unchanged, and the bar says `Paused: no effort control`.
+## Supported models
+
+Gearbox works per model, not per provider. A model is supported when its OpenCode catalog entry has at least one effort variant named after a level (`low`, `medium`, `high`, `xhigh`, `max`). Gearbox copies the chosen variant's settings into each request, so it speaks whatever API the model uses.
+
+Only Claude models usually have all five levels. Many GPT, DeepSeek and other models stop at `high`, or offer only some levels. When the model lacks the judged level, Gearbox uses the nearest lower variant. If there is no lower one, it uses the nearest higher one. For example, on a model with `low`, `medium` and `high`:
+
+| Judged level      | Variant sent |
+| ----------------- | ------------ |
+| `low` … `high`    | the same     |
+| `xhigh` and `max` | `high`       |
+
+On a model with only `high` and `max`, a `low` turn runs on `high`. The status bar shows both, e.g. `XHigh→High`. `/gearbox stats` counts the turn at the judged level, and `/gearbox debug` shows the variant actually sent. Variants such as `none`, `minimal` and `thinking` are never used for effort.
+
+| Models                               | API                                    | Status on OpenCode 2.2.6                                 |
+| ------------------------------------ | -------------------------------------- | -------------------------------------------------------- |
+| **Claude** (e.g. `claude-haiku-5-5`) | Anthropic Messages (`output_config`)   | **Primary target.** Verified, and the recommended judge  |
+| GPT (e.g. `gpt-6-luna`)              | OpenAI Responses (`reasoning.effort`)  | Verified                                                 |
+| DeepSeek and other OpenAI-compatible | OpenAI-compatible (`reasoning_effort`) | Verified                                                 |
+| Gemini, Mistral                      | Google (`thinkingConfig`), Mistral     | Should work; unverified                                  |
+| Any model without effort variants    | any                                    | Runs unchanged; the bar says `Paused: no effort control` |
+
+What "Claude first" means:
+
+- The end-to-end run and the judge benchmark used Claude through the `opencode-go` provider. Claude through `anthropic` or any other provider that speaks Anthropic Messages gets the same treatment.
+- The recommended judge is a Claude Haiku model with thinking off (`#none`); it scored 71/75 at about 1 s per answer.
+- The 5-minute default cache TTL in the status bar matches Anthropic. For other providers it is an assumption; set `settings.cache.ttl` to correct it.
+- Model switching for subagents needs model prices. Subscription catalogs without prices give effort control only.
 
 ## Install
 
@@ -152,10 +179,10 @@ In `/gearbox stats` a **turn** is one user prompt, counted once at the level Gea
 ## Status bar
 
 ```
-⚙ <Level> · <model> · ◔ <context %> · cache <m:ss> · <Auto | Manual | Paused: reason> [· ↻ handoff? | · ⚠ swamped]
+⚙ <Level>[→<Sent>] · <model> · ◔ <context %> · cache <m:ss> · <Auto | Manual | Paused: reason> [· ↻ handoff? | · ⚠ swamped]
 ```
 
-- **Level:** the effort of the current turn.
+- **Level:** the effort of the current turn. `→<Sent>` follows when the model lacks that level and Gearbox sent the nearest variant instead (see [Supported models](#supported-models)).
 - **Model:** the model id without the provider and a leading `claude-`.
 - **Context:** how full the context window is.
 - **Cache:** how long the provider's prompt cache stays warm. It uses the model's `settings.cache.ttl`, else the provider's `settings.cache.ttl`, else 5 minutes.

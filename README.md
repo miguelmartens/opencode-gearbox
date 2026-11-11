@@ -181,8 +181,9 @@ Expected output per level is 800, 3 000, 8 000, 16 000 and 32 000 tokens.
 ## Development
 
 ```
-npm test               # node --test
-npx prettier --check . # formatting
+bun install
+bun test                # tests
+bun run format:check    # formatting
 ```
 
 - `src/core/`: pure decisions, with no OpenCode imports.

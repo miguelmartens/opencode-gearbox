@@ -7,5 +7,5 @@ bench/judge-cases.json
 CHANGELOG.md
 
 node_modules/
-package-lock.json
+bun.lock
 *.tgz

@@ -11,17 +11,12 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        # engines.node is >=22.18: TypeScript type stripping without a flag.
-        node-version: [22, 24]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run format:check
+          # engines.bun is >=1.4.
+          bun-version: '1.4'
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - run: bun run format:check

@@ -65,6 +65,24 @@ test('formatStatus labels every level and pads cache seconds', () => {
   expect(formatStatus({ ...empty, cacheRemainingMs: 0 })).toBe('⚙ cache 0:00 · Auto');
 });
 
+test('formatStatus shows the variant sent when the model lacks the judged level', () => {
+  const sentHigh = { ...full, level: 'xhigh' as const, model: { ...full.model!, variant: 'high' } };
+  expect(formatStatus(sentHigh)).toBe('⚙ XHigh→High · opus-5-5 · ◔ 38% · cache 4:12 · Auto');
+  // Same level, a variant that is not a level, a pause or auto off: the level alone.
+  expect(formatStatus({ ...full, model: { ...full.model!, variant: 'high' } })).toBe(
+    formatStatus(full),
+  );
+  expect(formatStatus({ ...sentHigh, model: { ...full.model!, variant: 'thinking' } })).toBe(
+    '⚙ XHigh · opus-5-5 · ◔ 38% · cache 4:12 · Auto',
+  );
+  expect(formatStatus({ ...sentHigh, paused: 'manual variant' })).toBe(
+    '⚙ XHigh · opus-5-5 · ◔ 38% · cache 4:12 · Paused: manual variant',
+  );
+  expect(formatStatus({ ...sentHigh, auto: false })).toBe(
+    '⚙ XHigh · opus-5-5 · ◔ 38% · cache 4:12 · Manual',
+  );
+});
+
 test('shortModel strips the provider path and a leading claude-', () => {
   expect(shortModel('claude-opus-5-5')).toBe('opus-5-5');
   expect(shortModel('anthropic/claude-sonnet-5-5')).toBe('sonnet-5-5');

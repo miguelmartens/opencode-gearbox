@@ -38,6 +38,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks",
     "test": "bun test",
     "format": "bun fmt --no-script",
     "format:check": "bun fmt --check --no-script"

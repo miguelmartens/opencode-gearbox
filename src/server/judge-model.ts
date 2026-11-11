@@ -78,6 +78,19 @@ export async function resolveJudgeModel(
   return lighten({ providerID: sessionModel.providerID, id: sessionModel.id }, infos);
 }
 
+/** Resolves to `promise`, or to `fallback` after `ms` or when `promise` rejects. */
+export async function bounded<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  try {
+    return await Promise.race([promise.catch(() => fallback), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 type GenerateText = (input: { model?: ModelRef; prompt: string }) => Promise<{ text?: unknown }>;
 
 /** `ctx.experimental.generate.text`, bound to its object: a host method may rely on `this`. */
@@ -124,10 +137,6 @@ export async function runJudge(
   if (!generate || !model.providerID || !model.id) return null;
   const sessionID = meta.sessionID ?? null;
   const start = Date.now();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), timeoutMs);
-  });
   const call = Promise.resolve()
     .then(() => generate({ model, prompt }))
     .then((output) => (typeof output?.text === 'string' ? output.text : null))
@@ -141,13 +150,9 @@ export async function runJudge(
   void cost.then((usd) =>
     recordJudgeCall(ctx, sessionID, usd ?? 0, Date.now(), { sessionStats: meta.sessionStats }),
   );
-  try {
-    const text = await Promise.race([call, timeout]);
-    if (text === null) return null;
-    const ms = Date.now() - start;
-    const costUSD = (await Promise.race([cost, timeout])) ?? undefined;
-    return costUSD === undefined ? { text, ms } : { text, ms, costUSD };
-  } finally {
-    clearTimeout(timer);
-  }
+  const text = await bounded(call, timeoutMs, null);
+  if (text === null) return null;
+  const ms = Date.now() - start;
+  const costUSD = await bounded(cost, Math.max(0, timeoutMs - ms), undefined);
+  return costUSD === undefined ? { text, ms } : { text, ms, costUSD };
 }

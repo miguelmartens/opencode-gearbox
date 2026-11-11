@@ -562,3 +562,48 @@ test('handoff still prompts the new session when writing the file fails', async 
   expect(text).toMatch(/SUMMARY: parser done/);
   expect(text).not.toMatch(/HANDOFF/);
 });
+
+/** The title agent (`small_model`) on another provider than the session's model. */
+const otherProviderAgents = [{ id: 'title', model: { providerID: 'q', id: 'nano' } }];
+const withNano = [
+  ...models,
+  { ...models[1], id: 'nano', providerID: 'q', cost: [{ input: 0.1, output: 0.4 }] },
+];
+
+test('compaction is left to OpenCode when the implicit judge is on another provider', async () => {
+  const fake = fakeWith({
+    agents: otherProviderAgents,
+    models: withNano,
+    generateText: async () => ({ text: 'summary' }),
+  });
+  await registerContextCare(fake.ctx);
+  const event = await fake.fire('compaction', compactionEvent('ses_other'));
+  expect(event.result).toBe(undefined);
+  expect(fake.callsTo('generate.text').length).toBe(0);
+});
+
+test('handoff summarizes on the session model when the implicit judge is on another provider', async () => {
+  const fake = fakeWith(
+    {
+      agents: otherProviderAgents,
+      models: withNano,
+      generateText: async () => ({ text: 'summary' }),
+    },
+    ['ses_h_other'],
+  );
+  await handoff(fake.ctx, 'ses_h_other', 'quick');
+  const [call] = fake.callsTo('generate.text');
+  expect((call.input as { model: { providerID: string } }).model.providerID).toBe('p');
+});
+
+test('a known subagent gets no context advice without a session lookup', async () => {
+  const fake = fakeWith({
+    sessions: { ses_known_child: { id: 'ses_known_child', parentID: 'ses_root', model: MODEL } },
+  });
+  await registerContextCare(fake.ctx);
+  // Routing has already recorded that this session is a subagent.
+  getState('ses_known_child').isSubagent = true;
+  fake.publish(step('ses_known_child', 900));
+  await settle();
+  expect(fake.callsTo('session.get').length).toBe(0);
+});

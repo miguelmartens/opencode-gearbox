@@ -2,7 +2,7 @@ import { afterEach, expect, mock, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import type { FakeCtxOptions } from '../fake-ctx.ts';
 import { registerRouting } from '../../src/server/routing.ts';
-import { getState } from '../../src/server/state.ts';
+import { getState, resetState } from '../../src/server/state.ts';
 import { DEFAULT_SETTINGS, LEVELS } from '../../src/core/types.ts';
 import type { Settings } from '../../src/core/types.ts';
 
@@ -76,6 +76,9 @@ function contextEvent(
   };
 }
 
+/** Lets a status emit the `context` hook started without waiting for it to finish. */
+const flush = () => new Promise((resolve) => setTimeout(resolve, 5));
+
 function gate() {
   let open!: (text: string) => void;
   const promise = new Promise<{ text: string }>((resolve) => {
@@ -101,6 +104,7 @@ test('prompt hook returns before the judge resolves; context applies the judged 
   expect(getState(sessionID).lastDecision?.source).toBe('judge');
   expect(getState(sessionID).lastDecision?.reason).toBe('multi-file refactor');
   expect(getState(sessionID).lastRequestAt, 'stamped from session.step.ended only').toBe(null);
+  await flush();
   const status = fake.events.filter((e) => e.name === 'status').at(-1)?.payload as any;
   expect(status.level).toBe('high');
   expect(status.paused).toBe(null);
@@ -150,7 +154,7 @@ test('a prompt queued during a turn does not change that turn’s effort', async
   // fires at once, before the first turn's remaining steps).
   await fake.fire('prompt', { ...promptEvent(sessionID, 'say hi'), messageID: 'msg_B' });
   const step2 = await fake.fire('context', { ...contextEvent(sessionID), messages: [first] });
-  expect(getState(sessionID).requestTurn, 'still the first turn').toBe(1);
+  expect(getState(sessionID).requestTurn, 'still the first turn').toBe('msg_A');
   const next = await fake.fire('context', {
     ...contextEvent(sessionID),
     messages: [first, userMessage('msg_B', 'say hi')],
@@ -158,7 +162,7 @@ test('a prompt queued during a turn does not change that turn’s effort', async
   expect(step1.options.effort).toBe('xhigh');
   expect(step2.options.effort, 'first turn keeps its level').toBe('xhigh');
   expect(next.options.effort, 'the queued prompt gets its own level').toBe('low');
-  expect(getState(sessionID).requestTurn).toBe(2);
+  expect(getState(sessionID).requestTurn).toBe('msg_B');
 });
 
 test('the request level is cleared even when reading the settings fails', async () => {
@@ -452,6 +456,7 @@ test('a target without effort variants gets no variant and shows paused status',
   const event = await fake.fire('context', contextEvent(sessionID, ref));
   expect(event.options).toStrictEqual({ maxTokens: 32000 });
   expect(event.model).toStrictEqual(ref);
+  await flush();
   const status = fake.events.filter((e) => e.name === 'status').at(-1)?.payload as any;
   expect(status.paused).toBe('no effort control');
   expect(getState(sessionID).autoPaused, 'not a sticky pause').toBe(null);
@@ -882,4 +887,34 @@ test('a subagent waits for the judge and its reads at most timeoutMs + 50 ms in 
   const start = Date.now();
   await fake.fire('prompt', promptEvent(child, `${SUBAGENT_PREFIX}Refactor the auth module`));
   expect(Date.now() - start <= 150, `took ${Date.now() - start} ms`).toBeTruthy();
+});
+
+test('the request turn is the prompt’s message ID, so a restart never repeats it', async () => {
+  const sessionID = newSession();
+  const fake = await setup({ generateText: async () => ({ text: 'LEVEL: low' }) });
+  const first = userMessage('msg_A', 'Rename x');
+  await fake.fire('prompt', { ...promptEvent(sessionID, 'Rename x'), messageID: 'msg_A' });
+  await fake.fire('context', { ...contextEvent(sessionID), messages: [first] });
+  expect(getState(sessionID).requestTurn).toBe('msg_A');
+  // A restart loses the in-memory turn counter; the next prompt still gets its own turn.
+  resetState(sessionID);
+  await fake.fire('prompt', { ...promptEvent(sessionID, 'Rename y'), messageID: 'msg_B' });
+  await fake.fire('context', {
+    ...contextEvent(sessionID),
+    messages: [first, userMessage('msg_B', 'Rename y')],
+  });
+  expect(getState(sessionID).requestTurn).toBe('msg_B');
+});
+
+test('a request is sent without waiting for the status build', async () => {
+  const sessionID = newSession();
+  const fake = await setup({ generateText: async () => ({ text: 'LEVEL: low' }) });
+  await fake.fire('prompt', promptEvent(sessionID, 'max effort: fix it'));
+  // The status reads settings from storage; a hanging store must not hold up the request.
+  fake.ctx.storage.get = () => new Promise(() => {});
+  const sent = await Promise.race([
+    fake.fire('context', contextEvent(sessionID)).then((event) => event.options.effort),
+    new Promise((resolve) => setTimeout(() => resolve('held'), 100)),
+  ]);
+  expect(sent).toBe('max');
 });

@@ -1,7 +1,7 @@
 // Model ladder: the chat provider's models, cheapest first, never above the chat model.
 
-import { LEVELS } from './types.ts';
 import type { Level, ModelLite, ModelRef } from './types.ts';
+import { isLevel } from './settings.ts';
 
 export function sameModel(a: ModelRef, b: ModelRef): boolean {
   return a.providerID === b.providerID && a.id === b.id;
@@ -34,7 +34,7 @@ export function buildLadder(
 }
 
 function hasEffort(model: ModelLite): boolean {
-  return model.variants.some((id) => (LEVELS as readonly string[]).includes(id));
+  return model.variants.some(isLevel);
 }
 
 /**

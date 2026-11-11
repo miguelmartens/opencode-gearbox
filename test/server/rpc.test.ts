@@ -247,6 +247,8 @@ test('no effort control survives a care emit; advice survives a routing emit', a
 
   await fake.fire('prompt', { sessionID, prompt: { text: 'ok' } });
   await fake.fire('context', { sessionID, agent: 'build', model: ref, messages: [], options: {} });
+  // The `context` hook emits the status without waiting for it.
+  await new Promise((resolve) => setTimeout(resolve, 5));
   expect(last().paused).toBe('no effort control');
 
   fake.publish({

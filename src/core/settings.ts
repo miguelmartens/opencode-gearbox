@@ -1,10 +1,11 @@
 import { LEVELS } from './types.ts';
 import { isNumber, isObject } from './guards.ts';
-import type { Settings } from './types.ts';
+import type { Level, Settings } from './types.ts';
 
 type Check = (v: unknown) => boolean;
 
-const isLevel: Check = (v) => typeof v === 'string' && (LEVELS as readonly string[]).includes(v);
+export const isLevel = (v: unknown): v is Level =>
+  typeof v === 'string' && (LEVELS as readonly string[]).includes(v);
 const isBoolean: Check = (v) => typeof v === 'boolean';
 const isPositive: Check = (v) => isNumber(v) && v > 0;
 const isRatio: Check = (v) => isNumber(v) && v >= 0 && v <= 1;
@@ -41,6 +42,11 @@ const CHECKS: Record<string, Check> = {
   'budget.dailyUSD': (v) => v === null || (isNumber(v) && v >= 0),
   effortModels: isRegex,
 };
+
+/** True when `value` is valid for the settable leaf `key`. */
+export function isValidSetting(key: string, value: unknown): boolean {
+  return Object.hasOwn(CHECKS, key) && CHECKS[key](value);
+}
 
 function getPath(source: unknown, path: string): unknown {
   let current = source;

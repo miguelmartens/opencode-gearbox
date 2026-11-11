@@ -1,7 +1,6 @@
 import { expect, test } from 'bun:test';
 import {
   ageStatus,
-  formatStatus,
   isLongMessage,
   retryDelayMs,
   shortModel,
@@ -9,6 +8,12 @@ import {
   toastKind,
 } from '../../src/tui/format.ts';
 import type { GearboxStatus } from '../../src/core/types.ts';
+
+/** The bar as plain text. */
+const formatStatus = (s: GearboxStatus): string =>
+  statusSegments(s)
+    .map((segment) => segment.text)
+    .join('');
 
 const full: GearboxStatus = {
   sessionID: 'ses_a',

@@ -4,10 +4,9 @@
 
 import type { Plugin } from '@opencode/plugin';
 import type { Level, ModelRef } from '../core/types.ts';
-import { mergeSettings, parseSetCommand } from '../core/settings.ts';
+import { isValidSetting, mergeSettings, parseSetCommand } from '../core/settings.ts';
 import { summarize, usd } from '../core/stats.ts';
 import { saveModeActive } from '../core/levels.ts';
-import { isObject } from '../core/guards.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
 import { getState } from './state.ts';
 import { loadSettings, updateSettings } from './settings-store.ts';
@@ -159,12 +158,6 @@ function nested(key: string, value: unknown): Record<string, unknown> {
   >;
 }
 
-function leaf(source: unknown, key: string): unknown {
-  return key
-    .split('.')
-    .reduce<unknown>((node, part) => (isObject(node) ? node[part] : undefined), source);
-}
-
 export async function registerCommands(
   ctx: Ctx,
   overrides: Partial<CommandDeps> = {},
@@ -228,22 +221,15 @@ export async function registerCommands(
       const parsed = parseSetCommand(arg);
       if ('error' in parsed) return say(sessionID, `Gearbox: ${parsed.error}`, 'error');
       const { key, value } = parsed;
-      let applied = false;
-      await updateSettings(ctx, (current) => {
-        const s = mergeSettings(current, nested(key, value));
-        applied =
-          value === null && key === 'judge.model'
-            ? s.judge.model === undefined
-            : leaf(s, key) === value;
-        if (!applied) return false;
-        Object.assign(current, s);
-      });
-      if (!applied)
+      if (!isValidSetting(key, value))
         return say(
           sessionID,
           `Gearbox: invalid value for ${key}: ${JSON.stringify(value)}`,
           'error',
         );
+      await updateSettings(ctx, (current) => {
+        Object.assign(current, mergeSettings(current, nested(key, value)));
+      });
       await say(sessionID, `Gearbox: ${key} = ${JSON.stringify(value)}`);
     },
     async settings(sessionID) {

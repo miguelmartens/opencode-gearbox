@@ -135,7 +135,7 @@ To set options, use the object form:
 }
 ```
 
-Restart OpenCode after editing the config. The TUI status bar ships in the same package and loads with it.
+OpenCode reloads its plugins when you save the config, so no restart is needed. The TUI status bar ships in the same package and loads with it.
 
 To run it from a checkout, use the absolute path of the repository instead of the package name. The path must be a directory.
 

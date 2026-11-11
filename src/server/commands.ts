@@ -9,7 +9,7 @@ import { summarize } from '../core/stats.ts';
 import { isObject, num } from '../core/guards.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
 import { getState } from './state.ts';
-import { loadSettings, saveSettings } from './settings-store.ts';
+import { loadSettings, updateSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
 import { compactNow, handoff } from './care.ts';
 import { readSpend, readStats, recordStep, saveModeActive, usd } from './ledger.ts';
@@ -275,9 +275,9 @@ export async function registerCommands(
     async auto(sessionID, arg) {
       if (arg !== 'on' && arg !== 'off')
         return say(sessionID, 'Usage: /gearbox auto on|off', 'error');
-      const s = await loadSettings(ctx);
-      s.auto = arg === 'on';
-      await saveSettings(ctx, s);
+      const s = await updateSettings(ctx, (s) => {
+        s.auto = arg === 'on';
+      });
       if (s.auto) getState(sessionID).autoPaused = null;
       await statusChanged(ctx, sessionID);
       await say(sessionID, `Gearbox: auto ${arg}`);
@@ -286,18 +286,22 @@ export async function registerCommands(
       const parsed = parseSetCommand(arg);
       if ('error' in parsed) return say(sessionID, `Gearbox: ${parsed.error}`, 'error');
       const { key, value } = parsed;
-      const s = mergeSettings(await loadSettings(ctx), nested(key, value));
-      const applied =
-        value === null && key === 'judge.model'
-          ? s.judge.model === undefined
-          : leaf(s, key) === value;
+      let applied = false;
+      await updateSettings(ctx, (current) => {
+        const s = mergeSettings(current, nested(key, value));
+        applied =
+          value === null && key === 'judge.model'
+            ? s.judge.model === undefined
+            : leaf(s, key) === value;
+        if (!applied) return false;
+        Object.assign(current, s);
+      });
       if (!applied)
         return say(
           sessionID,
           `Gearbox: invalid value for ${key}: ${JSON.stringify(value)}`,
           'error',
         );
-      await saveSettings(ctx, s);
       await say(sessionID, `Gearbox: ${key} = ${JSON.stringify(value)}`);
     },
     async settings(sessionID) {
@@ -307,10 +311,10 @@ export async function registerCommands(
     async save(sessionID, arg) {
       if (arg !== '' && arg !== 'on' && arg !== 'off')
         return say(sessionID, 'Usage: /gearbox save [on|off]', 'error');
-      const s = await loadSettings(ctx);
       const on = arg !== 'off';
-      s.saveMode.until = on ? deps.now() + s.saveMode.hours * HOUR_MS : null;
-      await saveSettings(ctx, s);
+      const s = await updateSettings(ctx, (s) => {
+        s.saveMode.until = on ? deps.now() + s.saveMode.hours * HOUR_MS : null;
+      });
       await say(
         sessionID,
         on

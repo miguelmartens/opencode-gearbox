@@ -3,7 +3,7 @@ import { makeFakeCtx } from '../fake-ctx.ts';
 import type { FakeCtx, FakeCtxOptions } from '../fake-ctx.ts';
 import { registerCommands } from '../../src/server/commands.ts';
 import type { CommandDeps } from '../../src/server/commands.ts';
-import { loadSettings, saveSettings } from '../../src/server/settings-store.ts';
+import { loadSettings, saveSettings, updateSettings } from '../../src/server/settings-store.ts';
 import { getState, resetState } from '../../src/server/state.ts';
 import { DEFAULT_SETTINGS, LEVELS } from '../../src/core/types.ts';
 import type { Level } from '../../src/core/types.ts';
@@ -74,6 +74,30 @@ test('saveSettings keeps a cleared judge model cleared over plugin options', asy
   delete s.judge.model;
   await saveSettings(fake.ctx, s);
   expect((await loadSettings(fake.ctx)).judge.model).toBe(undefined);
+});
+
+test('concurrent settings updates both persist', async () => {
+  const fake = makeFakeCtx();
+  await Promise.all([
+    updateSettings(fake.ctx, (s) => {
+      s.bias = 1;
+    }),
+    updateSettings(fake.ctx, (s) => {
+      s.swampedAt = 0.5;
+    }),
+  ]);
+  const s = await loadSettings(fake.ctx);
+  expect(s.bias).toBe(1);
+  expect(s.swampedAt).toBe(0.5);
+});
+
+test('a settings update that returns false stores nothing', async () => {
+  const fake = makeFakeCtx();
+  await updateSettings(fake.ctx, (s) => {
+    s.bias = 1;
+    return false;
+  });
+  expect(fake.storage.get('settings')).toBe(undefined);
 });
 
 test('set bias -1 persists and loadSettings returns it', async () => {

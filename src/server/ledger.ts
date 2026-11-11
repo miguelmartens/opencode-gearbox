@@ -10,7 +10,7 @@ import type { SessionStats } from '../core/stats.ts';
 import { budgetState } from '../core/context.ts';
 import { isNumber, isObject, num } from '../core/guards.ts';
 import { getState, onForget } from './state.ts';
-import { loadSettings, saveSettings } from './settings-store.ts';
+import { loadSettings, updateSettings } from './settings-store.ts';
 import { logOnce, toast } from './notify.ts';
 
 type Ctx = Plugin.Context;
@@ -139,15 +139,15 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
   const level = budgetState(spend.usd, daily);
   if ((level === 'warn' || level === 'over') && !spend.warned) {
     spend.warned = true;
-    if (!saveModeActive(settings, now)) {
-      settings.saveMode.until = now + settings.saveMode.hours * HOUR_MS;
-      await saveSettings(ctx, settings);
-    }
+    const saved = await updateSettings(ctx, (s) => {
+      if (saveModeActive(s, now)) return false;
+      s.saveMode.until = now + s.saveMode.hours * HOUR_MS;
+    });
     if (level === 'warn') {
       await toast(ctx, {
         ...(sessionID ? { sessionID } : {}),
         title: 'Gearbox',
-        message: `Gearbox: ${usd(spend.usd)} of the ${usd(daily ?? 0)} daily budget spent; save mode on for ${settings.saveMode.hours} h.`,
+        message: `Gearbox: ${usd(spend.usd)} of the ${usd(daily ?? 0)} daily budget spent; save mode on for ${saved.saveMode.hours} h.`,
         variant: 'warning',
       });
     }

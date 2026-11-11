@@ -60,7 +60,7 @@ The **fourth run** (2026-11-11, `main` at `ced0d4c`, after the audit fixes) repe
   - the `context` hook after Gearbox's (last user message ID and `event.options`);
   - every `http.request` (kind, agent, model, variant, and the effort field of the body: `output_config`, `reasoning` or `reasoning_effort`);
   - the `compaction` hook.
-- **Driver:** a private `opencode serve` on `127.0.0.1:4299` (step 7: `4298`, own project and own empty `XDG_CONFIG_HOME`), driven by `@opencode/client` from this worktree's `node_modules`. The scripts are copies of the earlier runs' drivers. Prompts went through `session.prompt` + `session.wait`. Commands went through `session.command({ name: "gearbox", text })` (M7). Bus events were collected by subscription.
+- **Driver:** a private `opencode serve` on `127.0.0.1:4299` (step 7: `4298`, own project and own empty `XDG_CONFIG_HOME`), driven by `@opencode/client` from this worktree's `node_modules`. The scripts are copies of the earlier runs' drivers. Prompts went through `session.prompt` + `session.wait`. Commands went through `session.command({ name: "gearbox", text })`. Bus events were collected by subscription.
 - **Server working directory:** start `opencode serve` in the temp project. `client.rpc(Gearbox).status(...)` without a `location` goes to the server's own directory. The first server ran in `/tmp/gbx-e2e2`, where Gearbox is not loaded, and every RPC call failed with `{ type: 'rpc.unavailable', message: 'RPC is unavailable: gearbox' }`. Started in the project, it worked.
 - **TUI:** `opencode --server <url> --session <id> <dir>` in a pseudo-terminal (160×48), screen rendered by `pyte`.
 - **Models:** `opencode-go` (subscription; every request reports `cost: 0`). Main chat `claude-haiku-5-5` (Anthropic Messages). Also `gpt-6-luna` (OpenAI Responses), `mimo-v2.6-flash` (no variants), `beam-free` (OpenAI-compatible, subagent rung).
@@ -95,7 +95,7 @@ Fourth run, `main` at `ced0d4c`.
 | M9  | `stats` has a `manual` line; paused / auto-off = manual | `haiku-5-5#none`     | PASS   |
 | M10 | Deleting a session removes its stored stats             | `haiku-5-5#none`     | PASS   |
 
-All judges are `opencode-go/claude-haiku-5-5#none`. (1) Step 5b used `opencode-go/muse-spark-1.3-contributor#minimal`, a judge cheaper than the session's model, for its compaction.
+Every judged step used `opencode-go/claude-haiku-5-5#none`. (1) Step 5b used `opencode-go/muse-spark-1.3-contributor#minimal`, a judge cheaper than the session's model, for its compaction.
 
 ## Steps
 
@@ -526,7 +526,7 @@ First run, TUI bar: `⚙ Medium · mimo-v2.6-flash · ◔ 2% · cache 0:00 · Pa
 
 ### M6. Status-fetch backoff — PASS
 
-**Fourth run.** The TUI connected through a fault-injecting proxy. While a flag file existed, the proxy answered `POST /api/rpc/gearbox/status` with 503 and passed everything else. The flag was removed 22 s after the TUI started. The session had no prompt, so no status event was emitted.
+**Fourth run.** The TUI connected through a fault-injecting proxy. While a flag file existed, the proxy answered `POST /api/rpc/gearbox/status` with 503 and passed everything else. The TUI started at about 09:57:50Z, and the flag was removed at 09:58:12Z. The session had no prompt, so no status event was emitted.
 
 ```
 2026-11-11T09:57:51.315Z BROKEN POST /api/rpc/gearbox/status
@@ -537,7 +537,7 @@ First run, TUI bar: `⚙ Medium · mimo-v2.6-flash · ◔ 2% · cache 0:00 · Pa
 2026-11-11T09:58:22.385Z pass POST /api/rpc/gearbox/status        (+16 s)
 ```
 
-Bar every 3 s: empty in dumps 1–8, `⚙ Auto  shift+tab agents  ctrl+p commands` from dump 9 on.
+Bar dumps every 3 s (UTC): empty at 09:57:59, :58:02, :05, :08, :11, :14, :17 and :20. From 09:58:23 on, the bar shows `⚙ Auto  shift+tab agents  ctrl+p commands`. So it recovered right after the first passing status fetch at 09:58:22.385.
 
 ### M7. `opencode run "/gearbox x"` — PASS (not a command)
 
@@ -551,7 +551,7 @@ No `rpc.gearbox.toast`.
 
 ### M8. A queued prompt does not change the running turn's effort — PASS
 
-**Fourth run.** Prompt A, "debug this race condition across 3 files (queue.ts, worker.ts, main.ts): read all three, explain the race, then fix it", was sent with the default delivery. After A's second model request, prompt B, "low effort: what does main.ts import? one line", was sent with `delivery: "queue"`.
+**Fourth run.** Prompt A, "debug this race condition across 3 files (queue.ts, worker.ts, main.ts): read all three, explain the race, then fix it", was sent with the default delivery (`steer`). After A's second model request, prompt B, "low effort: what does main.ts import? one line", was sent with `delivery: "queue"`.
 
 ```
 A sent {"id":"msg_1c9ff22d5001YGp0xncDVIPaCH","delivery":"steer"}
@@ -642,7 +642,15 @@ With auto off, the requests carried no Gearbox effort (`2 [..., "default", null]
 
 ### M10. Deleting a session removes its stored stats — PASS
 
-**Fourth run**, on the step 5b session. `/gearbox stats` cannot run for a deleted session: OpenCode rejects the command itself. So the check reads Gearbox's plugin storage. It is the `kv` table of `<home>/.local/share/opencode/opencode.db`, with keys `plugin:<"gearbox" as UTF-16 hex>:stats/<sessionID>`. The database was opened with `sqlite3 -readonly`.
+**Fourth run**, on the step 5b session. `/gearbox stats` cannot run for a deleted session: OpenCode rejects the command itself. So the check reads Gearbox's plugin storage. It is the `kv` table of `<home>/.local/share/opencode/opencode.db`, with keys `plugin:<"gearbox" as UTF-16 hex>:stats/<sessionID>`. The database was opened with `sqlite3 -readonly`:
+
+```sh
+K="plugin:00670065006100720062006f0078:stats/ses_e35fdd00fffe0O1866AKMEvKz2"
+sqlite3 -readonly <home>/.local/share/opencode/opencode.db "select key, value from kv where key='$K';"   # kv before
+sqlite3 -readonly <home>/.local/share/opencode/opencode.db "select count(*) from kv where key='$K';"     # kv after
+```
+
+`0067…0078` is "gearbox" as UTF-16 hex. So `kv after: 0` means no `stats/<sessionID>` key is left for that session.
 
 ```
 kv before:

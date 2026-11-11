@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/miguelmartens/opencode-gearbox/compare/v0.1.0...v0.1.1) (2026-11-11)
+
+
+### Bug Fixes
+
+* **package:** make TUI peers required so npm installs them ([#10](https://github.com/miguelmartens/opencode-gearbox/issues/10)) ([8406844](https://github.com/miguelmartens/opencode-gearbox/commit/8406844c14e8e2c9a6a902941cce3a035fbe8aef))
+
 ## 0.1.0 (2026-11-11)
 
 

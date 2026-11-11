@@ -81,6 +81,13 @@ The "typical prompt" column is a guide; the judge decides.
   - An optional daily spend budget turns save mode on at 80%. It counts the cost each provider reports per request. A reported cost of 0 (subscriptions) is trusted, so on those providers only judge calls add to the spend.
 - **Benchmark.** `/gearbox bench` scores a judge model on 75 labelled prompts.
 
+## Benchmark
+
+<!-- bench:start -->
+
+Benchmark results are coming. See [bench/README.md](bench/README.md) for the method.
+<!-- bench:end -->
+
 ## Supported models
 
 Gearbox works per model, not per provider. A model is supported when its OpenCode catalog entry has at least one effort variant named after a level (`low`, `medium`, `high`, `xhigh`, `max`). Gearbox copies the chosen variant's settings into each request, so it speaks whatever API the model uses.

@@ -1,0 +1,1 @@
+Add a `--version` flag (short form `-v`) to the CLI. `parseArgs(argv)` in src/args.ts should return `{ command: 'version' }` for it, and `main(argv)` in src/cli.ts should then return the `VERSION` string from src/version.ts, nothing else.

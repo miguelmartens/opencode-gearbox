@@ -1,0 +1,1 @@
+Use a subagent to find every place in this project that compares user emails. Then fix `findUserByEmail(users, email)` in src/lookup.ts so it matches emails case-insensitively and ignores surrounding whitespace (on both the stored and the searched address). It should still return `undefined` when nobody matches.

@@ -3,6 +3,11 @@ LICENSE
 NOTICE.md
 bench/judge-cases.json
 
+# Benchmark task fixtures stay verbatim; results are generated
+bench/tasks/
+bench/results/
+assets/bench/
+
 # release-please generates this file; reformatting it would fail the release PR's CI
 CHANGELOG.md
 

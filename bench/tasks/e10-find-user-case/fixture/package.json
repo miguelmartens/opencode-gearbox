@@ -1,0 +1,6 @@
+{
+  "name": "directory",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "bun test" }
+}

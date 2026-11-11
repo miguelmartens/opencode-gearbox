@@ -1,0 +1,1 @@
+Add an optional `email?: string` field to the `User` type in src/user.ts, and let `createUser(name, email?)` take it as an optional second argument. When a user has an email, `toDisplay(user)` should return `Name <email>` (e.g. `Ada <ada@example.com>`); without one it stays just the name.

@@ -9,3 +9,7 @@ CHANGELOG.md
 node_modules/
 bun.lock
 *.tgz
+
+# Generated brand assets and the static site
+assets/brand/
+site/

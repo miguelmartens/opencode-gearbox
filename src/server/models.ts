@@ -28,6 +28,9 @@ export type ModelInfo = {
 /** How long a catalog read is reused: long enough for one step, short enough for config edits. */
 export const MEMO_MS = 3000;
 
+/** Rough token estimate for prompts and answers: about 4 characters per token. */
+export const CHARS_PER_TOKEN = 4;
+
 /** Provider default when no `settings.cache.ttl` is configured (§11). */
 export const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
 
@@ -52,6 +55,46 @@ function remember<T>(
     if (get() === next) set(undefined);
   });
   return value;
+}
+
+/**
+ * A model reference from runtime data; `null` when it is not one. The variant `"default"` (and
+ * `""`) means "no variant picked" (docs/api-probe.md §3), so it is dropped.
+ */
+export function toModelRef(value: unknown): ModelRef | null {
+  const model = value as Partial<ModelRef> | null | undefined;
+  if (typeof model?.providerID !== 'string' || typeof model?.id !== 'string') return null;
+  const ref: ModelRef = { providerID: model.providerID, id: model.id };
+  if (typeof model.variant === 'string' && model.variant !== '' && model.variant !== 'default')
+    ref.variant = model.variant;
+  return ref;
+}
+
+/** `provider/model[#variant]`, as typed in settings and commands; the model part may contain `/`. */
+export function parseModelString(value: string): ModelRef | null {
+  const [path, variant] = value.trim().split('#', 2);
+  const slash = path.indexOf('/');
+  if (slash <= 0 || slash === path.length - 1 || /\s/.test(path)) return null;
+  const ref: ModelRef = { providerID: path.slice(0, slash), id: path.slice(slash + 1) };
+  if (variant) ref.variant = variant;
+  return ref;
+}
+
+/** OpenCode's default model (`ctx.model.default()` returns `{ location, data }`). */
+export async function defaultModelRef(ctx: Ctx): Promise<ModelRef | null> {
+  try {
+    return toModelRef(((await ctx.model.default()) as unknown as { data?: unknown })?.data);
+  } catch {
+    return null;
+  }
+}
+
+/** The model a session runs on: its own, else OpenCode's default; `null` when neither is known. */
+export async function sessionModelRef(
+  ctx: Ctx,
+  session: { model?: unknown },
+): Promise<ModelRef | null> {
+  return toModelRef(session.model) ?? (await defaultModelRef(ctx));
 }
 
 /** `ctx.model.list()` returns `{ location, data }`. */

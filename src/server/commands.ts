@@ -6,15 +6,15 @@ import type { Plugin } from '@opencode/plugin';
 import type { Level, ModelRef } from '../core/types.ts';
 import { mergeSettings, parseSetCommand } from '../core/settings.ts';
 import { summarize } from '../core/stats.ts';
+import { isObject, num } from '../core/guards.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
 import { getState } from './state.ts';
 import { loadSettings, saveSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
 import { compactNow, handoff } from './care.ts';
 import { readSpend, readStats, recordStep, saveModeActive, usd } from './ledger.ts';
-import { findModelInfo } from './models.ts';
-import { buildStatus, statusChanged, trackUsage } from './status.ts';
-import { watchEvents } from './lifecycle.ts';
+import { findModelInfo, parseModelString, sessionModelRef, toModelLite } from './models.ts';
+import { buildStatus, onStepEnded, statusChanged } from './status.ts';
 import { logOnce, toast } from './notify.ts';
 import bench from '../../bench/judge-cases.json' with { type: 'json' };
 
@@ -57,23 +57,11 @@ const HELP = [
 const MAIN_SWITCH_NOTE =
   'Note: modelSwitch.main has no effect on OpenCode 2.2.6 (no model resolve hook yet); the main chat gets effort only.';
 
-const isObject = (v: unknown): v is Record<string, any> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
-
-const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-
 const clip = (text: string): string =>
   text.length > MAX_FIELD ? `${text.slice(0, MAX_FIELD - 1)}…` : text;
 
 const formatModel = (m: ModelRef | null | undefined): string =>
   m ? `${m.providerID}/${m.id}${m.variant ? `#${m.variant}` : ''}` : 'unknown';
-
-function parseModelRef(text: string): ModelRef | null {
-  const match = /^([^/\s]+)\/([^#\s]+)(?:#(\S+))?$/.exec(text);
-  if (!match) return null;
-  const [, providerID, id, variant] = match;
-  return variant ? { providerID, id, variant } : { providerID, id };
-}
 
 /** USD for a request from its tokens and the model's base-tier price (docs/api-probe.md §2, §8). */
 async function priceTokens(
@@ -81,26 +69,26 @@ async function priceTokens(
   model: ModelRef,
   t: { input: number; output: number; cacheRead: number; cacheWrite: number },
 ): Promise<number> {
-  const info = (await findModelInfo(ctx, model)) as any;
-  const base = Array.isArray(info?.cost) ? info.cost.find((c: any) => !c?.tier) : undefined;
-  if (!base) return 0;
+  const info = await findModelInfo(ctx, model);
+  const p = info ? toModelLite(info)?.price : undefined;
+  if (!p) return 0;
   return (
-    (t.input * num(base.input) +
-      t.output * num(base.output) +
-      t.cacheRead * num(base.cache?.read) +
-      t.cacheWrite * num(base.cache?.write)) /
+    (t.input * p.input +
+      t.output * p.output +
+      t.cacheRead * p.cacheRead +
+      t.cacheWrite * p.cacheWrite) /
     1e6
   );
 }
 
-async function onStepEnded(
-  ctx: Ctx,
-  deps: CommandDeps,
-  data: any,
-  model: ModelRef | undefined,
-): Promise<void> {
+/**
+ * One finished model request into stats and the budget (docs/api-probe.md §8). The request model
+ * comes from the step tracker, which records it on `session.step.started`.
+ */
+async function recordRequest(ctx: Ctx, deps: CommandDeps, data: any): Promise<void> {
   const sessionID: string = data.sessionID;
   const state = getState(sessionID);
+  const model = state.requestModel ?? undefined;
   const tokens = isObject(data.tokens) ? data.tokens : {};
   const t = {
     input: num(tokens.input),
@@ -116,31 +104,14 @@ async function onStepEnded(
     ctx,
     sessionID,
     {
-      level: state.lastDecision?.level ?? state.lastLevel ?? 'medium',
+      level: state.requestLevel,
       input: t.input,
       output: t.output,
       cacheRead: t.cacheRead,
       costUSD,
-      turn: state.userTurn,
+      turn: state.requestTurn,
     },
     deps.now(),
-  );
-}
-
-/**
- * Feeds `session.step.ended` events into stats and the budget (docs/api-probe.md §8). The request
- * model comes from `trackUsage`, which records it on `session.step.started`.
- */
-function watchUsage(ctx: Ctx, deps: CommandDeps): void {
-  watchEvents(
-    ctx,
-    ['session.step.ended'],
-    async (event) => {
-      const sessionID = event.data?.sessionID;
-      if (typeof sessionID !== 'string') return;
-      await onStepEnded(ctx, deps, event.data, getState(sessionID).requestModel ?? undefined);
-    },
-    'usage',
   );
 }
 
@@ -231,14 +202,6 @@ async function runBench(
     for (const r of unanswered) lines.push(benchLine(r.c, 'no answer'));
   }
   return lines.join('\n');
-}
-
-async function sessionModel(ctx: Ctx, sessionID: string): Promise<ModelRef | null> {
-  const session = (await ctx.session.get({ sessionID } as never)) as any;
-  if (isObject(session?.model))
-    return { providerID: session.model.providerID, id: session.model.id };
-  const fallback = ((await ctx.model.default()) as any)?.data;
-  return fallback ? { providerID: fallback.providerID, id: fallback.id } : null;
 }
 
 function nested(key: string, value: unknown): Record<string, unknown> {
@@ -356,10 +319,10 @@ export async function registerCommands(
       const s = await loadSettings(ctx);
       let model: ModelRef | null;
       if (arg) {
-        model = parseModelRef(arg);
+        model = parseModelString(arg);
         if (!model) return say(sessionID, 'Usage: /gearbox bench [provider/model]', 'error');
       } else {
-        const chat = await sessionModel(ctx, sessionID);
+        const chat = await sessionModelRef(ctx, await ctx.session.get({ sessionID } as never));
         if (!chat)
           return say(sessionID, 'Gearbox: no model to bench; pass provider/model', 'error');
         model = await deps.resolveJudgeModel(ctx, chat, s);
@@ -439,6 +402,5 @@ export async function registerCommands(
     } as never);
   });
 
-  trackUsage(ctx);
-  watchUsage(ctx, deps);
+  onStepEnded(ctx, 'usage', (data) => recordRequest(ctx, deps, data));
 }

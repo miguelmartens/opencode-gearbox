@@ -6,21 +6,18 @@ import type { GearboxStatus, ModelRef } from '../core/types.ts';
 import { cacheRemainingMs, contextRatio } from '../core/context.ts';
 import { getState, peekCare, resetState, sweepIdle } from './state.ts';
 import { loadSettings } from './settings-store.ts';
-import { cacheTtlMs, contextLimit, findModelInfo, DEFAULT_CACHE_TTL_MS } from './models.ts';
+import {
+  cacheTtlMs,
+  contextLimit,
+  findModelInfo,
+  toModelRef,
+  DEFAULT_CACHE_TTL_MS,
+} from './models.ts';
 import { emitStatus, hasEmitter, logOnce } from './notify.ts';
 import { onDispose, watchEvents } from './lifecycle.ts';
+import { forgetStats } from './ledger.ts';
 
 type Ctx = Plugin.Context;
-
-export function toModelRef(value: unknown): ModelRef | null {
-  const model = value as Partial<ModelRef> | null | undefined;
-  if (typeof model?.providerID !== 'string' || typeof model?.id !== 'string') return null;
-  const ref: ModelRef = { providerID: model.providerID, id: model.id };
-  // "default" means no variant selected (docs/api-probe.md §3).
-  if (typeof model.variant === 'string' && model.variant !== '' && model.variant !== 'default')
-    ref.variant = model.variant;
-  return ref;
-}
 
 async function modelFacts(
   ctx: Ctx,
@@ -85,17 +82,35 @@ export async function statusChanged(ctx: Ctx, sessionID: string): Promise<void> 
   }
 }
 
+/** Work to do after each model request; `data` is the `session.step.ended` event data. */
+export type StepHandler = (data: any) => Promise<void>;
+
 const tracked = new WeakSet<object>();
+const stepHandlers = new WeakMap<object, Array<{ scope: string; handle: StepHandler }>>();
+
+/**
+ * Runs `handle` after each model request, once the request's tokens and time are recorded and
+ * before the status is emitted. Handlers run in registration order.
+ */
+export function onStepEnded(ctx: Ctx, scope: string, handle: StepHandler): void {
+  const handlers = stepHandlers.get(ctx) ?? [];
+  handlers.push({ scope, handle });
+  stepHandlers.set(ctx, handlers);
+  trackUsage(ctx);
+}
 
 /**
  * Tracks the request model, context size and request time of every session from step events
- * (docs/api-probe.md §8), emits the status after each request, and forgets deleted sessions.
- * Idempotent per context: every module that needs the data calls it.
+ * (docs/api-probe.md §8), runs the step handlers, emits the status once after each request, and
+ * forgets deleted sessions. Idempotent per context: every module that needs the data calls it.
  */
 export function trackUsage(ctx: Ctx): void {
   if (tracked.has(ctx)) return;
   tracked.add(ctx);
-  onDispose(ctx, () => tracked.delete(ctx));
+  onDispose(ctx, () => {
+    tracked.delete(ctx);
+    stepHandlers.delete(ctx);
+  });
   watchEvents(
     ctx,
     ['session.step.started', 'session.step.ended', 'session.deleted'],
@@ -105,6 +120,7 @@ export function trackUsage(ctx: Ctx): void {
       if (typeof sessionID !== 'string') return;
       if (event.type === 'session.deleted') {
         resetState(sessionID);
+        await forgetStats(ctx, sessionID);
         return;
       }
       const state = getState(sessionID);
@@ -117,6 +133,13 @@ export function trackUsage(ctx: Ctx): void {
       state.contextTokens =
         (tokens.input ?? 0) + (tokens.cache?.read ?? 0) + (tokens.cache?.write ?? 0);
       state.lastRequestAt = Date.now();
+      for (const { scope, handle } of stepHandlers.get(ctx) ?? []) {
+        try {
+          await handle(data);
+        } catch (error) {
+          logOnce(sessionID, scope, error);
+        }
+      }
       await statusChanged(ctx, sessionID);
     },
     'usage tracking',

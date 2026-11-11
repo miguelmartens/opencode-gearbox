@@ -3,12 +3,16 @@
 import type { Level } from './types.ts';
 
 const PROMPT_MAX = 2000;
-const REPLY_TAIL_MAX = 500;
+/** Characters of the previous reply a judge prompt keeps. */
+export const REPLY_TAIL_MAX = 500;
 
 // xhigh comes before high so alternation never stops at the shorter word.
 const LEVEL_WORD = '(xhigh|max|high|medium|low)';
 const LEVEL_LINE_RE = new RegExp(`^[\\s*_#>-]*level[\\s*_]*:[\\s*_\`"']*${LEVEL_WORD}\\b`, 'im');
-const LEVEL_ANY_RE = new RegExp(`\\b${LEVEL_WORD}\\b`, 'i');
+// A level word followed by `-` is an adjective ("low-effort task"), not an answer.
+const LEVEL_ANY_RE = new RegExp(`\\b${LEVEL_WORD}\\b(?!-)`, 'i');
+// The answer template echoed back: `LEVEL: <low|medium|...>`.
+const TEMPLATE_RE = /<\s*low\s*\|/i;
 const WHY_LINE_RE = /^[\s*_#>-]*why[\s*_]*:[\s*_]*(.*)$/im;
 const YES_NO_RE = /\b(yes|no)\b/i;
 
@@ -55,7 +59,8 @@ export function buildJudgePrompt(i: {
 }
 
 export function parseJudgeAnswer(text: string): { level: Level; reason: string } | null {
-  const match = LEVEL_LINE_RE.exec(text) ?? LEVEL_ANY_RE.exec(text);
+  const match =
+    LEVEL_LINE_RE.exec(text) ?? (TEMPLATE_RE.test(text) ? null : LEVEL_ANY_RE.exec(text));
   if (!match) return null;
   const level = match[1].toLowerCase() as Level;
   const why = WHY_LINE_RE.exec(text);

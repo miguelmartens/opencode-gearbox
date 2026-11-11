@@ -117,6 +117,67 @@ test('the turn decision applies on every context step', async () => {
   expect(fake.callsTo('generate.text').length).toBe(1);
 });
 
+function userMessage(id: string, text: string) {
+  return { id, role: 'user', content: [{ type: 'text', text }] };
+}
+
+test('a prompt queued during a turn does not change that turn’s effort', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    generateText: async ({ prompt }: { prompt: string }) => ({
+      text: prompt.includes('Redesign') ? 'LEVEL: xhigh' : 'LEVEL: low',
+    }),
+  });
+  const first = userMessage('msg_A', 'Redesign the storage layer');
+  await fake.fire('prompt', {
+    ...promptEvent(sessionID, 'Redesign the storage layer'),
+    messageID: 'msg_A',
+  });
+  const step1 = await fake.fire('context', { ...contextEvent(sessionID), messages: [first] });
+  // The user queues the next prompt while the first turn is still running (probe: its hook
+  // fires at once, before the first turn's remaining steps).
+  await fake.fire('prompt', { ...promptEvent(sessionID, 'say hi'), messageID: 'msg_B' });
+  const step2 = await fake.fire('context', { ...contextEvent(sessionID), messages: [first] });
+  expect(getState(sessionID).requestTurn, 'still the first turn').toBe(1);
+  const next = await fake.fire('context', {
+    ...contextEvent(sessionID),
+    messages: [first, userMessage('msg_B', 'say hi')],
+  });
+  expect(step1.options.effort).toBe('xhigh');
+  expect(step2.options.effort, 'first turn keeps its level').toBe('xhigh');
+  expect(next.options.effort, 'the queued prompt gets its own level').toBe('low');
+  expect(getState(sessionID).requestTurn).toBe(2);
+});
+
+test('the request level is cleared even when reading the settings fails', async () => {
+  const sessionID = newSession();
+  const fake = makeFakeCtx({ models: MODELS });
+  let fail = false;
+  const settings = structuredClone(DEFAULT_SETTINGS);
+  await registerRouting(fake.ctx, {
+    loadSettings: async () => {
+      if (fail) throw new Error('storage down');
+      return settings;
+    },
+  });
+  getState(sessionID).requestLevel = 'max';
+  fail = true;
+  await fake.fire('context', contextEvent(sessionID));
+  expect(getState(sessionID).requestLevel).toBe(null);
+});
+
+test('the effort level of the request is recorded only when Gearbox set it', async () => {
+  const sessionID = newSession();
+  const fake = await setup({ generateText: async () => ({ text: 'LEVEL: high' }) });
+  await fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module'));
+  await fake.fire('context', contextEvent(sessionID));
+  expect(getState(sessionID).requestLevel).toBe('high');
+  // A manual variant pauses Gearbox: the request runs at the user's level, not Gearbox's.
+  await fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module'));
+  await fake.fire('context', contextEvent(sessionID, { ...OPUS, variant: 'max' }));
+  expect(getState(sessionID).requestLevel).toBe(null);
+});
+
 test('follow-up reuses the last level without a judge call', async () => {
   const sessionID = newSession();
   const fake = await setup({ generateText: async () => ({ text: 'LEVEL: xhigh' }) });

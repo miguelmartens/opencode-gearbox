@@ -35,6 +35,17 @@ test('parseJudgeAnswer falls back to the first standalone level word', () => {
   expect(parseJudgeAnswer('maximum effort? no: low')?.level).toBe('low');
 });
 
+test('parseJudgeAnswer treats an echoed answer template as unreadable', () => {
+  expect(parseJudgeAnswer('LEVEL: <low|medium|high|xhigh|max>\nWHY: <max 12 words>')).toBe(null);
+});
+
+test('parseJudgeAnswer skips level words used as adjectives like "low-effort"', () => {
+  expect(parseJudgeAnswer('This is not a low-effort task; it needs max effort.')?.level).toBe(
+    'max',
+  );
+  expect(parseJudgeAnswer('a high-risk change')).toBe(null);
+});
+
 test('parseJudgeAnswer returns null for garbage', () => {
   expect(parseJudgeAnswer('banana')).toBe(null);
   expect(parseJudgeAnswer('')).toBe(null);

@@ -1,11 +1,7 @@
 import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
-import {
-  listModelInfos,
-  resolveJudgeModel,
-  runJudge,
-  toModelLite,
-} from '../../src/server/judge-model.ts';
+import { resolveJudgeModel, runJudge } from '../../src/server/judge-model.ts';
+import { listModelInfos, toModelLite } from '../../src/server/models.ts';
 import { DEFAULT_SETTINGS } from '../../src/core/types.ts';
 
 // Restore console spies even when a test fails: all test files share one Bun process.

@@ -3,7 +3,7 @@
 import { LEVELS } from './types.ts';
 import type { Level, ModelLite, ModelRef } from './types.ts';
 
-function sameModel(a: ModelRef, b: ModelRef): boolean {
+export function sameModel(a: ModelRef, b: ModelRef): boolean {
   return a.providerID === b.providerID && a.id === b.id;
 }
 

@@ -2,7 +2,6 @@
 // Event names are local names: the wire type is `rpc.gearbox.<name>`.
 
 import { Rpc } from '@opencode/plugin/rpc';
-import type { GearboxStatus } from './core/types.ts';
 
 export const RPC_ID = 'gearbox';
 
@@ -11,10 +10,6 @@ export const STATUS_EVENT = 'status';
 
 /** Event the TUI shows as a toast (the server has no toast API). Wire type `rpc.gearbox.toast`. */
 export const TOAST_EVENT = 'toast';
-
-export type StatusInput = { sessionID: string };
-export type StatusOutput = GearboxStatus;
-export type StatusEvent = GearboxStatus;
 
 export type ToastEvent = {
   sessionID?: string;

@@ -6,18 +6,22 @@ import type { Plugin } from '@opencode/plugin';
 import { buildCompactionPrompt, buildHandoffAdvicePrompt, parseYesNo } from '../core/judge.ts';
 import { contextRatio, shouldAskHandoff, shouldWarnSwamped } from '../core/context.ts';
 import { shouldSwitch } from '../core/cost.ts';
-import type { GearboxStatus, ModelRef, Settings } from '../core/types.ts';
+import type { ModelRef, Settings } from '../core/types.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
-import { cacheWarm, contextLimit, findModelInfo, toModelLite } from './models.ts';
+import {
+  cacheWarm,
+  CHARS_PER_TOKEN,
+  contextLimit,
+  findModelInfo,
+  sessionModelRef,
+  toModelLite,
+} from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { loadSettings } from './settings-store.ts';
-import { getCare, getState, onForget, peekCare } from './state.ts';
-import { statusChanged } from './status.ts';
-import { watchEvents } from './lifecycle.ts';
+import { getCare, getState, onForget } from './state.ts';
+import { onStepEnded, statusChanged } from './status.ts';
 
 type Ctx = Plugin.Context;
-
-type Advice = GearboxStatus['advice'];
 
 /**
  * Summaries are long answers; they get more time than a judge verdict. Compaction waits for its
@@ -29,20 +33,12 @@ const HANDOFF_TIMEOUT_MS = 120_000;
 /** Expected length of a compaction summary, in tokens. */
 const SUMMARY_TOKENS = 2000;
 /** Rough token estimate: about 4 characters per token. */
-const CHARS_PER_TOKEN = 4;
-const REPLY_TAIL_MAX = 500;
 const TOPIC_MAX = 80;
 const TOPICS_MAX = 10;
 const HANDOFF_FILE = 'HANDOFF.md';
 
 const notes = new Map<string, string>();
 onForget((sessionID) => notes.delete(sessionID));
-
-/** Context ratio and advice for the status bar. */
-export function getCareState(sessionID: string): { contextRatio: number | null; advice: Advice } {
-  const state = peekCare(sessionID);
-  return { contextRatio: state?.contextRatio ?? null, advice: state?.advice ?? null };
-}
 
 // ---------------------------------------------------------------------------------------------
 // OpenCode shapes (docs/api-probe.md)
@@ -52,7 +48,7 @@ type SessionInfo = {
   parentID?: string | null;
   agent?: string;
   title?: string;
-  model?: ModelRef;
+  model?: unknown;
 };
 
 type TextPart = { type: string; text?: string };
@@ -68,11 +64,7 @@ type SessionMessage = {
   content?: TextPart[];
 };
 
-type StepEnded = {
-  sessionID: string;
-  finish?: string;
-  tokens?: { input?: number; cache?: { read?: number; write?: number } };
-};
+type StepEnded = { sessionID: string; finish?: string };
 
 type FileStatus = { file: string; additions: number; deletions: number; status: string };
 
@@ -90,16 +82,12 @@ const textOf = (content: TextPart[] | string | undefined): string =>
         .map((part) => part.text)
         .join('\n');
 
-const tail = (text: string, max: number): string =>
-  text.length > max ? text.slice(text.length - max) : text;
-
 const percent = (ratio: number): string => `${Math.round(ratio * 100)}%`;
 
 async function sessionModel(ctx: Ctx, session: SessionInfo): Promise<ModelRef> {
-  if (session.model) return session.model;
-  const fallback = (await ctx.model.default()).data;
-  if (!fallback) throw new Error('no model for the session');
-  return { providerID: fallback.providerID, id: fallback.id };
+  const ref = await sessionModelRef(ctx, session);
+  if (!ref) throw new Error('no model for the session');
+  return ref;
 }
 
 /**
@@ -246,7 +234,7 @@ async function askHandoff(
   const lastReply = messages.filter((m) => m.type === 'assistant').at(-1);
   const prompt = buildHandoffAdvicePrompt({
     topics,
-    lastReplyTail: tail(lastReply ? textOf(lastReply.content) : '', REPLY_TAIL_MAX),
+    lastReplyTail: lastReply ? textOf(lastReply.content) : '',
     contextRatio: ratio,
   });
   const judge = await resolveJudgeModel(ctx, ref, settings);
@@ -263,15 +251,15 @@ async function askHandoff(
   await statusChanged(ctx, session.id);
 }
 
-async function onStepEnded(ctx: Ctx, step: StepEnded): Promise<void> {
+/** Swamped warning and handoff advice after a request; the step tracker emits the status. */
+async function adviseAfterStep(ctx: Ctx, step: StepEnded): Promise<void> {
   const sessionID = step.sessionID;
   const session = (await ctx.session.get({ sessionID })) as SessionInfo;
   if (session.parentID != null) return;
   const ref = await sessionModel(ctx, session);
   const limit = contextLimit(await findModelInfo(ctx, ref));
-  const tokens = step.tokens ?? {};
-  const used = (tokens.input ?? 0) + (tokens.cache?.read ?? 0) + (tokens.cache?.write ?? 0);
-  const ratio = contextRatio(used, limit);
+  // The step tracker recorded this request's context size before running the handlers.
+  const ratio = contextRatio(getState(sessionID).contextTokens ?? 0, limit);
   const settings = await loadSettings(ctx);
 
   const state = getCare(sessionID);
@@ -291,7 +279,6 @@ async function onStepEnded(ctx: Ctx, step: StepEnded): Promise<void> {
     if (state.advice === 'handoff' && (ratio === null || ratio < settings.handoffAdviceFrom))
       state.advice = null;
   }
-  await statusChanged(ctx, sessionID);
 
   const turn = getState(sessionID).userTurn;
   if (
@@ -372,11 +359,7 @@ export async function handoff(
   const created = await ctx.session.create({
     title: `Handoff: ${session.title ?? sessionID}`,
     ...(session.agent ? { agent: session.agent } : {}),
-    model: {
-      providerID: ref.providerID,
-      id: ref.id,
-      ...(ref.variant && ref.variant !== 'default' ? { variant: ref.variant } : {}),
-    },
+    model: { ...ref },
   });
   // The session exists now: a failed file write must not leave it empty.
   let file: string | undefined;
@@ -415,13 +398,5 @@ export async function registerContextCare(ctx: Ctx): Promise<void> {
       logOnce(event?.sessionID ?? 'unknown', 'compaction', error);
     }
   });
-  watchEvents(
-    ctx,
-    ['session.step.ended'],
-    async (event) => {
-      const step = event.data as StepEnded;
-      if (step?.sessionID) await onStepEnded(ctx, step);
-    },
-    'context advice',
-  );
+  onStepEnded(ctx, 'context advice', (step: StepEnded) => adviseAfterStep(ctx, step));
 }

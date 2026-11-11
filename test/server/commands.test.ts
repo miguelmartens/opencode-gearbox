@@ -138,8 +138,8 @@ test('help lists the subcommands; an unknown subcommand shows help', async () =>
 
 test('stats prints summarize output built from step events', async () => {
   resetState('ses_stats');
-  getState('ses_stats').lastDecision = { level: 'high', source: 'followup', reason: 'x' };
-  getState('ses_stats').userTurn = 1;
+  getState('ses_stats').requestLevel = 'high';
+  getState('ses_stats').requestTurn = 1;
   const fake = await setup();
   fake.publish(stepEnded('ses_stats', 0.01));
   fake.publish(stepEnded('ses_stats', 0.02));
@@ -152,25 +152,39 @@ test('stats prints summarize output built from step events', async () => {
   });
   expect(fake.lastMessage()).toBe(summarize(expected));
   expect(fake.lastMessage()).toMatch(/1 turn, 2 requests/);
-  expect(getState('ses_stats').stats).toStrictEqual(expected);
 });
 
 test('stats counts one turn per user prompt and its level once', async () => {
   resetState('ses_turns');
   const state = getState('ses_turns');
   const fake = await setup();
-  state.userTurn = 1;
-  state.lastDecision = { level: 'low', source: 'judge', reason: 'x' };
+  state.requestTurn = 1;
+  state.requestLevel = 'low';
   fake.publish(stepEnded('ses_turns', 0));
   fake.publish(stepEnded('ses_turns', 0));
   await waitFor(() => (fake.storage.get('stats/ses_turns') as any)?.requests === 2);
-  state.userTurn = 2;
-  state.lastDecision = { level: 'xhigh', source: 'judge', reason: 'y' };
+  state.requestTurn = 2;
+  state.requestLevel = 'xhigh';
   fake.publish(stepEnded('ses_turns', 0));
   await waitFor(() => (fake.storage.get('stats/ses_turns') as any)?.requests === 3);
   const stats = fake.storage.get('stats/ses_turns') as any;
   expect(stats.turns).toBe(2);
   expect(stats.byLevel).toStrictEqual({ low: 1, medium: 0, high: 0, xhigh: 1, max: 0 });
+});
+
+test('a turn Gearbox did not route counts as manual, not under its last level', async () => {
+  resetState('ses_manual');
+  const state = getState('ses_manual');
+  const fake = await setup();
+  // Auto was off or paused: routing left the request alone, so it set no level.
+  state.lastDecision = { level: 'low', source: 'judge', reason: 'stale' };
+  state.requestTurn = 1;
+  state.requestLevel = null;
+  fake.publish(stepEnded('ses_manual', 0));
+  await waitFor(() => (fake.storage.get('stats/ses_manual') as any)?.requests === 1);
+  const stats = fake.storage.get('stats/ses_manual') as any;
+  expect(stats.manual).toBe(1);
+  expect(stats.byLevel).toStrictEqual({ low: 0, medium: 0, high: 0, xhigh: 0, max: 0 });
 });
 
 test('steps never count judge cost: judge calls are recorded when they settle', async () => {

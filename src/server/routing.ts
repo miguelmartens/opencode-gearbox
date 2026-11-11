@@ -12,15 +12,15 @@ import { LEVELS } from '../core/types.ts';
 import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
 import { applyShaping, pickVariant } from '../core/levels.ts';
 import { classifyPrompt } from '../core/rules.ts';
-import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
-import { buildLadder, preferEffortRungs, routeModel } from '../core/ladder.ts';
+import { buildJudgePrompt, parseJudgeAnswer, REPLY_TAIL_MAX } from '../core/judge.ts';
+import { buildLadder, preferEffortRungs, routeModel, sameModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
 import { contextRatio } from '../core/context.ts';
 import { getState, onForget } from './state.ts';
 import type { SessionState } from './state.ts';
 import { loadSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
-import { cacheWarm, listModelInfos, toModelLite } from './models.ts';
+import { cacheWarm, defaultModelRef, listModelInfos, toModelLite, toModelRef } from './models.ts';
 import type { ModelInfo } from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { statusChanged, trackUsage } from './status.ts';
@@ -42,8 +42,16 @@ type Lineage = {
   model: ModelRef | null;
 };
 
+/** An admitted prompt: its user turn and its effort decision. */
+type Admitted = { turn: number; decision: Promise<Decision> };
+
 /** Routing data that `SessionState` does not hold. */
 type Local = {
+  /**
+   * Admitted prompts by message ID. A prompt queued while a turn runs is admitted at once (its
+   * hook fires before the running turn ends), so each request uses its own prompt's decision.
+   */
+  admitted: Map<string, Admitted>;
   replyTail: string;
   /** The manual variant that paused auto; accepted once the user turns auto back on. */
   pausedVariant: string | null;
@@ -58,10 +66,11 @@ type Local = {
 const SUBAGENT_PREFIX = 'You are a subagent spawned by another session.\n';
 const MANUAL_VARIANT = 'manual variant';
 const NO_EFFORT_CONTROL = 'no effort control';
-const REPLY_TAIL_MAX = 500;
 const NO_MODEL: ModelRef = { providerID: '', id: '' };
 /** Bounds the walk up a child's parent chain. */
 const MAX_DEPTH = 16;
+/** Admitted prompts kept per session: the running turn and a few queued ones. */
+const ADMITTED_MAX = 8;
 /** The prompt hook returns at most this long after the judge timeout. */
 const PROMPT_MARGIN_MS = 25;
 
@@ -72,6 +81,7 @@ function getLocal(sessionID: string): Local {
   let local = locals.get(sessionID);
   if (!local) {
     local = {
+      admitted: new Map(),
       replyTail: '',
       pausedVariant: null,
       statusTurn: null,
@@ -82,14 +92,6 @@ function getLocal(sessionID: string): Local {
     locals.set(sessionID, local);
   }
   return local;
-}
-
-function toRef(value: unknown): ModelRef | null {
-  const ref = value as ModelRef | null | undefined;
-  if (typeof ref?.providerID !== 'string' || typeof ref?.id !== 'string') return null;
-  return typeof ref.variant === 'string'
-    ? { providerID: ref.providerID, id: ref.id, variant: ref.variant }
-    : { providerID: ref.providerID, id: ref.id };
 }
 
 /** `undefined` and the literal `"default"` both mean "no variant picked" (probe §3). */
@@ -112,10 +114,6 @@ function effortVariants(ids: string[]): string[] {
   return ids.filter((id) => (LEVELS as readonly string[]).includes(id));
 }
 
-function sameModel(a: ModelRef, b: ModelRef): boolean {
-  return a.providerID === b.providerID && a.id === b.id;
-}
-
 function findInfo(infos: ModelInfo[], ref: ModelRef): ModelInfo | undefined {
   return infos.find((m) => sameModel(m, ref));
 }
@@ -134,11 +132,29 @@ function messageText(message: any): string {
     .join('\n');
 }
 
+/** ID of the last user message of a request: the prompt this request answers. */
+function lastUserMessageID(messages: unknown): string | undefined {
+  if (!Array.isArray(messages)) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === 'user' && typeof messages[i].id === 'string') return messages[i].id;
+  }
+  return undefined;
+}
+
+function rememberAdmitted(local: Local, messageID: unknown, entry: Admitted): void {
+  if (typeof messageID !== 'string') return;
+  local.admitted.set(messageID, entry);
+  if (local.admitted.size > ADMITTED_MAX) {
+    local.admitted.delete(local.admitted.keys().next().value as string);
+  }
+}
+
 function lastReplyTail(messages: unknown): string | null {
   if (!Array.isArray(messages)) return null;
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i]?.role !== 'assistant') continue;
     const text = messageText(messages[i]);
+    // Stored per session: keep only what the judge prompt uses.
     if (text) return text.slice(-REPLY_TAIL_MAX);
   }
   return null;
@@ -188,7 +204,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     let model: ModelRef | null = null;
     for (let depth = 1; ; depth++) {
       const info = await getSession(id);
-      const ref = toRef(info.model);
+      const ref = toModelRef(info.model);
       model ??= ref;
       if (info.parentID == null || depth >= MAX_DEPTH)
         return { rootID: id, rootVariant: ref?.variant, model };
@@ -227,15 +243,6 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     return isManualVariant(variant) && locals.get(lineage.rootID)?.pausedVariant !== variant;
   }
 
-  async function defaultModel(): Promise<ModelRef | null> {
-    try {
-      const result = (await ctx.model.default()) as unknown as { data?: unknown };
-      return toRef(result?.data);
-    } catch {
-      return null;
-    }
-  }
-
   /** An agent file with `model` keeps it. Unknown or missing agents count as explicit. */
   async function hasExplicitModel(agentID: string | undefined): Promise<boolean> {
     if (!agentID) return true;
@@ -243,7 +250,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const result = (await ctx.agent.get({ agentID } as never)) as unknown as {
         data?: { model?: unknown };
       };
-      return toRef(result?.data?.model) !== null;
+      return toModelRef(result?.data?.model) !== null;
     } catch {
       return true;
     }
@@ -260,7 +267,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     state.judging += 1;
     try {
       // A session without a model runs on OpenCode's default model; unknown → the judge is skipped.
-      const chat = sessionModel ?? (await defaultModel()) ?? NO_MODEL;
+      const chat = sessionModel ?? (await defaultModelRef(ctx)) ?? NO_MODEL;
       const model = await resolveJudgeModel(ctx, chat, settings);
       const local = getLocal(sessionID);
       const info = chat.id ? findInfo(await listModelInfos(ctx).catch(() => []), chat) : undefined;
@@ -295,13 +302,23 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     }
   }
 
-  /** The turn's decision, waited for at most `ms`; later steps reuse it at once. */
-  async function turnDecision(state: SessionState, ms: number): Promise<Decision> {
+  /**
+   * The decision of `entry` (the request's own prompt), else of the latest admitted prompt,
+   * waited for at most `ms`; later steps reuse it at once.
+   */
+  async function turnDecision(
+    state: SessionState,
+    ms: number,
+    entry?: Admitted,
+  ): Promise<Decision> {
+    const pending = entry ? entry.decision : state.pending;
     const fallback = fallbackDecision(state, 'judge timed out');
-    const decision = state.pending
-      ? await bounded(state.pending, ms, fallback)
+    const decision = pending
+      ? await bounded(pending, ms, fallback)
       : fallbackDecision(state, 'no prompt seen this turn');
-    state.pending = Promise.resolve(decision);
+    const settled = Promise.resolve(decision);
+    if (entry) entry.decision = settled;
+    if (state.pending === pending) state.pending = settled;
     return decision;
   }
 
@@ -350,13 +367,14 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     settings: Settings,
     model: ModelRef,
     agent: string | undefined,
+    entry: Admitted,
     deadline: number,
     hardDeadline: number,
   ): Promise<void> {
     const explicit = hasExplicitModel(agent);
     const catalog = listModelInfos(ctx);
     catalog.catch(() => {});
-    const decision = await turnDecision(state, Math.max(0, deadline - Date.now()));
+    const decision = await turnDecision(state, Math.max(0, deadline - Date.now()), entry);
     if (await within(explicit, deadline, true)) return;
     const infos = await within(catalog, deadline, null);
     if (!infos) return;
@@ -411,7 +429,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (!session) return;
       const subagent = session.parentID != null;
       state.isSubagent = subagent;
-      const own = toRef(session.model);
+      const own = toModelRef(session.model);
       const lineage = subagent
         ? await within(childLineage(sessionID, session.parentID), deadline, null)
         : null;
@@ -419,7 +437,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (subagent && !lineage) return;
       // A child without a model of its own runs on its nearest ancestor's, else on the default.
       const model = lineage
-        ? (own ?? lineage.model ?? (await within(defaultModel(), deadline, null)))
+        ? (own ?? lineage.model ?? (await within(defaultModelRef(ctx), deadline, null)))
         : own;
       if (subagent && model && !state.firstModel)
         state.firstModel = { providerID: model.providerID, id: model.id };
@@ -448,6 +466,8 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
           reason: `asked for ${kind.level} effort`,
         });
       else state.pending = judge(settings, state, model, text, subagent, sessionID);
+      const entry: Admitted = { turn: state.userTurn, decision: state.pending };
+      rememberAdmitted(getLocal(sessionID), event?.messageID, entry);
 
       // Effort stays non-blocking. A subagent model can only change here, so wait for the level.
       if (!subagent || !model || !settings.modelSwitch.subagents) return;
@@ -459,6 +479,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
         settings,
         model,
         session.agent,
+        entry,
         deadline,
         hardDeadline,
       );
@@ -490,12 +511,18 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
   async function onContext(event: any): Promise<void> {
     const sessionID: string = event?.sessionID;
     try {
-      const settings = await load(ctx);
       const state = getState(sessionID);
       const local = getLocal(sessionID);
+      const promptID = lastUserMessageID(event?.messages);
+      const entry = promptID === undefined ? undefined : local.admitted.get(promptID);
+      // Before anything that can fail: stats must never count this request under the last one.
+      state.requestTurn = entry?.turn ?? state.userTurn;
+      // Set below only when Gearbox applies an effort level to this request.
+      state.requestLevel = null;
+      const settings = await load(ctx);
       local.replyTail = lastReplyTail(event?.messages) ?? local.replyTail;
 
-      const model = toRef(event?.model);
+      const model = toModelRef(event?.model);
       if (!settings.auto || !model) return;
       if (!effortRegex(settings).test(model.id)) return;
       const subagent = await isSubagent(state, sessionID);
@@ -507,7 +534,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       }
       if (state.autoPaused) return;
 
-      const decision = await turnDecision(state, settings.judge.timeoutMs);
+      const decision = await turnDecision(state, settings.judge.timeoutMs, entry);
       const level = applyShaping(decision.level, settings, Date.now());
       const info = findInfo(await listModelInfos(ctx), model);
       const variantID = pickVariant(level, effortVariants((info?.variants ?? []).map((v) => v.id)));
@@ -517,6 +544,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
 
       const options = effort ? structuredClone(effort) : null;
       if (options) Object.assign(event.options, options);
+      state.requestLevel = options ? level : null;
       state.requestModel = variantID
         ? { providerID: model.providerID, id: model.id, variant: variantID }
         : { providerID: model.providerID, id: model.id };
@@ -558,7 +586,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const settings = await load(ctx);
       if (!settings.auto || !settings.modelSwitch.main) return;
       const state = getState(sessionID);
-      const model = toRef(event?.model);
+      const model = toModelRef(event?.model);
       if (!model || !effortRegex(settings).test(model.id)) return;
       if (await isSubagent(state, sessionID)) return;
       // Anti-goal 2: an agent with an explicit model (or an unknown agent) keeps its model.

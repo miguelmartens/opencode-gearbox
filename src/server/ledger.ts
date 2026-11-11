@@ -8,6 +8,7 @@ import type { Level, Settings, Stats } from '../core/types.ts';
 import { addRequest, emptySessionStats } from '../core/stats.ts';
 import type { SessionStats } from '../core/stats.ts';
 import { budgetState } from '../core/context.ts';
+import { isNumber, isObject, num } from '../core/guards.ts';
 import { getState, onForget } from './state.ts';
 import { loadSettings, saveSettings } from './settings-store.ts';
 import { logOnce, toast } from './notify.ts';
@@ -15,13 +16,6 @@ import { logOnce, toast } from './notify.ts';
 type Ctx = Plugin.Context;
 
 const HOUR_MS = 3_600_000;
-
-const isObject = (v: unknown): v is Record<string, any> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
-
-const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-
-const num = (v: unknown): number => (isNum(v) ? v : 0);
 
 export const usd = (v: number): string => `$${v.toFixed(4)}`;
 
@@ -47,16 +41,16 @@ export async function readSpend(ctx: Ctx, now: number): Promise<Spend> {
 function isStats(v: unknown): v is Stats {
   return (
     isObject(v) &&
-    isNum(v.turns) &&
+    isNumber(v.turns) &&
     isObject(v.byLevel) &&
-    LEVELS.every((level) => isNum(v.byLevel[level])) &&
+    LEVELS.every((level) => isNumber(v.byLevel[level])) &&
     isObject(v.tokens) &&
-    isNum(v.tokens.input) &&
-    isNum(v.tokens.output) &&
-    isNum(v.tokens.cacheRead) &&
-    isNum(v.costUSD) &&
-    isNum(v.judgeCostUSD) &&
-    isNum(v.judgeCalls)
+    isNumber(v.tokens.input) &&
+    isNumber(v.tokens.output) &&
+    isNumber(v.tokens.cacheRead) &&
+    isNumber(v.costUSD) &&
+    isNumber(v.judgeCostUSD) &&
+    isNumber(v.judgeCalls)
   );
 }
 
@@ -67,11 +61,12 @@ function isStats(v: unknown): v is Stats {
 export async function readStats(ctx: Ctx, sessionID: string): Promise<SessionStats> {
   const stored = await ctx.storage.get(`stats/${sessionID}`);
   if (!isStats(stored)) return emptySessionStats();
-  const extra = stored as Stats & { requests?: unknown; lastTurn?: unknown };
+  const extra = stored as Stats & { requests?: unknown; manual?: unknown; lastTurn?: unknown };
   return {
     ...stored,
-    requests: isNum(extra.requests) ? extra.requests : stored.turns,
-    lastTurn: isNum(extra.lastTurn) ? extra.lastTurn : null,
+    requests: isNumber(extra.requests) ? extra.requests : stored.turns,
+    manual: isNumber(extra.manual) ? extra.manual : 0,
+    lastTurn: isNumber(extra.lastTurn) ? extra.lastTurn : null,
   };
 }
 
@@ -87,9 +82,50 @@ function serial<T>(ctx: Ctx, task: () => Promise<T>): Promise<T> {
   return run;
 }
 
+/**
+ * Recently deleted sessions: a judge call that settles after the delete must not write their
+ * stats again. Capped, oldest first; a late call is a few seconds, not hundreds of sessions.
+ */
+const deleted = new Set<string>();
+const DELETED_MAX = 1000;
+
+/** Removes a deleted session's stored stats, after any ledger write still queued for it. */
+export function forgetStats(ctx: Ctx, sessionID: string): Promise<void> {
+  deleted.add(sessionID);
+  if (deleted.size > DELETED_MAX) deleted.delete(deleted.values().next().value as string);
+  return serial(ctx, () => ctx.storage.remove(`stats/${sessionID}`)).catch((error) =>
+    logOnce(sessionID, 'forget stats', error),
+  );
+}
+
+/** Daily spend kept for `/gearbox` and the budget; older days are removed. */
+const SPEND_KEEP_DAYS = 30;
+const DAY_MS = 24 * HOUR_MS;
+/** The day spend was last pruned, per context: pruning runs once a day. */
+const prunedOn = new WeakMap<object, string>();
+
+/** Removes spend older than 30 days, once a day; a failure is logged and retried the next day. */
+async function pruneSpend(ctx: Ctx, now: number): Promise<void> {
+  const today = dayKey(now);
+  if (prunedOn.get(ctx) === today) return;
+  try {
+    // `scan` returns full `spend/YYYY-MM-DD` keys (docs/api-probe.md), which sort by date.
+    const oldest = dayKey(now - SPEND_KEEP_DAYS * DAY_MS);
+    let after: string | undefined;
+    do {
+      const page = await ctx.storage.scan({ prefix: 'spend/', ...(after ? { after } : {}) });
+      for (const { key } of page.entries) if (key < oldest) await ctx.storage.remove(key);
+      after = page.next;
+    } while (after);
+  } catch (error) {
+    logOnce('*', 'prune spend', error);
+  } finally {
+    prunedOn.set(ctx, today);
+  }
+}
+
 async function writeStats(ctx: Ctx, sessionID: string, stats: SessionStats): Promise<void> {
   await ctx.storage.set(`stats/${sessionID}`, stats as never);
-  getState(sessionID).stats = stats;
 }
 
 const overToastTurn = new Map<string, number>();
@@ -129,10 +165,12 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
       });
     }
   }
+  await pruneSpend(ctx, now);
 }
 
 export type StepUsage = {
-  level: Level;
+  /** Effort level Gearbox set on the request; `null` when it left the request alone. */
+  level: Level | null;
   input: number;
   output: number;
   cacheRead: number;
@@ -149,8 +187,8 @@ export function recordStep(
   now = Date.now(),
 ): Promise<void> {
   return serial(ctx, async () => {
-    const stats = addRequest(await readStats(ctx, sessionID), step);
-    await writeStats(ctx, sessionID, stats);
+    if (!deleted.has(sessionID))
+      await writeStats(ctx, sessionID, addRequest(await readStats(ctx, sessionID), step));
     await addSpend(ctx, sessionID, step.costUSD, now);
   });
 }
@@ -167,7 +205,7 @@ export function recordJudgeCall(
   opts: { sessionStats?: boolean } = {},
 ): Promise<void> {
   return serial(ctx, async () => {
-    if (sessionID && opts.sessionStats !== false) {
+    if (sessionID && opts.sessionStats !== false && !deleted.has(sessionID)) {
       const stats = await readStats(ctx, sessionID);
       await writeStats(ctx, sessionID, {
         ...stats,

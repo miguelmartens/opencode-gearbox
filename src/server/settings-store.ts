@@ -5,13 +5,11 @@ import type { Plugin } from '@opencode/plugin';
 import { DEFAULT_SETTINGS } from '../core/types.ts';
 import type { Settings } from '../core/types.ts';
 import { mergeSettings } from '../core/settings.ts';
+import { isObject } from '../core/guards.ts';
 
 type Ctx = Plugin.Context;
 
 const SETTINGS_KEY = 'settings';
-
-const isObject = (v: unknown): v is Record<string, unknown> =>
-  typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Defaults with the plugin options applied: what the user overrides are relative to. */
 function baseSettings(ctx: Ctx): Settings {

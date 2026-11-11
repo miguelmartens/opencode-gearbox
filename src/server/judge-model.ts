@@ -2,13 +2,17 @@
 
 import type { Plugin } from '@opencode/plugin';
 import type { ModelLite, ModelRef, Settings } from '../core/types.ts';
-import { findModelInfo, listModelInfos, toModelLite } from './models.ts';
+import {
+  CHARS_PER_TOKEN,
+  findModelInfo,
+  listModelInfos,
+  parseModelString,
+  toModelLite,
+  toModelRef,
+} from './models.ts';
 import type { ModelInfo } from './models.ts';
 import { recordJudgeCall } from './ledger.ts';
 import { logOnce } from './notify.ts';
-
-export { listModelInfos, toModelLite } from './models.ts';
-export type { ModelInfo } from './models.ts';
 
 type Ctx = Plugin.Context;
 
@@ -26,24 +30,6 @@ const NO_MODEL: ModelRef = { providerID: '', id: '' };
 // Cheap variants for the judge: thinking off first.
 const LIGHT_VARIANTS = ['none', 'minimal', 'low'];
 
-// Rough token estimate for judge cost: about 4 characters per token.
-const CHARS_PER_TOKEN = 4;
-
-/** `provider/model[#variant]`; the model part may contain slashes. */
-function parseModelString(value: string): ModelRef | null {
-  const [path, variant] = value.split('#', 2);
-  const slash = path.indexOf('/');
-  if (slash <= 0 || slash === path.length - 1) return null;
-  const ref: ModelRef = { providerID: path.slice(0, slash), id: path.slice(slash + 1) };
-  if (variant) ref.variant = variant;
-  return ref;
-}
-
-function isModelRef(value: unknown): value is ModelRef {
-  const ref = value as ModelRef | undefined;
-  return typeof ref?.providerID === 'string' && typeof ref?.id === 'string';
-}
-
 function lighten(ref: ModelRef, infos: ModelInfo[]): ModelRef {
   if (ref.variant) return ref;
   const info = infos.find((m) => m.providerID === ref.providerID && m.id === ref.id);
@@ -57,8 +43,7 @@ async function titleModel(ctx: Ctx): Promise<ModelRef | null> {
     const result = (await ctx.agent.get({ agentID: 'title' } as never)) as unknown as {
       data?: { model?: unknown };
     };
-    const model = result?.data?.model;
-    return isModelRef(model) ? { ...model } : null;
+    return toModelRef(result?.data?.model);
   } catch {
     return null;
   }

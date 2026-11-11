@@ -8,6 +8,20 @@ export function shortModel(id: string): string {
   return id.slice(id.lastIndexOf('/') + 1).replace(/^claude-/, '');
 }
 
+/**
+ * Bar label: the short id, or the catalog name when the id is a bare alias without a version,
+ * such as `claude-agent/opus` named `Opus 5.5` → `opus-5-5`.
+ */
+export function modelLabel(id: string, name?: string): string {
+  const short = shortModel(id);
+  if (/\d/.test(short) || !name) return short;
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  return slug ? shortModel(slug) : short;
+}
+
 function clock(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
@@ -35,9 +49,9 @@ export type Segment = { text: string; fg?: string };
 /**
  * `⚙ <level>[→<sent>] · <short model> · ◔ <pct>% · cache <m:ss> · <Auto|Manual|Paused: reason>`.
  * `→<sent>` shows the variant used when the model lacks the judged level. Each level is its own
- * lowercase segment, colored by level.
+ * lowercase segment, colored by level. `modelName` is the catalog name of the status model.
  */
-export function statusSegments(s: GearboxStatus): Segment[] {
+export function statusSegments(s: GearboxStatus, modelName?: string): Segment[] {
   const segments: Segment[] = [{ text: '⚙ ' }];
   const sent = sentLevel(s);
   if (s.level) {
@@ -45,7 +59,7 @@ export function statusSegments(s: GearboxStatus): Segment[] {
     if (sent) segments.push({ text: '→' }, { text: sent, fg: COLORS[sent] });
   }
   const parts: string[] = [];
-  if (s.model) parts.push(shortModel(s.model.id));
+  if (s.model) parts.push(modelLabel(s.model.id, modelName));
   if (s.contextRatio !== null) parts.push(`◔ ${Math.round(s.contextRatio * 100)}%`);
   if (s.cacheRemainingMs !== null) parts.push(`cache ${clock(s.cacheRemainingMs)}`);
   parts.push(s.paused ? `Paused: ${s.paused}` : s.auto ? 'Auto' : 'Manual');

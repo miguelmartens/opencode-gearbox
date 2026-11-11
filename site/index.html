@@ -85,11 +85,14 @@ h1 .hl{background:var(--fg);color:var(--bg);padding:0 .12em;display:inline-block
 .gatewrap svg{width:100%;max-width:290px;height:auto;display:block;margin:0 auto}
 .verdict{font:700 13px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
 .verdict .lvl{display:inline-block;font:22px/1 var(--display);letter-spacing:0;padding:8px 10px;border:3px solid var(--fg);margin:6px 0 8px;box-shadow:3px 3px 0 var(--shadow);background:var(--surf2);color:var(--fg);text-transform:lowercase}
-.verdict .why{color:var(--mute);text-transform:none;letter-spacing:0;font-weight:400}
+.verdict .why{color:var(--mute);text-transform:none;letter-spacing:0;font-weight:400;min-height:2.8em}
 #knob{transition:transform .17s cubic-bezier(.3,.7,.3,1)}
 .statusbar{background:var(--bg);color:var(--fg);font:700 15px/1 var(--mono);padding:14px 16px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;border-top:var(--bw) solid var(--fg)}
 .statusbar .sep{color:#5E5E64}
 .statusbar .mode{color:var(--mute)}
+/* Demo bar: every level takes the width of "medium" and the bar fits one line, so the box keeps its size. */
+#sbar{column-gap:8px}
+#slvl{min-width:6ch}
 .cog{width:18px;height:18px;flex:none}
 .note{font:400 12px/1.3 var(--mono);color:var(--mute);padding:8px 16px;background:var(--surf);border-top:1px solid var(--line)}
 
@@ -266,7 +269,7 @@ footer .brand{font-size:22px;text-decoration:none}
   </div>
 </nav>
 
-<header class="hero" id="top">
+<header class="hero">
   <div class="wrap">
     <div>
       <span class="tag">OpenCode plugin · MIT</span>

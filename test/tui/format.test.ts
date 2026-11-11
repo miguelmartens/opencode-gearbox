@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import {
   ageStatus,
   isLongMessage,
+  modelLabel,
   retryDelayMs,
   shortModel,
   statusSegments,
@@ -112,6 +113,17 @@ test('shortModel strips the provider path and a leading claude-', () => {
   expect(shortModel('claude-opus-5-5')).toBe('opus-5-5');
   expect(shortModel('anthropic/claude-sonnet-5-5')).toBe('sonnet-5-5');
   expect(shortModel('gpt-6-luna')).toBe('gpt-6-luna');
+});
+
+test('an alias model id shows its catalog name with the version', () => {
+  const alias: GearboxStatus = { ...full, model: { providerID: 'claude-agent', id: 'opus' } };
+  expect(formatStatus(alias)).toBe('⚙ high · opus · ◔ 38% · cache 4:12 · Auto');
+  expect(statusSegments(alias, 'Opus 5.5')[2].text).toBe(' · opus-5-5 · ◔ 38% · cache 4:12 · Auto');
+  expect(modelLabel('opus', 'Opus 5.5')).toBe('opus-5-5');
+  expect(modelLabel('opus', 'Claude Opus 5.5')).toBe('opus-5-5');
+  // A versioned id keeps its own label; the name is only a fallback for aliases.
+  expect(modelLabel('claude-opus-5-5', 'Claude Opus 5.5 (latest)')).toBe('opus-5-5');
+  expect(modelLabel('opus')).toBe('opus');
 });
 
 test('ageStatus counts the cache down and never below zero', () => {

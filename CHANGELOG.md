@@ -13,7 +13,6 @@
 * **server:** effort and model routing for chats and subagents ([2907afa](https://github.com/miguelmartens/opencode-gearbox/commit/2907afa526d00bfe5ee6afa4655a77fe48d88ae6))
 * **server:** small-model compaction, handoff and context advice ([1e1b348](https://github.com/miguelmartens/opencode-gearbox/commit/1e1b348e0cd3cfbe2d4ac2fe8f1f84e81a0413e6))
 * **site:** add landing page and GitHub Pages workflow ([cc8eb3d](https://github.com/miguelmartens/opencode-gearbox/commit/cc8eb3df7b6772fadfd64e4aee6fa14731e045c6))
-* **tui:** color the effort level in the status bar ([1b63c19](https://github.com/miguelmartens/opencode-gearbox/commit/1b63c19c94e58e79052f33c6b92777c9c9a7a9e8))
 * **tui:** color the effort level in the status bar ([0473647](https://github.com/miguelmartens/opencode-gearbox/commit/047364709f9998411db4fd3b03750c58bc79a44a))
 * **tui:** gearbox status bar over RPC ([44ac2b7](https://github.com/miguelmartens/opencode-gearbox/commit/44ac2b78c347ef34c5ddd63374ebef8fde233aae))
 
@@ -44,6 +43,5 @@
 * **settings:** reject a judge.model that is not provider/model[#variant] ([e4ca169](https://github.com/miguelmartens/opencode-gearbox/commit/e4ca1696aae2808d1d920b40451d0a5a45b85c01))
 * **settings:** serialize settings updates so concurrent changes are kept ([d927bb4](https://github.com/miguelmartens/opencode-gearbox/commit/d927bb4ed18d61511d1752d9fbaa6f8b6f7762bd))
 * **stats:** count a step under the turn and level it started with ([0ef795b](https://github.com/miguelmartens/opencode-gearbox/commit/0ef795b24e5762000241a9ed912121e0fdff23ae))
-* **status:** show the effort variant actually sent ([edd41c6](https://github.com/miguelmartens/opencode-gearbox/commit/edd41c64b8c67b6a6dc2f821638791db43a1d4c3))
 * **status:** show the effort variant actually sent ([79b120f](https://github.com/miguelmartens/opencode-gearbox/commit/79b120f7c7338e389144fffb6e292af775ad2c15))
 * **tui:** back off failed status fetches and keep dialogs to the current session ([36d8c84](https://github.com/miguelmartens/opencode-gearbox/commit/36d8c84aff34dbfb25258609c9d0f66f2b4a6fd8))

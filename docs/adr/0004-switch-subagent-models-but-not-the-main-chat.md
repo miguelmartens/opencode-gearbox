@@ -18,7 +18,7 @@ Anti-goal: Gearbox must not override an explicit user choice.
 
 - `modelSwitch.subagents` defaults to on. On a subagent's first prompt Gearbox awaits the judge in the child's `prompt` hook (at most `judge.timeoutMs`) and switches to the ladder model for that level.
 - A resumed subagent switches only when the cost check says switching beats staying by `minSavingRatio`.
-- `modelSwitch.main` defaults to off. When on, a main-chat switch happens only when the cost check passes.
+- `modelSwitch.main` defaults to off and is reserved: no main-chat switching ships until a release fires `experimental.model.resolve` (see [0003](0003-apply-effort-through-the-context-hook.md)).
 - An agent with its own `model` keeps it; Gearbox only sets its effort. A session running on a variant the user picked is left alone, and so are its subagents.
 - Cost check: staying costs `context × (warm ? cache-read : input price) + expected output × output price`; switching costs `context × cache-write (else input) price + expected output × target output price`. Switch only when switching costs at most `1 − minSavingRatio` of staying.
 

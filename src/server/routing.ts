@@ -4,8 +4,8 @@
 //   model await the judge here, because `switchModel` only takes effect from the prompt hook.
 // - `context`: the main effort path. Await the turn's decision (bounded), shape it, pick a
 //   variant of the request's model and copy that variant's `settings` into `event.options`.
-// - `experimental.model.resolve`: not fired by OpenCode 2.2.6. When a later OpenCode fires it,
-//   it switches the main-chat model if `modelSwitch.main` and `shouldSwitch` agree.
+// The main chat never changes model: OpenCode 2.2.6 does not fire `experimental.model.resolve`,
+// the only hook that could do it without losing the cache (docs/adr/0004).
 
 import type { Plugin } from '@opencode/plugin';
 import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
@@ -29,7 +29,7 @@ import {
   toModelLite,
   toModelRef,
 } from './models.ts';
-import type { ModelInfo } from './models.ts';
+import type { ModelInfo, SessionInfo } from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { statusChanged, trackUsage } from './status.ts';
 
@@ -38,8 +38,6 @@ type Ctx = Plugin.Context;
 export type RoutingDeps = { loadSettings: (ctx: Ctx) => Promise<Settings> };
 
 type HookFn = (name: string, callback: (event: any) => Promise<void>) => Promise<unknown> | unknown;
-
-type SessionInfo = { parentID?: string | null; agent?: string; model?: unknown };
 
 /** What a child session gets from its parent chain. */
 type Lineage = {
@@ -66,9 +64,6 @@ type Local = {
   statusTurn: number | null;
   /** A child's parent chain, walked once; `null` until looked up. */
   lineage: Promise<Lineage> | null;
-  /** User turn whose main-chat model `resolveModel` is (`null` = keep the model). */
-  resolveTurn: number | null;
-  resolveModel: ModelRef | null;
 };
 
 const SUBAGENT_PREFIX = 'You are a subagent spawned by another session.\n';
@@ -93,8 +88,6 @@ function getLocal(sessionID: string): Local {
       pausedVariant: null,
       statusTurn: null,
       lineage: null,
-      resolveTurn: null,
-      resolveModel: null,
     };
     locals.set(sessionID, local);
   }
@@ -161,7 +154,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
   const load = deps.loadSettings ?? loadSettings;
   const hook = ctx.session.hook as unknown as HookFn;
 
-  async function getSession(sessionID: string): Promise<SessionInfo> {
+  async function getSession(sessionID: string): Promise<Partial<SessionInfo>> {
     const info = (await ctx.session.get({ sessionID } as never)) as unknown as SessionInfo;
     return info ?? {};
   }
@@ -349,7 +342,12 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     const explicit = hasExplicitModel(agent);
     const catalog = listModelInfos(ctx);
     catalog.catch(() => {});
-    const decision = await turnDecision(state, Math.max(0, deadline - Date.now()), entry);
+    // Not `turnDecision`: a late judge answer must still reach this turn's `context` steps.
+    const decision = await within(
+      entry.decision,
+      deadline,
+      fallbackDecision(state, 'judge timed out'),
+    );
     if (await within(explicit, deadline, true)) return;
     const infos = await within(catalog, deadline, null);
     if (!infos) return;
@@ -532,67 +530,8 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     }
   }
 
-  /** The cheaper ladder model for this turn, or `null` to keep `model`. */
-  async function mainChatModel(
-    state: SessionState,
-    settings: Settings,
-    model: ModelRef,
-  ): Promise<ModelRef | null> {
-    const decision = await turnDecision(state, settings.judge.timeoutMs);
-    const level = applyShaping(decision.level, settings, Date.now());
-    const infos = await listModelInfos(ctx);
-    const ladder = buildLadder(liteModels(infos), model, effortRegex(settings));
-    if (ladder.length < 2) return null;
-    const target = routeModel(level, ladder);
-    const current = ladder[ladder.length - 1];
-    if (target === current) return null;
-    const check = shouldSwitch({
-      contextTokens: state.contextTokens ?? 0,
-      cacheWarm: await cacheWarm(ctx, state, model, findInfo(infos, model)),
-      from: current.price,
-      to: target.price,
-      expectedOutput: expectedOutput(level),
-      minSavingRatio: settings.modelSwitch.minSavingRatio,
-    });
-    return check.switch ? { providerID: target.ref.providerID, id: target.ref.id } : null;
-  }
-
-  async function onResolve(event: any): Promise<void> {
-    if (event?.kind !== 'primary') return;
-    const sessionID: string = event?.sessionID;
-    try {
-      const settings = await load(ctx);
-      if (!settings.auto || !settings.modelSwitch.main) return;
-      const state = getState(sessionID);
-      const model = toModelRef(event?.model);
-      if (!model || !effortRegex(settings).test(model.id)) return;
-      if (await isSubagent(state, sessionID)) return;
-      // Anti-goal 2: an agent with an explicit model (or an unknown agent) keeps its model.
-      if (typeof event?.agent !== 'string' || (await hasExplicitModel(event.agent))) return;
-      if (await manualVariantPause(sessionID, state, model)) return;
-      if (state.autoPaused) return;
-
-      // Decided once per turn: a growing context must not flip the model between requests.
-      const local = getLocal(sessionID);
-      if (local.resolveTurn !== state.userTurn) {
-        local.resolveModel = await mainChatModel(state, settings, model);
-        local.resolveTurn = state.userTurn;
-      }
-      // The variant is left to the `context` hook, so it is never mistaken for a manual pick.
-      if (local.resolveModel) event.model = { ...local.resolveModel };
-    } catch (error) {
-      logOnce(sessionID, 'routing.resolve', error);
-    }
-  }
-
   await hook('prompt', onPrompt);
   await hook('context', onContext);
-  try {
-    // Feature-detected: 2.2.6 accepts the registration but never fires it (probe §3).
-    await hook('experimental.model.resolve', onResolve);
-  } catch (error) {
-    logOnce('*', 'routing.resolve.register', error);
-  }
   // Context size and request time come from `session.step.ended` (probe §8, §11).
   trackUsage(ctx);
 }

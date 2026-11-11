@@ -1,6 +1,7 @@
 // Spend ledger: per-session stats (`stats/<sessionID>`) and today's spend (`spend/<day>`), fed by
 // model requests and by every judge call when it settles. Writes run one at a time per context, so
-// a judge finishing in the background never loses a concurrent step's update.
+// a judge finishing in the background never loses a concurrent step's update. Both are kept for
+// 30 days.
 
 import type { Plugin } from '@opencode/plugin';
 import { LEVELS } from '../core/types.ts';
@@ -25,13 +26,14 @@ export function dayKey(now: number): string {
   return `spend/${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export type Spend = { usd: number; warned: boolean };
+/** `warnedFor`: the daily budget the warning fired for today, so a changed budget warns again. */
+export type Spend = { usd: number; warnedFor: number | null };
 
 export async function readSpend(ctx: Ctx, now: number): Promise<Spend> {
-  const stored = await ctx.storage.get(dayKey(now));
+  const stored: unknown = await ctx.storage.get(dayKey(now));
   return isObject(stored)
-    ? { usd: num(stored.usd), warned: stored.warned === true }
-    : { usd: 0, warned: false };
+    ? { usd: num(stored.usd), warnedFor: isNumber(stored.warnedFor) ? stored.warnedFor : null }
+    : { usd: 0, warnedFor: null };
 }
 
 function isStats(v: unknown): v is SessionStats {
@@ -81,34 +83,56 @@ export function forgetStats(ctx: Ctx, sessionID: string): Promise<void> {
   );
 }
 
-/** Daily spend kept for `/gearbox` and the budget; older days are removed. */
-const SPEND_KEEP_DAYS = 30;
+/** Daily spend and session stats are kept this long; older ones are removed. */
+const KEEP_DAYS = 30;
 const DAY_MS = 24 * HOUR_MS;
-/** The day spend was last pruned, per context: pruning runs once a day. */
+/** The day storage was last pruned, per context: pruning runs once a day. */
 const prunedOn = new WeakMap<object, string>();
 
-/** Removes spend older than 30 days, once a day; a failure is logged and retried the next day. */
-async function pruneSpend(ctx: Ctx, now: number): Promise<void> {
+async function* scanAll(ctx: Ctx, prefix: string) {
+  let after: string | undefined;
+  do {
+    const page = await ctx.storage.scan({ prefix, ...(after ? { after } : {}) });
+    yield* page.entries;
+    after = page.next;
+  } while (after);
+}
+
+/**
+ * Removes spend older than 30 days and stats untouched for 30 days, once a day; a failure is
+ * logged and retried the next day. Stats without `updatedAt` (older versions) are stamped now.
+ */
+async function pruneOld(ctx: Ctx, now: number): Promise<void> {
   const today = dayKey(now);
   if (prunedOn.get(ctx) === today) return;
   try {
     // `scan` returns full `spend/YYYY-MM-DD` keys (docs/api-probe.md), which sort by date.
-    const oldest = dayKey(now - SPEND_KEEP_DAYS * DAY_MS);
-    let after: string | undefined;
-    do {
-      const page = await ctx.storage.scan({ prefix: 'spend/', ...(after ? { after } : {}) });
-      for (const { key } of page.entries) if (key < oldest) await ctx.storage.remove(key);
-      after = page.next;
-    } while (after);
+    const oldest = dayKey(now - KEEP_DAYS * DAY_MS);
+    for await (const { key } of scanAll(ctx, 'spend/')) {
+      if (key < oldest) await ctx.storage.remove(key);
+    }
+    for await (const entry of scanAll(ctx, 'stats/')) {
+      const { key } = entry;
+      const value: unknown = entry.value;
+      if (!isObject(value)) await ctx.storage.remove(key);
+      else if (!isNumber(value.updatedAt))
+        await ctx.storage.set(key, { ...value, updatedAt: now } as never);
+      else if (value.updatedAt < now - KEEP_DAYS * DAY_MS) await ctx.storage.remove(key);
+    }
   } catch (error) {
-    logOnce('*', 'prune spend', error);
+    logOnce('*', 'prune storage', error);
   } finally {
     prunedOn.set(ctx, today);
   }
 }
 
-async function writeStats(ctx: Ctx, sessionID: string, stats: SessionStats): Promise<void> {
-  await ctx.storage.set(`stats/${sessionID}`, stats as never);
+async function writeStats(
+  ctx: Ctx,
+  sessionID: string,
+  stats: SessionStats,
+  now: number,
+): Promise<void> {
+  await ctx.storage.set(`stats/${sessionID}`, { ...stats, updatedAt: now } as never);
 }
 
 const overToastTurn = new Map<string, number>();
@@ -120,8 +144,8 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
   const settings = await loadSettings(ctx);
   const daily = settings.budget.dailyUSD;
   const level = budgetState(spend.usd, daily);
-  if ((level === 'warn' || level === 'over') && !spend.warned) {
-    spend.warned = true;
+  if ((level === 'warn' || level === 'over') && spend.warnedFor !== daily) {
+    spend.warnedFor = daily;
     const saved = await updateSettings(ctx, (s) => {
       if (saveModeActive(s, now)) return false;
       s.saveMode.until = now + s.saveMode.hours * HOUR_MS;
@@ -148,7 +172,7 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
       });
     }
   }
-  await pruneSpend(ctx, now);
+  await pruneOld(ctx, now);
 }
 
 export type StepUsage = {
@@ -171,7 +195,7 @@ export function recordStep(
 ): Promise<void> {
   return serial(queues, ctx, async () => {
     if (!deleted.has(sessionID))
-      await writeStats(ctx, sessionID, addRequest(await readStats(ctx, sessionID), step));
+      await writeStats(ctx, sessionID, addRequest(await readStats(ctx, sessionID), step), now);
     await addSpend(ctx, sessionID, step.costUSD, now);
   });
 }
@@ -247,11 +271,16 @@ export function recordJudgeCall(
   return serial(queues, ctx, async () => {
     if (sessionID && opts.sessionStats !== false && !deleted.has(sessionID)) {
       const stats = await readStats(ctx, sessionID);
-      await writeStats(ctx, sessionID, {
-        ...stats,
-        judgeCostUSD: stats.judgeCostUSD + costUSD,
-        judgeCalls: stats.judgeCalls + 1,
-      });
+      await writeStats(
+        ctx,
+        sessionID,
+        {
+          ...stats,
+          judgeCostUSD: stats.judgeCostUSD + costUSD,
+          judgeCalls: stats.judgeCalls + 1,
+        },
+        now,
+      );
     }
     await addSpend(ctx, sessionID, costUSD, now);
   }).catch((error) => logOnce(sessionID ?? '*', 'judge ledger', error));

@@ -86,6 +86,7 @@ The "typical prompt" column is a guide; the judge decides.
 > [!WARNING]
 > **Partial run, not comparable across setups.** The 2026-11-11 run was stopped after 30 of 432 planned task runs. Each setup ran a different 3 to 7 of the 24 tasks, so a row reflects its own tasks as much as its effort control. One of the two failures (always max, `m07`) ended with a transport error after 324 s, well before the 15-minute task limit; its cause is not yet known. A full run will replace these numbers. Raw data and coverage: [bench/README.md](bench/README.md#published-runs).
 
+<!-- The block between bench:start and bench:end is generated from the published bench run. Do not edit it by hand. -->
 <!-- bench:start -->
 
 <picture>
@@ -239,9 +240,9 @@ Options from the plugin entry are the base. Changes made with `/gearbox set` are
 | `saveMode.hours`             | `5`        | How long `/gearbox save` lasts                                                                             |
 | `judge.model`                | unset      | Judge and summary model, `provider/model[#variant]`. Unset: see [Pick a fast judge](#pick-a-fast-judge)    |
 | `judge.timeoutMs`            | `4000`     | How long a turn waits for the judge before it falls back                                                   |
-| `modelSwitch.main`           | `false`    | Switch the main chat's model per prompt. **No effect on OpenCode 2.2.6** (see below)                       |
+| `modelSwitch.main`           | `false`    | Reserved. **No effect:** the main chat gets effort only (see below)                                        |
 | `modelSwitch.subagents`      | `true`     | Give subagents without an explicit `model` a model from the price ladder                                   |
-| `modelSwitch.minSavingRatio` | `0.2`      | A main-chat switch must save at least this share of the cost of staying                                    |
+| `modelSwitch.minSavingRatio` | `0.2`      | A resumed subagent's switch must save at least this share of the cost of staying                           |
 | `compactWith`                | `"small"`  | `small`: the judge model writes compaction summaries when cheaper. `session`: OpenCode compacts as usual   |
 | `swampedAt`                  | `0.7`      | Context ratio for the swamped warning                                                                      |
 | `handoffAdviceFrom`          | `0.3`      | Context ratio from which the judge is asked, every second prompt, whether a handoff would help             |
@@ -276,9 +277,9 @@ Gearbox only switches between models of the session's own provider and never pic
 
 A free or "contributor" model at the bottom of the ladder may not suit you; leave it out with `effortModels`, e.g. `"^(?!.*free).*$"`.
 
-**Main chat** (`modelSwitch.main`, off by default). A model switch throws away the warm prompt cache, so Gearbox estimates both costs, once per turn. The cache counts as warm only on the model that served the last request.
+**Main chat.** Gearbox never switches the main chat's model; it sets effort only.
 
-**The cost check:**
+**The cost check** (resumed subagents; the cache counts as warm only on the model that served the last request):
 
 - Staying costs `context × (warm ? cache-read price : input price) + expected output × output price`.
 - Switching costs `context × cache-write price (else input price) + expected output × the target's output price`.
@@ -288,7 +289,7 @@ Expected output per level is 800, 3 000, 8 000, 16 000 and 32 000 tokens.
 
 **OpenCode 2.2.6 limits.**
 
-- 2.2.6 does not fire the `experimental.model.resolve` hook, so the main chat gets effort only and `modelSwitch.main` does nothing. Gearbox keeps a feature-detected registration and starts switching the main chat once a later OpenCode fires that hook.
+- 2.2.6 does not fire the `experimental.model.resolve` hook, the only place a main-chat switch could happen per request. So the main chat gets effort only and `modelSwitch.main` does nothing. Gearbox does not register the hook; main-chat switching will be built and probed against a release that fires it.
 - Effort goes through the `context` hook on every agent-loop step. Gearbox copies the chosen variant's settings into the request options, e.g. `output_config.effort` on Anthropic and `reasoning.effort` on OpenAI.
 
 ## Development

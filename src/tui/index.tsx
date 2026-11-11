@@ -84,8 +84,10 @@ export default Plugin.define({
       });
     };
 
+    // The server emits for every session, subagents included: keep only the ones the bar shows.
     const stopStatus = gearbox.events.on(STATUS_EVENT, (event) => {
-      remember(event.data as unknown as GearboxStatus);
+      const status = event.data as unknown as GearboxStatus;
+      if (requested.has(status.sessionID)) remember(status);
     });
     const stopToast = gearbox.events.on(TOAST_EVENT, (event) => {
       showToast(event.data as unknown as ToastEvent);

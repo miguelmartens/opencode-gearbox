@@ -1,5 +1,7 @@
 // Context care: small-model compaction, handoff, swamped warning and handoff advice.
 
+import { writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import type { Plugin } from '@opencode/plugin';
 import { buildCompactionPrompt, buildHandoffAdvicePrompt, parseYesNo } from '../core/judge.ts';
 import { contextRatio, shouldAskHandoff, shouldWarnSwamped } from '../core/context.ts';
@@ -333,28 +335,19 @@ function renderHandoff(sessionID: string, summary: string, changes: FileStatus[]
 /** `file` is the handoff notes path; `fileError` says why writing them failed. */
 export type HandoffResult = { newSessionID: string; file?: string; fileError?: string };
 
-function inDirectory(directory: string, name: string): string {
-  return `${directory.replace(/[\\/]+$/, '')}/${name}`;
-}
-
-function fileName(path: string): string {
-  return path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
-}
-
-/**
- * Writes `HANDOFF.md`, or `HANDOFF-<timestamp>.md` when it exists, so existing notes are kept.
- * Bun has no exclusive-create write, so this is best-effort: a file created between the check and
- * the write, or two handoffs in the same millisecond, would be overwritten. A missing directory
- * fails instead of being created.
- */
+/** Writes `HANDOFF.md`, or `HANDOFF-<timestamp>.md` when it exists: never overwrites. */
 async function writeHandoff(directory: string, content: string): Promise<string> {
-  let file = inDirectory(directory, HANDOFF_FILE);
-  if (await Bun.file(file).exists()) {
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    file = inDirectory(directory, `HANDOFF-${stamp}.md`);
+  const file = join(directory, HANDOFF_FILE);
+  try {
+    await writeFile(file, content, { encoding: 'utf8', flag: 'wx' });
+    return file;
+  } catch (error) {
+    if ((error as { code?: string }).code !== 'EEXIST') throw error;
   }
-  await Bun.write(file, content, { createPath: false });
-  return file;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const dated = join(directory, `HANDOFF-${stamp}.md`);
+  await writeFile(dated, content, { encoding: 'utf8', flag: 'wx' });
+  return dated;
 }
 
 /**
@@ -403,7 +396,7 @@ export async function handoff(
     `Continue the work from a previous session (${sessionID}). Handoff summary:`,
     '',
     summary,
-    ...(file ? ['', `Full handoff notes, with the changed files, are in ${fileName(file)}.`] : []),
+    ...(file ? ['', `Full handoff notes, with the changed files, are in ${basename(file)}.`] : []),
   ].join('\n');
   await ctx.session.prompt({ sessionID: created.id, text });
   const result: HandoffResult = { newSessionID: created.id };

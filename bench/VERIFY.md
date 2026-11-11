@@ -78,6 +78,36 @@ The fixed arms (`low`, `medium`, `high`, `xhigh`, `max`) therefore create their 
 
 In the Gearbox arms the session variant stays unset (`default`) and the effort comes from Gearbox's `context` hook. `auto` moved the `explore` subagent to `qwen3.8-flash#medium` from the price ladder; `auto-effort` (`modelSwitch.subagents: false`) kept it on the chat model.
 
+### Pre-flight of the published run (2026-11-11)
+
+`bun bench/run.ts --dry-run --model opencode-go/claude-haiku-5-5 --judge opencode-go/claude-haiku-5-5#none` on branch `bench/results-2026-11-11` at `49de1f3` (clean), OpenCode 2.2.6, Gearbox 0.2.0, Bun 1.4.4. Raw file `2026-11-11T19-42-28-657Z-dry.jsonl`, not committed. All 12 task runs passed with no errors; every Gearbox task run's cross-check matched.
+
+`e01-rename-function` (no subagent):
+
+| Arm           | Requests as sent (`agent model#variant effort`)        |
+| ------------- | ------------------------------------------------------ |
+| `medium`      | 4 × `build opencode-go/claude-haiku-5-5#medium medium` |
+| `high`        | 4 × `build opencode-go/claude-haiku-5-5#high high`     |
+| `xhigh`       | 6 × `build opencode-go/claude-haiku-5-5#xhigh xhigh`   |
+| `max`         | 8 × `build opencode-go/claude-haiku-5-5#max max`       |
+| `auto`        | 4 × `build opencode-go/claude-haiku-5-5 high`          |
+| `auto-effort` | 3 × `build opencode-go/claude-haiku-5-5 medium`        |
+
+`e10-find-user-case` (the prompt asks for a subagent; the model used `explore`):
+
+| Arm           | Requests as sent                                                                                |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| `medium`      | 5 × `build …haiku-5-5#medium medium`, 3 × `explore …haiku-5-5#medium medium`                    |
+| `high`        | 4 × `build …haiku-5-5#high high`, 4 × `explore …haiku-5-5#high high`                            |
+| `xhigh`       | 7 × `build …haiku-5-5#xhigh xhigh`, 4 × `explore …haiku-5-5#xhigh xhigh`                        |
+| `max`         | 10 × `build …haiku-5-5#max max`, 6 × `explore …haiku-5-5#max max`                               |
+| `auto`        | 5 × `build …haiku-5-5 medium`, 4 × `explore opencode-go/qwen3.8-flash#medium medium`            |
+| `auto-effort` | 6 × `build …haiku-5-5 medium`, 3 × `explore …haiku-5-5 medium` (no model switch, as configured) |
+
+Every fixed-arm request, subagents included, sent the arm's effort. `auto` again moved the `explore` subagent down the price ladder; `auto-effort` kept it on the chat model.
+
+`opencode/claude-sonnet-5-5` was the first choice of chat model. Its dry run sent no request: every session failed with `provider.quota` ("Insufficient balance") on OpenCode Zen. That raw file was deleted. `claude-agent/*` models were ruled out because their catalog has no price (`cost: []`), so Gearbox builds no ladder and `auto` could not differ from `auto-effort`.
+
 ## Gearbox settings in the Gearbox arms
 
 Gearbox keeps `/gearbox set` overrides in plugin storage, which a user's own Gearbox install shares. Before the first prompt of every Gearbox task run, the runner sends `/gearbox settings` through `client.session.command` and checks the answer: `auto` on, `bias` 0, `floor` low, `ceiling` max, `judge.model` = `--judge`, `modelSwitch.subagents` per arm, no budget, save mode off. A mismatch aborts that task run, and the runner refuses to start when stored overrides exist.

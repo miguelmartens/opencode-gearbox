@@ -20,7 +20,7 @@ Bun 1.4 or later. `package.json` pins the exact version in `packageManager`.
 
 Skip both once with `git commit --no-verify`. CI still runs the checks.
 
-`bun run format` rewrites files with Prettier. `LICENSE`, `NOTICE.md` and `bench/judge-cases.json` are excluded on purpose and must stay byte-identical.
+`bun run format` rewrites files with Prettier. `LICENSE`, `NOTICE.md` and `bench/effortless-judge-cases.json` are excluded on purpose and must stay byte-identical.
 
 ## Code rules
 

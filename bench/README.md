@@ -4,7 +4,7 @@ How Gearbox auto compares to running one fixed effort level all the time: tokens
 
 Every number in the README and on the website comes from a run of this harness. Nothing is typed by hand.
 
-This directory also holds `judge-cases.json`, the 75 labelled prompts of `/gearbox bench` (a separate benchmark of the judge model alone).
+This directory also holds the labelled prompts of `/gearbox bench`, a separate benchmark of the judge model alone: `effortless-judge-cases.json` (75, from HeyCubit/effortless) and `gearbox-judge-cases.json` (60, Gearbox's own). [judge-cases.md](judge-cases.md) explains both and how the Gearbox set is labelled.
 
 ## Method
 

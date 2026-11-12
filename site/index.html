@@ -427,8 +427,8 @@ footer .brand{font-size:22px;text-decoration:none}
       <div class="box feat"><div class="ico">↓</div><h3>Fails safe</h3><p>A judge timeout, an unreadable answer or a provider error falls back to the last level, else <code>medium</code>. The judge never blocks a prompt.</p></div>
       <div class="box feat"><div class="ico">◔</div><h3>Context care</h3><p>Cheaper compaction by the judge model, <code>/gearbox handoff</code> into a fresh session, a warning when the context gets swamped.</p></div>
       <div class="box feat"><div class="ico">$</div><h3>Stats, save mode, budget</h3><p>Per-session turns, requests, tokens and cost. Save mode caps effort for a few hours. A daily budget turns save mode on at 80%.</p></div>
-      <div class="box feat wide"><div class="ico">✓</div><h3>Benchmark your judge</h3><p><code>/gearbox bench</code> scores any judge model on 75 labelled prompts before you rely on it. In the end-to-end run, <code>claude-haiku-5-5#none</code> answered in about a second:</p>
-        <div class="score"><b>71/75</b><span class="mono">labelled prompts right</span></div>
+      <div class="box feat wide"><div class="ico">✓</div><h3>Benchmark your judge</h3><p><code>/gearbox bench</code> scores any judge model on 135 labelled prompts before you rely on it: 75 from effortless, and 60 of Gearbox's own, labelled after Anthropic's <a href="https://claude.dev/blog/spending-your-effort/">Spending your effort</a>. In the end-to-end run, <code>claude-haiku-5-5#none</code> answered in about a second:</p>
+        <div class="score"><b>71/75</b><span class="mono">effortless prompts right</span></div>
         <div class="bar" role="img" aria-label="71 of 75"><i style="width:94.7%"></i></div>
       </div>
       <div class="box feat full"><div class="ico">▦</div><h3>The board</h3><p><code>/gearbox board</code> writes one page of every session and project: the effort mix per day, spend against your budget, judge answer times, and the subagents Gearbox moved to a cheaper model. It is a single local HTML file with no server and no network requests. Nothing leaves your machine.</p></div>
@@ -534,7 +534,7 @@ footer .brand{font-size:22px;text-decoration:none}
         <li><code>/gearbox save [on|off]</code><span>Cap effort for a few hours</span></li>
         <li><code>/gearbox stats</code><span>Turns per level, requests, tokens, cost and judge cost</span></li>
         <li><code>/gearbox board</code><span>Open the board: level mix, spend, judge health and every session, as a local page</span></li>
-        <li><code>/gearbox bench [p/m]</code><span>Score a judge model on 75 labelled prompts</span></li>
+        <li><code>/gearbox bench [set] [p/m]</code><span>Score a judge model on 135 labelled prompts</span></li>
         <li><code>/gearbox handoff [full]</code><span>Continue in a fresh session seeded with a summary</span></li>
         <li><code>/gearbox compact [note]</code><span>Compact now, keeping your note in mind</span></li>
         <li><code>/gearbox debug</code><span>Last decision and the judge's raw answer</span></li>

@@ -9,6 +9,24 @@ import {
 
 const count = (text: string, ch: string): number => text.split(ch).length - 1;
 
+test('the README quotes every level line of the judge prompt', async () => {
+  const prompt = buildJudgePrompt({
+    prompt: '',
+    lastReplyTail: '',
+    contextRatio: null,
+    isSubagent: false,
+  });
+  const readme = await Bun.file(`${import.meta.dir}/../../README.md`).text();
+  const levelLines = prompt
+    .split('\n')
+    .filter((line) => /^- (low|medium|high|xhigh|max): /.test(line));
+  expect(levelLines).toHaveLength(5);
+  for (const line of levelLines) {
+    const [, level, text] = /^- (\w+): (.*)$/.exec(line) as RegExpExecArray;
+    expect(readme).toContain(`\`${level}\`: ${text}`);
+  }
+});
+
 test('parseJudgeAnswer reads the LEVEL and WHY lines case-insensitively', () => {
   expect(parseJudgeAnswer('LEVEL: High\nWHY: refactor')).toStrictEqual({
     level: 'high',

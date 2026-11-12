@@ -32,7 +32,8 @@
   },
   "files": [
     "src",
-    "bench/judge-cases.json",
+    "bench/effortless-judge-cases.json",
+    "bench/gearbox-judge-cases.json",
     "NOTICE.md",
     "LICENSE",
     "CHANGELOG.md"

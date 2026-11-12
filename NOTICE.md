@@ -6,11 +6,12 @@ Code mod) but shares no code with it or with effortless-opencode.
 
 ## Benchmark prompts
 
-`bench/judge-cases.json` holds the 75 labelled judge prompts written for
+`bench/effortless-judge-cases.json` holds the 75 labelled judge prompts written for
 <https://github.com/HeyCubit/effortless> (MIT). The file was taken verbatim from
 <https://github.com/tehchaoz/effortless-opencode> (`parity/judge-cases.json`,
-commit `ad2596683fe9e2be8aceebe974316a97327868e9`), an OpenCode port of
-HeyCubit/effortless that reuses the original's labelled prompts under MIT.
+commit `ad2596683fe9e2be8aceebe974316a97327868e9`) and renamed; its contents are
+unchanged. effortless-opencode is an OpenCode port of HeyCubit/effortless that
+reuses the original's labelled prompts under MIT.
 
 ### HeyCubit/effortless license
 

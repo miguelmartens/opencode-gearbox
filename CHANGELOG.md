@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/miguelmartens/opencode-gearbox/compare/v0.3.0...v0.3.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* **board:** restore top padding between header and headline ([#32](https://github.com/miguelmartens/opencode-gearbox/issues/32)) ([bad043b](https://github.com/miguelmartens/opencode-gearbox/commit/bad043b28cda46eba839c030eace39516499c1fa))
+
 ## [0.3.0](https://github.com/miguelmartens/opencode-gearbox/compare/v0.2.3...v0.3.0) (2026-11-12)
 
 

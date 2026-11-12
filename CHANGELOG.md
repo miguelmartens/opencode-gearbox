@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/miguelmartens/opencode-gearbox/compare/v0.3.1...v0.4.0) (2026-11-12)
+
+
+### Features
+
+* **bench:** add Gearbox's own judge cases and score each set apart ([#34](https://github.com/miguelmartens/opencode-gearbox/issues/34)) ([6c37bbe](https://github.com/miguelmartens/opencode-gearbox/commit/6c37bbe9a97e1119402aeae616147f13eaa6e6d3))
+
 ## [0.3.1](https://github.com/miguelmartens/opencode-gearbox/compare/v0.3.0...v0.3.1) (2026-11-12)
 
 

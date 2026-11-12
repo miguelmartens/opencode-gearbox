@@ -28,6 +28,7 @@
   <a href="#supported-models">Models</a> ·
   <a href="#the-five-gears">Gears</a> ·
   <a href="#commands">Commands</a> ·
+  <a href="#board">Board</a> ·
   <a href="#options">Options</a> ·
   <a href="#how-model-switching-decides">Model switching</a>
 </p>

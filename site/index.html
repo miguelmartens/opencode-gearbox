@@ -248,6 +248,59 @@ footer .brand{font-size:22px;text-decoration:none}
 .tablewrap{overflow-x:auto;padding:0 10px 12px 0}
 .bmeta{margin-top:22px;font:400 13px/1.7 var(--mono);color:var(--mute)}
 .bmeta a{color:var(--fg)}
+
+/* nav on small screens: GitHub + npm buttons fit at 390px */
+@media(max-width:520px){nav .wrap{gap:10px}nav .brand{font-size:22px;gap:8px}nav .brand svg{width:30px;height:30px}nav .btn{padding:8px 9px;font-size:13px;box-shadow:3px 3px 0 var(--shadow)}nav .btn+.btn{margin-left:0}}
+/* board */
+.board-grid{display:grid;grid-template-columns:1.5fr .5fr;gap:28px;margin-top:52px;align-items:start}
+@media(max-width:1000px){.board-grid{grid-template-columns:1fr}}
+.board-grid>*{min-width:0}
+.bwin{padding:0;overflow:hidden}
+.bwin-bar{display:flex;align-items:center;gap:14px;padding:10px 14px;background:var(--surf2);border-bottom:var(--bw) solid var(--fg)}
+.bwin-url{flex:1;min-width:0;font:400 12px/1 var(--mono);color:var(--mute);background:var(--bg);border:1px solid var(--line);padding:8px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bwin-url b{color:var(--fg);font-weight:700}
+.bwin-flag{font:700 10px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;background:var(--surf);color:var(--mute);border:1px solid var(--line);padding:6px 7px;white-space:nowrap}
+.bwin-body{background:var(--bg);padding:18px;background-image:radial-gradient(rgba(237,236,230,.06) 1.2px,transparent 1.3px);background-size:22px 22px}
+.mb-head{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.mb-head .brand{font-size:18px;gap:8px}.mb-head .brand svg{width:24px;height:24px}
+.mb-head small{font:700 10px/1 var(--mono);letter-spacing:.14em;color:var(--mute);background:var(--surf2);border:1px solid var(--line);padding:5px 6px;text-transform:uppercase}
+.mb-seg{margin-left:auto;display:flex}
+.mb-seg span{font:700 10px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;border:2px solid var(--fg);padding:6px 8px;color:var(--fg)}
+.mb-seg span+span{border-left:0}.mb-seg span.on{background:var(--fg);color:var(--bg)}
+.mb-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.mb-tile{background:var(--surf);border:2px solid var(--fg);box-shadow:4px 4px 0 var(--shadow);padding:10px 12px;min-width:0}
+.mb-tile .k{font:700 9px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.mb-tile .v{font:26px/1 var(--display);margin:8px 0 4px;white-space:nowrap}
+.mb-tile .d{font:400 10px/1.3 var(--mono);color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mb-tile.inv{background:var(--fg);color:var(--bg)}.mb-tile.inv .k,.mb-tile.inv .d{color:#3a3a3e}
+.mb-mini{display:flex;height:6px;margin-top:6px;border:2px solid var(--bg)}.mb-mini i{display:block;height:100%}
+.mb-panel{background:var(--surf);border:2px solid var(--fg);box-shadow:4px 4px 0 var(--shadow);margin-top:14px}
+.mb-ph{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border-bottom:2px solid var(--fg);background:var(--surf2);font:14px/1 var(--display)}
+.mb-ph span{font:700 9px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--mute)}
+#mbmix{display:block;width:100%;height:auto;padding:10px 12px 6px}
+.mb-rows{list-style:none}
+.mb-rows li{display:grid;grid-template-columns:1fr auto auto;gap:14px;align-items:center;padding:8px 12px;border-bottom:1px solid var(--line);font:400 12px/1.2 var(--mono)}
+.mb-rows li:last-child{border-bottom:0}
+.mb-rows b{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mb-rows b em{font-style:normal;color:var(--mute);font-weight:400;margin-left:6px}
+.mb-rows .c{color:var(--soft,#c9c8c2);text-align:right;min-width:44px}
+.mb-strip{display:flex;gap:2px;height:14px;align-items:stretch}
+.mb-strip i{width:6px;display:block}.mb-strip i.sa{height:7px;align-self:flex-end;opacity:.75}
+@media(max-width:640px){.mb-tiles{grid-template-columns:1fr 1fr}.mb-rows li{grid-template-columns:1fr auto}.mb-rows .mb-strip{display:none}.mb-seg{display:none}}
+.bside{display:grid;gap:22px}
+.bwin-body{min-height:100%}
+.blist{list-style:none;padding:6px 0}
+.blist li{display:grid;grid-template-columns:34px 1fr;gap:12px;padding:11px 18px;align-items:start;line-height:1.3}
+.blist li+li{border-top:1px solid var(--line)}
+.blist i{width:34px;height:34px;display:grid;place-items:center;font:700 15px/1 var(--mono);font-style:normal;color:var(--bg);border:2px solid var(--fg)}
+.blist b{display:block;font:16px/1.15 var(--display);margin-bottom:3px}
+.blist span{display:block;font-size:14px;color:#c9c8c2;line-height:1.35}
+.bcmd{padding:0}
+.bcmd .install-mini{margin:0;box-shadow:none;max-width:none}
+.bcmd .install-mini code{border:0;border-bottom:var(--bw) solid var(--fg);color:var(--fg);font-weight:700}
+.bcmd .copy{border:0;border-left:var(--bw) solid var(--fg);border-bottom:var(--bw) solid var(--fg)}
+.bcmd p{padding:14px 18px;font:400 13px/1.55 var(--mono);color:var(--mute)}
+.bcmd p b{color:var(--fg)}
 @media(max-width:520px){.gatewrap{grid-template-columns:1fr}.verdict{text-align:center}section{padding:72px 0}}
 </style>
 </head>
@@ -264,6 +317,7 @@ footer .brand{font-size:22px;text-decoration:none}
       <a href="#gears">Gears</a>
       <a href="#features">Features</a>
       <a href="#bench" id="nav-bench" hidden>Benchmark</a>
+      <a href="#board">Board</a>
       <a href="#commands">Commands</a>
       <a href="#install">Install</a>
     </div>
@@ -428,9 +482,47 @@ footer .brand{font-size:22px;text-decoration:none}
   </div>
 </section>
 
-<section id="commands" class="alt">
+<section id="board" class="alt" aria-labelledby="board-title">
   <div class="wrap">
-    <div class="eyebrow"><b>06</b> Commands</div>
+    <div class="eyebrow"><b>06</b> Board</div>
+    <h2 id="board-title">Every shift, on one page.</h2>
+    <p class="sub"><code>/gearbox board</code> builds a page from Gearbox's local log and opens it in your browser: where the effort went, what it cost, how the judge did, and every session turn by turn. No server, no account. Nothing leaves your machine.</p>
+    <div class="board-grid">
+      <figure class="box bwin" aria-label="Illustration of the Gearbox board with sample data">
+        <div class="bwin-bar"><div class="dots"><i></i><i></i><i></i></div><div class="bwin-url">file:///…/gearbox/<b>board.html</b></div><span class="bwin-flag">Illustration · sample data</span></div>
+        <div class="bwin-body" aria-hidden="true">
+          <div class="mb-head"><span class="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><rect x="2" y="2" width="60" height="60" fill="#161618" stroke="#EDECE6" stroke-width="4"/><path d="M17,17V47M32,17V47M47,17V32M17,32H47" fill="none" stroke="#EDECE6" stroke-width="6"/><circle cx="47" cy="17" r="7.5" fill="#EDECE6"/><circle cx="47" cy="17" r="2.6" fill="#161618"/></svg>gearbox</span><small>board</small><div class="mb-seg"><span>7d</span><span class="on">30d</span><span>90d</span></div></div>
+          <div class="mb-tiles">
+            <div class="mb-tile inv"><div class="k">Ran light</div><div class="v">66%</div><div class="d">turns on low or medium</div><div class="mb-mini" id="mbmini"></div></div>
+            <div class="mb-tile"><div class="k">Spend</div><div class="v">$30.10</div><div class="d">$0.47 per session</div></div>
+            <div class="mb-tile"><div class="k">Turns</div><div class="v">598</div><div class="d">64 sessions</div></div>
+            <div class="mb-tile"><div class="k">Judge share</div><div class="v">1%</div><div class="d">0.9s median answer</div></div>
+          </div>
+          <div class="mb-panel"><div class="mb-ph">Where the effort went<span>share of turns per day</span></div><svg id="mbmix" viewBox="0 0 640 150"></svg></div>
+          <div class="mb-panel"><div class="mb-ph">Sessions<span>one block per turn</span></div><ul class="mb-rows" id="mbrows"></ul></div>
+        </div>
+      </figure>
+      <div class="bside">
+        <div class="box"><ul class="blist">
+          <li><i style="background:var(--low)">%</i><div><b>Where the effort went</b><span>Level mix per day and per project.</span></div></li>
+          <li><i style="background:var(--fg)">$</i><div><b>Spend and budget</b><span>Spend per day, judge cost, budget line, save-mode days.</span></div></li>
+          <li><i style="background:var(--medium)">s</i><div><b>Judge health</b><span>Answer times, timeouts, skipped follow-ups.</span></div></li>
+          <li><i style="background:var(--high)">↓</i><div><b>Subagent switches</b><span>How many subagents moved to a cheaper model, from which model to which.</span></div></li>
+          <li><i style="background:var(--xhigh)">#</i><div><b>Every session</b><span>Turn by turn, with model, tokens and cost.</span></div></li>
+          <li><i style="background:var(--max)">↗</i><div><b>Share card</b><span>Save the chosen range as a PNG or SVG, or copy it as Markdown.</span></div></li>
+        </ul></div>
+        <div class="box bcmd">
+          <div class="install-mini"><code>/gearbox board</code><button class="copy" data-copy="/gearbox board">Copy</button></div>
+          <p><b>One HTML file</b>, rebuilt each time you run it. The log stays on your machine for 90 days. In the plugin's options, <code>board.retentionDays</code> changes that and <code>board.titles: false</code> keeps session titles out.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="commands">
+  <div class="wrap">
+    <div class="eyebrow"><b>07</b> Commands</div>
     <h2>One command, no model turns.</h2>
     <p class="sub">Everything answers as a toast or a dialog. Nothing starts a model turn.</p>
     <div class="term">
@@ -441,19 +533,19 @@ footer .brand{font-size:22px;text-decoration:none}
         <li><code>/gearbox set &lt;key&gt; &lt;v&gt;</code><span>Change a setting, e.g. <code>set bias -1</code></span></li>
         <li><code>/gearbox save [on|off]</code><span>Cap effort for a few hours</span></li>
         <li><code>/gearbox stats</code><span>Turns per level, requests, tokens, cost and judge cost</span></li>
+        <li><code>/gearbox board</code><span>Open the board: level mix, spend, judge health and every session, as a local page</span></li>
         <li><code>/gearbox bench [p/m]</code><span>Score a judge model on 75 labelled prompts</span></li>
         <li><code>/gearbox handoff [full]</code><span>Continue in a fresh session seeded with a summary</span></li>
         <li><code>/gearbox compact [note]</code><span>Compact now, keeping your note in mind</span></li>
         <li><code>/gearbox debug</code><span>Last decision and the judge's raw answer</span></li>
-        <li><code>/gearbox board</code><span>Every session and project as a local page, opened in your browser</span></li>
       </ul>
     </div>
   </div>
 </section>
 
-<section id="install">
+<section id="install" class="alt">
   <div class="wrap">
-    <div class="eyebrow"><b>07</b> Install</div>
+    <div class="eyebrow"><b>08</b> Install</div>
     <h2>Put it in drive.</h2>
     <div class="install">
       <ol class="steps">
@@ -669,6 +761,26 @@ footer .brand{font-size:22px;text-decoration:none}
   document.querySelectorAll('.seg button').forEach(function(b){b.addEventListener('click',function(){xm=b.dataset.x;chart()})});
   if(location.hash==='#bench-demo'){show(SAMPLE,true);setTimeout(function(){sec.scrollIntoView()},50);return}
   try{fetch('bench.json',{cache:'no-store'}).then(function(r){return r.ok?r.json():null}).then(function(d){if(d&&d.version===1&&!d.sample)show(d,false)}).catch(function(){})}catch(e){}
+})();
+</script>
+
+<script>
+/* Board section illustration: deterministic sample, drawn once. */
+(function(){
+  var C={low:'#8BE48B',medium:'#66C7FF',high:'#B69CFF',xhigh:'#FF9A3C',max:'#FF4F4F',manual:'#5E5E64'},L=['low','medium','high','xhigh','max'];
+  var seed=11;function r(){seed=(seed*16807)%2147483647;return (seed-1)/2147483646}
+  function pick(w){var t=r()*w.reduce(function(a,b){return a+b},0);for(var i=0;i<L.length;i++){t-=w[i];if(t<=0)return L[i]}return 'max'}
+  var mini=document.getElementById('mbmini');if(mini)mini.innerHTML=[['low',35],['medium',31],['high',21],['xhigh',10],['max',3]].map(function(x){return '<i style="width:'+x[1]+'%;background:'+C[x[0]]+'"></i>'}).join('');
+  var svg=document.getElementById('mbmix');
+  if(svg){var NS='http://www.w3.org/2000/svg',W=640,H=150,B=4,n=30,bw=W/n,g=bw*.2;
+    for(var d=0;d<n;d++){if(r()<.25){var e=document.createElementNS(NS,'rect');e.setAttribute('x',d*bw+g/2);e.setAttribute('y',H-B-3);e.setAttribute('width',bw-g);e.setAttribute('height',3);e.setAttribute('fill','#202023');svg.appendChild(e);continue}
+      var cnt={},tot=8+Math.floor(r()*14);for(var k=0;k<tot;k++){var l=r()<.04?'manual':pick([4,3.5,2.2,1,.3]);cnt[l]=(cnt[l]||0)+1}
+      var y=H-B;['manual'].concat(L).forEach(function(l){if(!cnt[l])return;var h=cnt[l]/tot*(H-B-4);y-=h;var e=document.createElementNS(NS,'rect');e.setAttribute('x',d*bw+g/2);e.setAttribute('y',y);e.setAttribute('width',bw-g);e.setAttribute('height',h);e.setAttribute('fill',C[l]);svg.appendChild(e)})}
+    var ax=document.createElementNS(NS,'path');ax.setAttribute('d','M0,'+(H-B)+'H'+W);ax.setAttribute('stroke','#EDECE6');ax.setAttribute('stroke-width','2');svg.appendChild(ax)}
+  var rows=document.getElementById('mbrows');
+  if(rows){[['Fix deploy pipeline','infra','$0.45',16],['Refactor billing module','api-server','$0.31',11],['Dark mode toggle','web-app','$0.12',7]].forEach(function(s){
+    var strip='';for(var i=0;i<s[3];i++){strip+='<i style="background:'+C[r()<.05?'manual':pick([4,3.5,2.2,1,.3])]+'"></i>';if(r()<.15)strip+='<i class="sa" style="background:'+C[pick([4,3,1,0,0])]+'"></i>'}
+    var li=document.createElement('li');li.innerHTML='<b>'+s[0]+'<em>'+s[1]+'</em></b><div class="mb-strip">'+strip+'</div><span class="c">'+s[2]+'</span>';rows.appendChild(li)})}
 })();
 </script>
 </body>

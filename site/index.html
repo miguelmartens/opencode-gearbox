@@ -143,6 +143,7 @@ h2{font:clamp(36px,5vw,64px)/1 var(--display);letter-spacing:-.03em;margin:18px 
 .feat{padding:26px}
 .feat .ico{width:52px;height:52px;border:3px solid var(--fg);display:grid;place-items:center;font:700 24px/1 var(--mono);margin-bottom:16px;color:var(--bg);background:var(--fg)}
 .feat.wide{grid-column:span 2}
+.feat.full{grid-column:1/-1}
 @media(max-width:900px){.feat.wide{grid-column:auto}}
 .score{display:flex;align-items:baseline;gap:12px;margin:12px 0;color:var(--mute)}
 .score b{font:64px/1 var(--display);color:var(--fg)}
@@ -376,6 +377,7 @@ footer .brand{font-size:22px;text-decoration:none}
         <div class="score"><b>71/75</b><span class="mono">labelled prompts right</span></div>
         <div class="bar" role="img" aria-label="71 of 75"><i style="width:94.7%"></i></div>
       </div>
+      <div class="box feat full"><div class="ico">▦</div><h3>The board</h3><p><code>/gearbox board</code> writes one page of every session and project: the effort mix per day, spend against your budget, judge answer times, and the subagents Gearbox moved to a cheaper model. It is a single local HTML file with no server and no network requests. Nothing leaves your machine.</p></div>
     </div>
   </div>
 </section>
@@ -443,6 +445,7 @@ footer .brand{font-size:22px;text-decoration:none}
         <li><code>/gearbox handoff [full]</code><span>Continue in a fresh session seeded with a summary</span></li>
         <li><code>/gearbox compact [note]</code><span>Compact now, keeping your note in mind</span></li>
         <li><code>/gearbox debug</code><span>Last decision and the judge's raw answer</span></li>
+        <li><code>/gearbox board</code><span>Every session and project as a local page, opened in your browser</span></li>
       </ul>
     </div>
   </div>

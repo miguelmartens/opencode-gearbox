@@ -111,6 +111,15 @@ Each task run appends one line to `results/raw/<run id>.jsonl` (format: `bench/l
 
 Each published run adds a line here: date, commit, model, judge, runs and the raw file.
 
+- **2026-11-12 · two complete runs, `max` withheld.** Model `opencode-go/claude-haiku-5-5`, judge `opencode-go/claude-haiku-5-5#none`. OpenCode 2.2.6, Gearbox 0.3.1, Bun 1.4.4, commit `9665ea8`. Raw file [`results/raw/2026-11-12T11-46-29-322Z.jsonl`](results/raw/2026-11-12T11-46-29-322Z.jsonl): two complete runs × 6 arms × 24 tasks, plus 29 task runs of a third run stopped by hand. Total cost $4.63, judge included. The summary and README block use runs 1–2 and leave out the `max` arm: 16 of its 48 task runs ended with `run error: Transport: The operation timed out`, so its 67% solved and $0.035 per task measure the harness, not the model. Run 3 is not summarised because it is incomplete. To regenerate:
+
+  ```sh
+  # runs 1–2, every arm but `max`
+  bun -e 'const fs=require("node:fs");const src="bench/results/raw/2026-11-12T11-46-29-322Z.jsonl";const lines=fs.readFileSync(src,"utf8").split("\n").filter(Boolean).filter((l)=>{const r=JSON.parse(l);return r.run<=2 && r.arm!=="max"});fs.writeFileSync("/tmp/gearbox-bench-runs12.jsonl",lines.join("\n")+"\n")'
+  bun bench/summarize.ts /tmp/gearbox-bench-runs12.jsonl
+  bun bench/render.ts
+  ```
+
 - **2026-11-11 · partial.** Model `opencode-go/claude-haiku-5-5`, judge `opencode-go/claude-haiku-5-5#none`. OpenCode 2.2.6, Gearbox 0.2.0, Bun 1.4.4, commit `e520a20`. Planned 3 runs × 6 arms × 24 tasks = 432 task runs; stopped by hand after 30, all in run 1. Total cost $0.45, judge included. Raw file [`results/raw/2026-11-11T19-51-41-334Z.jsonl`](results/raw/2026-11-11T19-51-41-334Z.jsonl).
   - **Not comparable across setups.** The shuffled order gave each arm a different subset of tasks (✗ = unsolved):
 

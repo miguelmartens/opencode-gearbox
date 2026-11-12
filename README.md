@@ -95,16 +95,15 @@ The "typical prompt" column is a guide; the judge decides.
   <img src="assets/bench/chart-light.svg" width="720" alt="Tasks solved vs cost per task for each setup">
 </picture>
 
-| Setup                 |   Solved | Output tokens / task | Cost / task | Time / task | Cost vs always-high |
-| --------------------- | -------: | -------------------: | ----------: | ----------: | ------------------: |
-| always medium         |     100% |                 1.8k |     $0.0053 |        16 s |                −66% |
-| always high           |     100% |                13.6k |      $0.016 |        68 s |            baseline |
-| always xhigh          |     100% |                19.1k |      $0.019 |        93 s |                +23% |
-| always max            |      67% |                37.2k |       $0.03 |       207 s |                +94% |
-| gearbox · effort only |      83% |                14.0k |      $0.016 |        67 s |                 +3% |
-| **gearbox auto**      | **100%** |             **4.5k** |  **$0.007** |    **28 s** |            **−55%** |
+| Setup                 |  Solved | Output tokens / task | Cost / task | Time / task | Cost vs always-high |
+| --------------------- | ------: | -------------------: | ----------: | ----------: | ------------------: |
+| always medium         |     98% |                 4.4k |     $0.0079 |        29 s |                −24% |
+| always high           |     98% |                 7.4k |       $0.01 |        39 s |            baseline |
+| always xhigh          |     98% |                15.7k |      $0.018 |        78 s |                +73% |
+| gearbox · effort only |    100% |                 5.8k |     $0.0091 |        36 s |                −12% |
+| **gearbox auto**      | **98%** |             **5.8k** | **$0.0093** |    **41 s** |            **−10%** |
 
-<sub>18 tasks × 1 run · model opencode-go/claude-haiku-5-5 · judge opencode-go/claude-haiku-5-5#none · OpenCode 2.2.6 · Gearbox 0.2.0 · 2026-11-11 · medians, judge cost included. [Method and raw data](bench/README.md)</sub>
+<sub>24 tasks × 2 runs · model opencode-go/claude-haiku-5-5 · judge opencode-go/claude-haiku-5-5#none · OpenCode 2.2.6 · Gearbox 0.3.1 · 2026-11-12 · medians, judge cost included. [Method and raw data](bench/README.md)</sub>
 <!-- bench:end -->
 
 ## Supported models

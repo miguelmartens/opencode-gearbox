@@ -12,11 +12,10 @@ import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
 import { applyShaping, pickVariant } from '../core/levels.ts';
 import { classifyPrompt } from '../core/rules.ts';
 import { isLevel } from '../core/settings.ts';
-import { buildJudgePrompt, parseJudgeAnswer, REPLY_TAIL_MAX } from '../core/judge.ts';
+import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
 import { buildLadder, preferEffortRungs, routeModel, sameModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
 import { contextRatio } from '../core/context.ts';
-import { textOf } from '../core/guards.ts';
 import { getState, onForget } from './state.ts';
 import type { SessionState } from './state.ts';
 import { loadSettings } from './settings-store.ts';
@@ -31,6 +30,7 @@ import {
 } from './models.ts';
 import type { ModelInfo, SessionInfo } from './models.ts';
 import { logOnce, toast } from './notify.ts';
+import { lastReply } from './care.ts';
 import { statusChanged, trackUsage } from './status.ts';
 import { recordTurnJudgeCost } from './ledger.ts';
 import { newTurnMeta } from './turn-log.ts';
@@ -65,7 +65,6 @@ type Local = {
   metas: Map<string, TurnMeta>;
   /** The latest prompt's meta: requests whose prompt ID is unknown use it. */
   latestMeta: TurnMeta | null;
-  replyTail: string;
   /** The manual variant that paused auto; accepted once the user turns auto back on. */
   pausedVariant: string | null;
   statusTurn: number | null;
@@ -93,7 +92,6 @@ function getLocal(sessionID: string): Local {
       admitted: new Map(),
       metas: new Map(),
       latestMeta: null,
-      replyTail: '',
       pausedVariant: null,
       statusTurn: null,
       lineage: null,
@@ -145,17 +143,6 @@ function rememberMeta(local: Local, messageID: unknown, meta: TurnMeta): void {
   local.metas.set(messageID, meta);
   if (local.metas.size > ADMITTED_MAX)
     local.metas.delete(local.metas.keys().next().value as string);
-}
-
-function lastReplyTail(messages: unknown): string | null {
-  if (!Array.isArray(messages)) return null;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role !== 'assistant') continue;
-    const text = textOf(messages[i].content);
-    // Stored per session: keep only what the judge prompt uses.
-    if (text) return text.slice(-REPLY_TAIL_MAX);
-  }
-  return null;
 }
 
 function fallbackDecision(state: SessionState, reason: string): Decision {
@@ -257,13 +244,16 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     try {
       // A session without a model runs on OpenCode's default model; unknown → the judge is skipped.
       const chat = sessionModel ?? (await defaultModelRef(ctx)) ?? NO_MODEL;
+      // A subagent's task stands alone. A slow read uses at most half the judge's time.
+      const reply = subagent
+        ? ''
+        : bounded(lastReply(ctx, sessionID), settings.judge.timeoutMs / 2, '');
       const model = await resolveJudgeModel(ctx, chat, settings);
-      const local = getLocal(sessionID);
       const info = chat.id ? findInfo(await listModelInfos(ctx).catch(() => []), chat) : undefined;
       const lite = info ? toModelLite(info) : null;
       const prompt = buildJudgePrompt({
         prompt: text,
-        lastReplyTail: subagent ? '' : local.replyTail,
+        lastReplyTail: await reply,
         contextRatio:
           lite && state.contextTokens !== null
             ? contextRatio(state.contextTokens, lite.contextLimit)
@@ -555,7 +545,6 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       // Set below only when Gearbox applies an effort level to this request.
       state.requestLevel = null;
       const settings = await load(ctx);
-      local.replyTail = lastReplyTail(event?.messages) ?? local.replyTail;
 
       const model = toModelRef(event?.model);
       if (!settings.auto || !model) return;

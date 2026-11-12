@@ -165,6 +165,47 @@ test('a prompt queued during a turn does not change that turn’s effort', async
   expect(getState(sessionID).requestTurn).toBe('msg_B');
 });
 
+test('the judge sees the reply the prompt answers, read from the session', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    generateText: async () => ({ text: 'LEVEL: medium' }),
+    overrides: {
+      session: {
+        // The reply was written by the last request of the previous turn: no `context` hook
+        // carried it, so only the session's messages hold it.
+        context: async () => [
+          { id: 'u1', type: 'user', text: 'Should I refactor or patch?' },
+          {
+            id: 'a1',
+            type: 'assistant',
+            content: [{ type: 'text', text: 'A) full refactor, B) quick patch. Which one?' }],
+          },
+        ],
+      },
+    },
+  });
+  await fake.fire('prompt', promptEvent(sessionID, 'B'));
+  await fake.fire('context', contextEvent(sessionID));
+  const [call] = fake.callsTo('generate.text');
+  expect((call.input as { prompt: string }).prompt).toContain(
+    '<reply>\nA) full refactor, B) quick patch. Which one?\n</reply>',
+  );
+});
+
+test('a hanging session read still judges the prompt, without a reply', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { judge: { timeoutMs: 50 } },
+    generateText: async () => ({ text: 'LEVEL: high' }),
+    overrides: { session: { context: () => new Promise(() => {}) } },
+  });
+  await fake.fire('prompt', promptEvent(sessionID, 'Debug the flaky upload test'));
+  const event = await fake.fire('context', contextEvent(sessionID));
+  expect(event.options.effort).toBe('high');
+  const [call] = fake.callsTo('generate.text');
+  expect((call.input as { prompt: string }).prompt).not.toContain('<reply>');
+});
+
 test('the request level is cleared even when reading the settings fails', async () => {
   const sessionID = newSession();
   const fake = makeFakeCtx({ models: MODELS });

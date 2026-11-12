@@ -55,8 +55,9 @@ nav .wrap{display:flex;align-items:center;gap:28px;height:72px}
 nav .links{display:flex;gap:22px;margin-left:auto;font-weight:700}
 nav .links a{text-decoration:none;font-size:16px;color:var(--mute)}
 nav .links a:hover{color:var(--fg);text-decoration:underline;text-decoration-thickness:3px;text-underline-offset:5px}
-nav .btn{padding:10px 14px;font-size:15px;box-shadow:4px 4px 0 var(--shadow)}
-@media(max-width:820px){nav .links{display:none}nav .btn{margin-left:auto}}
+nav .btn{gap:0;padding:10px 14px;font-size:15px;box-shadow:4px 4px 0 var(--shadow)}
+nav .btn+.btn{margin-left:-14px}
+@media(max-width:820px){nav .links{display:none}nav .links+.btn{margin-left:auto}}
 
 /* hero */
 .hero{border-bottom:var(--bw) solid var(--line);background-image:radial-gradient(rgba(237,236,230,.09) 1.4px,transparent 1.5px);background-size:28px 28px}
@@ -266,6 +267,7 @@ footer .brand{font-size:22px;text-decoration:none}
       <a href="#install">Install</a>
     </div>
     <a class="btn" href="https://github.com/miguelmartens/opencode-gearbox">★ GitHub</a>
+    <a class="btn" href="https://www.npmjs.com/package/opencode-gearbox"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:1em;height:1em;vertical-align:-.125em;margin-right:.3em" fill="currentColor"><path d="M1.763 0C.786 0 0 .786 0 1.763v20.474C0 23.214.786 24 1.763 24h20.474c.977 0 1.763-.786 1.763-1.763V1.763C24 .786 23.214 0 22.237 0zM5.13 5.323l13.837.019-.009 13.836h-3.464l.01-10.382h-3.456L12.04 19.17H5.113z"/></svg>npm</a>
   </div>
 </nav>
 
@@ -515,7 +517,7 @@ footer .brand{font-size:22px;text-decoration:none}
       gearbox
     </a>
     <span>MIT © Miguel Martens · Inspired by <a href="https://github.com/HeyCubit/effortless">HeyCubit/effortless</a> · Not affiliated with OpenCode</span>
-    <a href="https://github.com/miguelmartens/opencode-gearbox">github.com/miguelmartens/opencode-gearbox</a>
+    <span><a href="https://github.com/miguelmartens/opencode-gearbox">github.com/miguelmartens/opencode-gearbox</a> · <a href="https://www.npmjs.com/package/opencode-gearbox"><svg viewBox="0 0 24 24" aria-hidden="true" style="width:1em;height:1em;vertical-align:-.125em;margin-right:.3em" fill="currentColor"><path d="M1.763 0C.786 0 0 .786 0 1.763v20.474C0 23.214.786 24 1.763 24h20.474c.977 0 1.763-.786 1.763-1.763V1.763C24 .786 23.214 0 22.237 0zM5.13 5.323l13.837.019-.009 13.836h-3.464l.01-10.382h-3.456L12.04 19.17H5.113z"/></svg>npm</a></span>
   </div>
 </footer>
 

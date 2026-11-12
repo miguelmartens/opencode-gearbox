@@ -19,6 +19,7 @@ import { logOnce, toast } from './notify.ts';
 import { findModelInfo, toModelLite } from './models.ts';
 import {
   boardOptions,
+  DAY_MS,
   findPlace,
   localDay,
   pruneTurns,
@@ -119,7 +120,6 @@ export function forgetStats(ctx: Ctx, sessionID: string): Promise<void> {
 
 /** Daily spend and session stats are kept this long; older ones are removed. */
 const KEEP_DAYS = 30;
-const DAY_MS = 24 * HOUR_MS;
 /** The day storage was last pruned, per context: pruning runs once a day. */
 const prunedOn = new WeakMap<object, string>();
 

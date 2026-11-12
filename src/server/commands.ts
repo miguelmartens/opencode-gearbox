@@ -3,11 +3,10 @@
 // toast API and a command must not start a model turn.
 
 import type { Plugin } from '@opencode/plugin';
-import { LEVELS } from '../core/types.ts';
 import type { Level, ModelRef } from '../core/types.ts';
 import { isValidSetting, mergeSettings, parseSetCommand } from '../core/settings.ts';
 import { summarize, usd } from '../core/stats.ts';
-import { saveModeActive } from '../core/levels.ts';
+import { rank, saveModeActive } from '../core/levels.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
 import { classifyPrompt } from '../core/rules.ts';
 import { getState } from './state.ts';
@@ -15,7 +14,7 @@ import { loadSettings, updateSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
 import { compactNow, handoff } from './care.ts';
 import { HOUR_MS, readSpend, readStats, recordRequest } from './ledger.ts';
-import { parseModelString, sessionModelRef } from './models.ts';
+import { formatModel, parseModelString, sessionModelRef } from './models.ts';
 import { buildStatus, onStepEnded, statusChanged } from './status.ts';
 import { logOnce, toast } from './notify.ts';
 import { defaultBoardPath, openFile, writeBoard } from './board.ts';
@@ -79,9 +78,6 @@ const MAIN_SWITCH_NOTE = 'Note: modelSwitch.main has no effect; the main chat ge
 const clip = (text: string): string =>
   text.length > MAX_FIELD ? `${text.slice(0, MAX_FIELD - 1)}…` : text;
 
-const formatModel = (m: ModelRef | null | undefined): string =>
-  m ? `${m.providerID}/${m.id}${m.variant ? `#${m.variant}` : ''}` : 'unknown';
-
 type BenchResult = {
   set: string;
   c: BenchCase;
@@ -93,8 +89,6 @@ type Miss = { dir: 'low' | 'high'; steps: number };
 
 const pct = (hits: number, of: number): string =>
   `${hits}/${of} (${of ? Math.round((hits / of) * 100) : 0}%)`;
-
-const rank = (level: Level): number => LEVELS.indexOf(level);
 
 /** The judge prompt for a case, built from what production would send for it. */
 export function benchPrompt(c: BenchCase): string {

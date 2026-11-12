@@ -132,6 +132,10 @@ export function toModelRef(value: unknown): ModelRef | null {
   return ref;
 }
 
+/** `provider/model[#variant]`, as `parseModelString` reads it; `unknown` without a model. */
+export const formatModel = (m: ModelRef | null | undefined): string =>
+  m ? `${m.providerID}/${m.id}${m.variant ? `#${m.variant}` : ''}` : 'unknown';
+
 /** `provider/model[#variant]`, as typed in settings and commands; the model part may contain `/`. */
 export function parseModelString(value: string): ModelRef | null {
   const [path, variant] = value.trim().split('#', 2);

@@ -17,7 +17,7 @@ import { readSession, sessionChain } from './models.ts';
 
 type Ctx = Plugin.Context;
 
-const DAY_MS = 86_400_000;
+export const DAY_MS = 86_400_000;
 /** A root without a title is asked for it again at most this often. */
 const TITLE_RETRY_MS = 60_000;
 

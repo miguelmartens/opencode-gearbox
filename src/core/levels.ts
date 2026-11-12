@@ -1,7 +1,7 @@
 import { LEVELS } from './types.ts';
 import type { Level, Settings } from './types.ts';
 
-const rank = (level: Level): number => LEVELS.indexOf(level);
+export const rank = (level: Level): number => LEVELS.indexOf(level);
 
 /** Moves `level` by `by` steps, clamped to the ends of LEVELS. */
 export function shiftLevel(level: Level, by: number): Level {

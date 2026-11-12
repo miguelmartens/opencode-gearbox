@@ -108,7 +108,7 @@ function prompt(fake: FakeCtx, sessionID: string, messageID: string, text: strin
 function records(fake: FakeCtx): any[] {
   return [...fake.storage.entries()]
     .filter(([key]) => key.startsWith('turns/'))
-    .flatMap(([, value]) => value as any[])
+    .flatMap(([, value]) => [value as any].flat())
     .sort((a, b) => a.t.localeCompare(b.t));
 }
 
@@ -126,7 +126,7 @@ test('a judged turn is one record, its requests summed', async () => {
 
   const [record] = records(fake);
   expect(records(fake).length).toBe(1);
-  expect([...fake.storage.keys()]).toContain(`turns/${DAY}/${sessionID}`);
+  expect([...fake.storage.keys()]).toContain(`turns/${DAY}/${sessionID}/${sessionID}/msg_a`);
   expect(record).toMatchObject({
     t: new Date(NOW).toISOString(),
     project: 'api-server',
@@ -149,6 +149,25 @@ test('a judged turn is one record, its requests summed', async () => {
   const [exported] = await readTurns(fake.ctx, NOW);
   expect(exported).toEqual(Object.fromEntries(Object.entries(record).filter(([k]) => k !== 'id')));
   expect('id' in exported, 'the board never sees the internal ID').toBe(false);
+});
+
+test('each turn has its own record key, so a request never rewrites the day’s other turns', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    sessions: { [sessionID]: rootSession(sessionID) },
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await prompt(fake, sessionID, 'msg_a', 'Rename the helper');
+  await request(fake, sessionID, 'msg_a');
+  await prompt(fake, sessionID, 'msg_b', 'Rename the other helper');
+  await request(fake, sessionID, 'msg_b');
+  await waitFor(() => records(fake).length === 2);
+  const keys = [...fake.storage.keys()].filter((key) => key.startsWith('turns/')).sort();
+  expect(keys).toStrictEqual([
+    `turns/${DAY}/${sessionID}/${sessionID}/msg_a`,
+    `turns/${DAY}/${sessionID}/${sessionID}/msg_b`,
+  ]);
+  expect(Array.isArray(fake.storage.get(keys[0])), 'one record, not a list').toBe(false);
 });
 
 test('a follow-up turn reuses the level with no judge call', async () => {
@@ -255,7 +274,7 @@ test('a subagent moved to a cheaper model is logged under its root session', asy
     subagent: true,
     switchedFrom: 'anthropic/claude-opus-5-5',
   });
-  expect([...fake.storage.keys()]).toContain(`turns/${DAY}/${root}`);
+  expect([...fake.storage.keys()]).toContain(`turns/${DAY}/${root}/${child}/msg_c`);
 });
 
 test('board.titles false stores no title', async () => {

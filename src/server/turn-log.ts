@@ -1,6 +1,8 @@
 // Turn log for `/gearbox board`: one record per user turn (or subagent run), every model request
-// of it summed, in `turns/<YYYY-MM-DD>/<root session>`. Records are kept `board.retentionDays`
-// (default 90). The ledger calls the writes here inside its serial write queue.
+// of it summed, in `turns/<YYYY-MM-DD>/<root session>/<session>/<turn>`. One key per turn, so a
+// request rewrites only its own record. Older versions kept a list per root session and day
+// (`turns/<YYYY-MM-DD>/<root session>`); those lists are still read. Records are kept
+// `board.retentionDays` (default 90). The ledger calls the writes here inside its write queue.
 
 import type { Plugin } from '@opencode/plugin';
 import { basename } from 'node:path';
@@ -31,8 +33,8 @@ export type TurnMeta = {
   judgeCostUSD: number;
   /** The model a subagent was moved from, set only when Gearbox moved it. */
   switchedFrom: ModelRef | null;
-  /** Where the turn's record is stored, once its first request is logged. */
-  stored: { key: string; id: string } | null;
+  /** The key of the turn's record, once its first request is logged. */
+  stored: string | null;
 };
 
 /** A turn Gearbox has not routed yet: until routing says otherwise, it left the turn alone. */
@@ -66,7 +68,9 @@ export function localDay(now: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-const turnsKey = (now: number, rootID: string) => `turns/${localDay(now)}/${rootID}`;
+/** Turn keys sort by day, so pruning compares them with a day's prefix. */
+const turnKey = (now: number, rootID: string, sessionID: string, turn: Turn) =>
+  `turns/${localDay(now)}/${rootID}/${sessionID}/${turn}`;
 
 export async function* scanAll(ctx: Ctx, prefix: string) {
   let after: string | undefined;
@@ -170,9 +174,6 @@ export type TurnRequest = {
   now: number;
 };
 
-/** A stored record: `id` (`<session>/<turn>`) finds the turn again; the board never sees it. */
-type StoredTurn = TurnRecord & { id: string };
-
 const modelName = (m: ModelRef | null): string => (m ? `${m.providerID}/${m.id}` : 'unknown');
 
 /**
@@ -180,11 +181,11 @@ const modelName = (m: ModelRef | null): string => (m ? `${m.providerID}/${m.id}`
  * reload mid-turn), a level means Gearbox routed the turn without a judge call.
  */
 export function addToTurn(
-  prev: StoredTurn | undefined,
+  prev: TurnRecord | undefined,
   req: TurnRequest,
   place: Place,
   saveMode: boolean,
-): StoredTurn {
+): TurnRecord {
   const meta = req.meta;
   if (prev) {
     return {
@@ -199,8 +200,7 @@ export function addToTurn(
       saveMode: prev.saveMode || saveMode,
     };
   }
-  const record: StoredTurn = {
-    id: `${req.sessionID}/${req.turn}`,
+  const record: TurnRecord = {
     t: new Date(req.now).toISOString(),
     project: place.project,
     session: place.root,
@@ -221,33 +221,27 @@ export function addToTurn(
   return record;
 }
 
-function readList(stored: unknown): StoredTurn[] {
-  return Array.isArray(stored) ? (stored.filter(isObject) as StoredTurn[]) : [];
+/** The records under one key: a turn's record, or an older version's list with internal `id`s. */
+function readRecords(stored: unknown): Array<TurnRecord & { id?: string }> {
+  if (Array.isArray(stored)) return stored.filter(isObject) as TurnRecord[];
+  return isObject(stored) ? [stored as TurnRecord] : [];
 }
 
 /** Adds one request to its turn's record. Not serialised: callers run it in the ledger queue. */
 export async function writeTurn(ctx: Ctx, req: TurnRequest, place: Place): Promise<void> {
   const saveMode = saveModeActive(await loadSettings(ctx), req.now);
-  const id = `${req.sessionID}/${req.turn}`;
-  const key = req.meta?.stored?.key ?? turnsKey(req.now, place.root);
-  const list = readList(await ctx.storage.get(key));
-  const at = list.findIndex((record) => record.id === id);
-  const next = addToTurn(at < 0 ? undefined : list[at], req, place, saveMode);
-  if (at < 0) list.push(next);
-  else list[at] = next;
-  await ctx.storage.set(key, list as never);
-  if (req.meta) req.meta.stored = { key, id };
+  const key = req.meta?.stored ?? turnKey(req.now, place.root, req.sessionID, req.turn);
+  const [prev] = readRecords(await ctx.storage.get(key));
+  await ctx.storage.set(key, addToTurn(prev, req, place, saveMode) as never);
+  if (req.meta) req.meta.stored = key;
 }
 
 /** Writes the settled judge cost into an already logged turn. Not serialised, like `writeTurn`. */
 export async function writeJudgeCost(ctx: Ctx, meta: TurnMeta): Promise<void> {
   if (!meta.stored) return;
-  const { key, id } = meta.stored;
-  const list = readList(await ctx.storage.get(key));
-  const record = list.find((r) => r.id === id);
+  const [record] = readRecords(await ctx.storage.get(meta.stored));
   if (!record || record.judgeCostUSD === meta.judgeCostUSD) return;
-  record.judgeCostUSD = meta.judgeCostUSD;
-  await ctx.storage.set(key, list as never);
+  await ctx.storage.set(meta.stored, { ...record, judgeCostUSD: meta.judgeCostUSD } as never);
 }
 
 /** Removes turn records older than `board.retentionDays`; keys sort by day. */
@@ -264,7 +258,7 @@ export async function readTurns(ctx: Ctx, now: number): Promise<TurnRecord[]> {
   const from = now - retentionDays * DAY_MS;
   const turns: TurnRecord[] = [];
   for await (const { value } of scanAll(ctx, 'turns/')) {
-    for (const { id: _id, ...record } of readList(value)) {
+    for (const { id: _id, ...record } of readRecords(value)) {
       if (!(Date.parse(record.t) > from)) continue;
       turns.push(titles ? record : { ...record, title: null });
     }

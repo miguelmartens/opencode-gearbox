@@ -1,37 +1,31 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="720" height="440" viewBox="0 0 720 440" role="img" aria-label="Tasks solved vs cost per task for each setup">
 <rect width="720" height="440" fill="#0C0C0D"/>
-<path d="M74 356H686M74 285H686M74 214H686M74 143H686M74 72H686M94 52V376M237 52V376M380 52V376M523 52V376M666 52V376" stroke="#34343A" stroke-opacity="1" stroke-width="1" fill="none"/>
-<text x="64" y="360" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="end">60%</text>
-<text x="64" y="289" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="end">70%</text>
-<text x="64" y="218" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="end">80%</text>
-<text x="64" y="147" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="end">90%</text>
+<path d="M74 356H686M74 72H686M94 52V376M237 52V376M380 52V376M523 52V376M666 52V376" stroke="#34343A" stroke-opacity="1" stroke-width="1" fill="none"/>
+<text x="64" y="360" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="end">90%</text>
 <text x="64" y="76" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="end">100%</text>
 <text x="94" y="396" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="middle">$0</text>
-<text x="237" y="396" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="middle">$0.01</text>
-<text x="380" y="396" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="middle">$0.02</text>
-<text x="523" y="396" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="middle">$0.03</text>
-<text x="666" y="396" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="middle">$0.04</text>
+<text x="237" y="396" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="middle">$0.005</text>
+<text x="380" y="396" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="middle">$0.01</text>
+<text x="523" y="396" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="middle">$0.015</text>
+<text x="666" y="396" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="middle">$0.02</text>
 <rect x="74" y="52" width="612" height="324" fill="none" stroke="#EDECE6" stroke-width="1.5"/>
 <text x="380" y="424" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14.29" fill="#8C8C93" text-anchor="middle">cost per task (usd)</text>
 <text x="74" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14.29" fill="#8C8C93" text-anchor="start">tasks solved</text>
 <text x="686" y="34" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12.86" fill="#8C8C93" text-anchor="end">↑ more solved · ← cheaper</text>
-<path d="M170.03 72H170.03M170.03 68V76M170.03 68V76M170.03 72V72M166.03 72H174.03M166.03 72H174.03" stroke="#66C7FF" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
-<path d="M316.5 72H316.5M316.5 68V76M316.5 68V76M316.5 72V72M312.5 72H320.5M312.5 72H320.5" stroke="#B69CFF" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
-<path d="M366.77 72H366.77M366.77 68V76M366.77 68V76M366.77 72V72M362.77 72H370.77M362.77 72H370.77" stroke="#FF9A3C" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
-<path d="M524.75 308.67H524.75M524.75 304.67V312.67M524.75 304.67V312.67M524.75 308.67V308.67M520.75 308.67H528.75M520.75 308.67H528.75" stroke="#FF4F4F" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
-<path d="M323.31 190.33H323.31M323.31 186.33V194.33M323.31 186.33V194.33M323.31 190.33V190.33M319.31 190.33H327.31M319.31 190.33H327.31" stroke="#8C8C93" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
-<path d="M193.53 72H193.53M193.53 68V76M193.53 68V76M193.53 72V72M189.53 72H197.53M189.53 72H197.53" stroke="#EDECE6" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
-<circle cx="170.03" cy="72" r="7" fill="#66C7FF" stroke="#0C0C0D" stroke-width="1.5"/>
-<circle cx="316.5" cy="72" r="7" fill="#B69CFF" stroke="#0C0C0D" stroke-width="1.5"/>
-<circle cx="366.77" cy="72" r="7" fill="#FF9A3C" stroke="#0C0C0D" stroke-width="1.5"/>
-<circle cx="524.75" cy="308.67" r="7" fill="#FF4F4F" stroke="#0C0C0D" stroke-width="1.5"/>
-<rect x="317.31" y="184.33" width="12" height="12" fill="#0C0C0D" stroke="#8C8C93" stroke-width="2"/>
-<rect x="186.53" y="65" width="14" height="14" fill="#EDECE6" stroke="#EDECE6" stroke-width="1.5"/>
-<text x="206.53" y="77.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.71" fill="#EDECE6" text-anchor="start" font-weight="600">gearbox</text>
-<text x="336.31" y="195.08" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.57" fill="#EDECE6" text-anchor="start">effort only</text>
-<text x="157.03" y="76.75" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.57" fill="#8C8C93" text-anchor="end">medium</text>
-<path d="M316.5 72L337.5 90" stroke="#8C8C93" stroke-opacity="0.6" stroke-width="1" fill="none"/>
-<text x="340.5" y="94.75" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.57" fill="#8C8C93" text-anchor="start">high</text>
-<text x="379.77" y="76.75" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.57" fill="#8C8C93" text-anchor="start">xhigh</text>
-<text x="537.75" y="313.42" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.57" fill="#8C8C93" text-anchor="start">max</text>
+<path d="M304.16 131.17H338.04M304.16 127.16999999999999V135.17M338.04 127.16999999999999V135.17M321.1 72V190.33M317.1 72H325.1M317.1 190.33H325.1" stroke="#66C7FF" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
+<path d="M384.53 131.17H397.73M384.53 127.16999999999999V135.17M397.73 127.16999999999999V135.17M391.13 72V190.33M387.13 72H395.13M387.13 190.33H395.13" stroke="#B69CFF" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
+<path d="M604.33 131.17H610.52M604.33 127.16999999999999V135.17M610.52 127.16999999999999V135.17M607.43 72V190.33M603.43 72H611.43M603.43 190.33H611.43" stroke="#FF9A3C" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
+<path d="M348.6 72H362.26M348.6 68V76M362.26 68V76M355.43 72V72M351.43 72H359.43M351.43 72H359.43" stroke="#8C8C93" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
+<path d="M341.11 131.17H380.71M341.11 127.16999999999999V135.17M380.71 127.16999999999999V135.17M360.91 72V190.33M356.91 72H364.91M356.91 190.33H364.91" stroke="#EDECE6" stroke-opacity="0.7" stroke-width="1.5" fill="none"/>
+<circle cx="321.1" cy="131.17" r="7" fill="#66C7FF" stroke="#0C0C0D" stroke-width="1.5"/>
+<circle cx="391.13" cy="131.17" r="7" fill="#B69CFF" stroke="#0C0C0D" stroke-width="1.5"/>
+<circle cx="607.43" cy="131.17" r="7" fill="#FF9A3C" stroke="#0C0C0D" stroke-width="1.5"/>
+<rect x="349.43" y="66" width="12" height="12" fill="#0C0C0D" stroke="#8C8C93" stroke-width="2"/>
+<rect x="353.91" y="124.16999999999999" width="14" height="14" fill="#EDECE6" stroke="#EDECE6" stroke-width="1.5"/>
+<path d="M360.91 131.17L381.91 113.17" stroke="#8C8C93" stroke-opacity="0.6" stroke-width="1" fill="none"/>
+<text x="384.91" y="118.67" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15.71" fill="#EDECE6" text-anchor="start" font-weight="600">gearbox</text>
+<text x="368.43" y="76.75" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.57" fill="#EDECE6" text-anchor="start">effort only</text>
+<text x="308.1" y="135.92" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.57" fill="#8C8C93" text-anchor="end">medium</text>
+<text x="404.13" y="135.92" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.57" fill="#8C8C93" text-anchor="start">high</text>
+<text x="620.43" y="135.92" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13.57" fill="#8C8C93" text-anchor="start">xhigh</text>
 </svg>

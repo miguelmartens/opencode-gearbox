@@ -1,118 +1,98 @@
 {
   "version": 1,
-  "date": "2026-11-11",
+  "date": "2026-11-12",
   "opencode": "2.2.6",
-  "gearbox": "0.2.0",
-  "commit": "e520a20a6dbaf0464b7b205ef25c51eea9f31208",
+  "gearbox": "0.3.1",
+  "commit": "9665ea80c20b88c237cc4767607a78444650d418",
   "model": "opencode-go/claude-haiku-5-5",
   "judge": "opencode-go/claude-haiku-5-5#none",
-  "tasks": 18,
-  "runs": 1,
+  "tasks": 24,
+  "runs": 2,
   "baseline": "high",
   "arms": [
     {
       "id": "medium",
       "label": "always medium",
       "kind": "fixed",
-      "passRate": 1,
+      "passRate": 0.9791666666666667,
       "passRange": [
-        1,
+        0.9583333333333334,
         1
       ],
-      "outputTokensPerTask": 1793.25,
-      "inputTokensPerTask": 148095,
-      "cachedInputTokensPerTask": 122530.75,
-      "costPerTask": 0.005317101250000001,
+      "outputTokensPerTask": 4420.875,
+      "inputTokensPerTask": 194223.625,
+      "cachedInputTokensPerTask": 161280.8125,
+      "costPerTask": 0.0079406753125,
       "costRange": [
-        0.005317101250000001,
-        0.005317101250000001
+        0.0073483375,
+        0.008533013125
       ],
-      "secondsPerTask": 16.487215344000028,
+      "secondsPerTask": 29.464248133687533,
       "judgeCostPerTask": 0
     },
     {
       "id": "high",
       "label": "always high",
       "kind": "fixed",
-      "passRate": 1,
+      "passRate": 0.9791666666666667,
       "passRange": [
-        1,
+        0.9583333333333334,
         1
       ],
-      "outputTokensPerTask": 13611.5,
-      "inputTokensPerTask": 406296.5,
-      "cachedInputTokensPerTask": 365502.25,
-      "costPerTask": 0.015559378750000002,
+      "outputTokensPerTask": 7447.145833333334,
+      "inputTokensPerTask": 261419.2708333333,
+      "cachedInputTokensPerTask": 226186.4166666667,
+      "costPerTask": 0.010389032395833334,
       "costRange": [
-        0.015559378750000002,
-        0.015559378750000002
+        0.010158220833333334,
+        0.010619843958333335
       ],
-      "secondsPerTask": 68.12790122924994,
+      "secondsPerTask": 39.37262000183341,
       "judgeCostPerTask": 0
     },
     {
       "id": "xhigh",
       "label": "always xhigh",
       "kind": "fixed",
-      "passRate": 1,
+      "passRate": 0.9791666666666667,
       "passRange": [
-        1,
+        0.9583333333333334,
         1
       ],
-      "outputTokensPerTask": 19143,
-      "inputTokensPerTask": 401202.85714285716,
-      "cachedInputTokensPerTask": 353446.4285714286,
-      "costPerTask": 0.01907494642857143,
+      "outputTokensPerTask": 15658.458333333332,
+      "inputTokensPerTask": 418691.1458333334,
+      "cachedInputTokensPerTask": 369405.4375,
+      "costPerTask": 0.01795200854166667,
       "costRange": [
-        0.01907494642857143,
-        0.01907494642857143
+        0.017843825208333334,
+        0.018060191875000003
       ],
-      "secondsPerTask": 93.34435353600004,
-      "judgeCostPerTask": 0
-    },
-    {
-      "id": "max",
-      "label": "always max",
-      "kind": "fixed",
-      "passRate": 0.6666666666666666,
-      "passRange": [
-        0.6666666666666666,
-        0.6666666666666666
-      ],
-      "outputTokensPerTask": 37159.333333333336,
-      "inputTokensPerTask": 466421.3333333333,
-      "cachedInputTokensPerTask": 406602.6666666667,
-      "costPerTask": 0.03012246,
-      "costRange": [
-        0.03012246,
-        0.03012246
-      ],
-      "secondsPerTask": 207.45689261133327,
+      "secondsPerTask": 77.5749837630624,
       "judgeCostPerTask": 0
     },
     {
       "id": "auto-effort",
       "label": "gearbox · effort only",
       "kind": "gearbox",
-      "passRate": 0.8333333333333334,
+      "passRate": 1,
       "passRange": [
-        0.8333333333333334,
-        0.8333333333333334
+        1,
+        1
       ],
-      "outputTokensPerTask": 13967.833333333334,
-      "inputTokensPerTask": 375283.5,
-      "cachedInputTokensPerTask": 330255.1666666667,
-      "costPerTask": 0.016035618333333335,
+      "outputTokensPerTask": 5778.333333333334,
+      "inputTokensPerTask": 214980.8333333333,
+      "cachedInputTokensPerTask": 179874.5208333333,
+      "costPerTask": 0.0091409165625,
       "costRange": [
-        0.016035618333333335,
-        0.016035618333333335
+        0.008902219791666666,
+        0.009379613333333333
       ],
-      "secondsPerTask": 66.88286232650007,
-      "judgeCostPerTask": 0.00012128333333333334,
+      "secondsPerTask": 35.7052824738542,
+      "judgeCostPerTask": 0.00006516041666666666,
       "levels": {
-        "low": 0.375,
-        "medium": 0.25,
-        "high": 0.375,
+        "low": 0.30357142857142855,
+        "medium": 0.48214285714285715,
+        "high": 0.21428571428571427,
         "xhigh": 0,
         "max": 0
       }
@@ -121,25 +101,25 @@
       "id": "auto",
       "label": "gearbox auto",
       "kind": "gearbox",
-      "passRate": 1,
+      "passRate": 0.9791666666666667,
       "passRange": [
-        1,
+        0.9583333333333334,
         1
       ],
-      "outputTokensPerTask": 4490.833333333333,
-      "inputTokensPerTask": 182035.83333333334,
-      "cachedInputTokensPerTask": 157261.66666666666,
-      "costPerTask": 0.006959795833333333,
+      "outputTokensPerTask": 5795.0625,
+      "inputTokensPerTask": 208889.41666666666,
+      "cachedInputTokensPerTask": 174564.5416666667,
+      "costPerTask": 0.009332628854166669,
       "costRange": [
-        0.006959795833333333,
-        0.006959795833333333
+        0.008640276416666669,
+        0.010024981291666669
       ],
-      "secondsPerTask": 27.99804715249996,
-      "judgeCostPerTask": 0.00004536666666666667,
+      "secondsPerTask": 40.70194076991662,
+      "judgeCostPerTask": 0.00006474583333333333,
       "levels": {
-        "low": 0,
-        "medium": 0.5714285714285714,
-        "high": 0.42857142857142855,
+        "low": 0.30357142857142855,
+        "medium": 0.5,
+        "high": 0.19642857142857142,
         "xhigh": 0,
         "max": 0
       }

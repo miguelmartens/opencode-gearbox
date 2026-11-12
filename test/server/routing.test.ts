@@ -463,7 +463,7 @@ test('subagent routing skips cheaper models without effort variants', async () =
 test('subagent model switching off keeps the model', async () => {
   const sessionID = newSession();
   const fake = await setup({
-    settings: { modelSwitch: { main: false, subagents: false, minSavingRatio: 0.2 } },
+    settings: { modelSwitch: { subagents: false, minSavingRatio: 0.2 } },
     sessions: {
       [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'general', model: OPUS },
     },
@@ -474,10 +474,9 @@ test('subagent model switching off keeps the model', async () => {
   expect(fake.callsTo('session.switchModel').length).toBe(0);
 });
 
-test('main chat never switches the model, even with modelSwitch.main on', async () => {
+test('main chat never switches the model', async () => {
   const sessionID = newSession();
   const fake = await setup({
-    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
     generateText: async () => ({ text: 'LEVEL: low' }),
   });
   await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));

@@ -192,11 +192,11 @@ test('save on sets saveMode.until to now + hours, save off clears it', async () 
   expect((await loadSettings(fake.ctx)).saveMode.until).toBe(null);
 });
 
-test('settings prints the settings and the modelSwitch.main caveat', async () => {
+test('settings prints the settings', async () => {
   const fake = await setup();
   await fake.runCommand('gearbox', 'settings');
   expect(fake.lastMessage()).toMatch(/"bias": 0/);
-  expect(fake.lastMessage()).toMatch(/modelSwitch\.main/);
+  expect(fake.lastMessage()).not.toMatch(/"main"/);
 });
 
 test('help lists the subcommands; an unknown subcommand shows help', async () => {

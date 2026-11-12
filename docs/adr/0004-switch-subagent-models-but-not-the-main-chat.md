@@ -25,5 +25,5 @@ Anti-goal: Gearbox must not override an explicit user choice.
 ## Consequences
 
 - Subagent admission can wait up to `judge.timeoutMs` for the judge.
-- On 2.2.6 `modelSwitch.main` does nothing, because the hook it needs never fires ([0003](0003-apply-effort-through-the-context-hook.md)).
+- On 2.2.6 `modelSwitch.main` does nothing, because the hook it needs never fires ([0003](0003-apply-effort-through-the-context-hook.md)). Revised 2026-11-12: the setting is removed until main-chat switching ships.
 - Model switching needs model prices. Subscription catalogs without prices get effort control only.

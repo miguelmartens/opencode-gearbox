@@ -20,21 +20,29 @@ test('mergeSettings returns a copy of base for non-object overrides', () => {
 test('mergeSettings deep merges nested values', () => {
   const s = mergeSettings(DEFAULT_SETTINGS, {
     bias: -1,
-    modelSwitch: { main: true },
+    modelSwitch: { subagents: false },
     judge: { model: 'anthropic/claude-haiku-5-5' },
     saveMode: { until: 1000 },
     budget: { dailyUSD: 2.5 },
   });
   expect(s.bias).toBe(-1);
-  expect(s.modelSwitch).toStrictEqual({ main: true, subagents: true, minSavingRatio: 0.2 });
+  expect(s.modelSwitch).toStrictEqual({ subagents: false, minSavingRatio: 0.2 });
   expect(s.judge).toStrictEqual({ model: 'anthropic/claude-haiku-5-5', timeoutMs: 4000 });
   expect(s.saveMode).toStrictEqual({ until: 1000, cap: 'medium', hours: 5 });
   expect(s.budget).toStrictEqual({ dailyUSD: 2.5 });
 });
 
+test('mergeSettings drops the removed modelSwitch.main, and set rejects it', () => {
+  // Older configs may still carry it: it never had an effect.
+  expect(mergeSettings(DEFAULT_SETTINGS, { modelSwitch: { main: true } })).toStrictEqual(
+    DEFAULT_SETTINGS,
+  );
+  expect('error' in parseSetCommand('modelSwitch.main true')).toBe(true);
+});
+
 test('mergeSettings does not mutate base', () => {
   const before = JSON.stringify(DEFAULT_SETTINGS);
-  mergeSettings(DEFAULT_SETTINGS, { modelSwitch: { main: true }, judge: { timeoutMs: 1 } });
+  mergeSettings(DEFAULT_SETTINGS, { modelSwitch: { subagents: false }, judge: { timeoutMs: 1 } });
   expect(JSON.stringify(DEFAULT_SETTINGS)).toBe(before);
 });
 
@@ -100,9 +108,9 @@ test('parseSetCommand parses numbers', () => {
 });
 
 test('parseSetCommand parses booleans and null', () => {
-  expect(parseSetCommand('modelSwitch.main true')).toStrictEqual({
-    key: 'modelSwitch.main',
-    value: true,
+  expect(parseSetCommand('modelSwitch.subagents false')).toStrictEqual({
+    key: 'modelSwitch.subagents',
+    value: false,
   });
   expect(parseSetCommand('auto false')).toStrictEqual({ key: 'auto', value: false });
   expect(parseSetCommand('budget.dailyUSD null')).toStrictEqual({

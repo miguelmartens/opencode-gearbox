@@ -73,8 +73,6 @@ const HELP = [
   '/gearbox board           all sessions and projects as a local page, opened in the browser',
 ].join('\n');
 
-const MAIN_SWITCH_NOTE = 'Note: modelSwitch.main has no effect; the main chat gets effort only.';
-
 const clip = (text: string): string =>
   text.length > MAX_FIELD ? `${text.slice(0, MAX_FIELD - 1)}…` : text;
 
@@ -319,7 +317,7 @@ export async function registerCommands(
     },
     async settings(sessionID) {
       const s = await loadSettings(ctx);
-      await say(sessionID, `${JSON.stringify(s, null, 2)}\n${MAIN_SWITCH_NOTE}`);
+      await say(sessionID, JSON.stringify(s, null, 2));
     },
     async save(sessionID, arg) {
       if (arg !== '' && arg !== 'on' && arg !== 'off')

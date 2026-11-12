@@ -34,7 +34,7 @@ export type Settings = {
   ceiling: Level;
   saveMode: { until: number | null; cap: Level; hours: number };
   judge: { model?: string; timeoutMs: number };
-  modelSwitch: { main: boolean; subagents: boolean; minSavingRatio: number };
+  modelSwitch: { subagents: boolean; minSavingRatio: number };
   compactWith: 'small' | 'session';
   swampedAt: number;
   handoffAdviceFrom: number;
@@ -49,7 +49,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ceiling: 'max',
   saveMode: { until: null, cap: 'medium', hours: 5 },
   judge: { timeoutMs: 4000 },
-  modelSwitch: { main: false, subagents: true, minSavingRatio: 0.2 },
+  modelSwitch: { subagents: true, minSavingRatio: 0.2 },
   compactWith: 'small',
   swampedAt: 0.7,
   handoffAdviceFrom: 0.3,

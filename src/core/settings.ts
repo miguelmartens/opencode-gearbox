@@ -33,7 +33,6 @@ const CHECKS: Record<string, Check> = {
   'saveMode.hours': isPositive,
   'judge.model': (v) => v === null || (typeof v === 'string' && MODEL_STRING.test(v)),
   'judge.timeoutMs': isPositive,
-  'modelSwitch.main': isBoolean,
   'modelSwitch.subagents': isBoolean,
   'modelSwitch.minSavingRatio': isRatio,
   compactWith: (v) => v === 'small' || v === 'session',

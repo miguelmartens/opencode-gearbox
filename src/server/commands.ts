@@ -212,7 +212,11 @@ export async function registerCommands(
       const s = await updateSettings(ctx, (s) => {
         s.auto = arg === 'on';
       });
-      if (s.auto) getState(sessionID).autoPaused = null;
+      if (s.auto) {
+        const state = getState(sessionID);
+        state.autoPaused = null;
+        state.acceptVariant = true;
+      }
       await statusChanged(ctx, sessionID);
       await say(sessionID, `Gearbox: auto ${arg}`);
     },

@@ -297,8 +297,12 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     model: ModelRef,
   ): Promise<boolean> {
     const variant = model.variant;
+    const accept = state.acceptVariant;
+    state.acceptVariant = false;
     if (!isManualVariant(variant)) return false;
     const local = getLocal(sessionID);
+    // `/gearbox auto on` before Gearbox saw this session's variant: it accepts that variant.
+    if (accept && state.autoPaused === null) local.pausedVariant = variant;
     if (state.autoPaused === null && local.pausedVariant === variant) return false;
     local.pausedVariant = variant;
     if (state.autoPaused !== null) return true;

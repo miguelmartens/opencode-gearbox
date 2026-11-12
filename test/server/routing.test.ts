@@ -310,6 +310,42 @@ test('manual variant pauses auto with one toast until auto is turned back on', a
   expect(fake.toasts.length).toBe(1);
 });
 
+test('auto on before the first prompt accepts the variant the session already has', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    sessions: { [sessionID]: { id: sessionID, model: { ...OPUS, variant: 'high' } } },
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  // `/gearbox auto on` right after OpenCode starts: no prompt seen yet.
+  getState(sessionID).acceptVariant = true;
+  await fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module'));
+  const event = await fake.fire('context', contextEvent(sessionID, { ...OPUS, variant: 'high' }));
+  expect(getState(sessionID).autoPaused).toBe(null);
+  expect(event.options.effort).toBe('low');
+  expect(fake.toasts.length).toBe(0);
+
+  // A variant picked after that is the user's again.
+  await fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module'));
+  const picked = await fake.fire('context', contextEvent(sessionID, { ...OPUS, variant: 'max' }));
+  expect(getState(sessionID).autoPaused).toBe('manual variant');
+  expect(picked.options).toStrictEqual({ maxTokens: 32000 });
+});
+
+test('auto on accepts only the next variant seen, not a later pick', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    sessions: { [sessionID]: { id: sessionID, model: OPUS } },
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  getState(sessionID).acceptVariant = true;
+  await fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module'));
+  await fake.fire('context', contextEvent(sessionID));
+  expect(getState(sessionID).acceptVariant).toBe(false);
+  await fake.fire('prompt', promptEvent(sessionID, 'Refactor the auth module'));
+  await fake.fire('context', contextEvent(sessionID, { ...OPUS, variant: 'high' }));
+  expect(getState(sessionID).autoPaused).toBe('manual variant');
+});
+
 test('subagent whose agent has an explicit model keeps it and gets effort', async () => {
   const sessionID = newSession();
   const fake = await setup({

@@ -1,7 +1,7 @@
 # Legal text and vendored data stay verbatim.
 LICENSE
 NOTICE.md
-bench/judge-cases.json
+bench/effortless-judge-cases.json
 
 # Benchmark task fixtures stay verbatim; results are generated
 bench/tasks/

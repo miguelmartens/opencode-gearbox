@@ -1,18 +1,41 @@
 import { expect, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
 import type { FakeCtx, FakeCtxOptions } from '../fake-ctx.ts';
-import { registerCommands } from '../../src/server/commands.ts';
-import type { CommandDeps } from '../../src/server/commands.ts';
+import { benchPrompt, registerCommands } from '../../src/server/commands.ts';
+import type { BenchCase, CommandDeps } from '../../src/server/commands.ts';
 import { loadSettings, saveSettings, updateSettings } from '../../src/server/settings-store.ts';
 import { getState, resetState } from '../../src/server/state.ts';
 import { DEFAULT_SETTINGS, LEVELS } from '../../src/core/types.ts';
 import type { Level } from '../../src/core/types.ts';
 import { summarize, addRequest, emptySessionStats } from '../../src/core/stats.ts';
-import { buildJudgePrompt } from '../../src/core/judge.ts';
 
-type Case = { id: string; message: string; ok: Level[] };
-const cases: Case[] = (await Bun.file(`${import.meta.dir}/../../bench/judge-cases.json`).json())
-  .cases;
+type Case = BenchCase;
+const loadCases = async (name: string): Promise<Case[]> =>
+  (await Bun.file(`${import.meta.dir}/../../bench/${name}`).json()).cases;
+const cases = await loadCases('effortless-judge-cases.json');
+const gearboxCases = await loadCases('gearbox-judge-cases.json');
+const rank = (level: Level) => LEVELS.indexOf(level);
+
+/** Cases grouped by the judge prompt they produce: a few share one. */
+function groupByPrompt(list: Case[]): Map<string, Case[]> {
+  const byPrompt = new Map<string, Case[]>();
+  for (const c of list) {
+    const prompt = benchPrompt(c);
+    byPrompt.set(prompt, [...(byPrompt.get(prompt) ?? []), c]);
+  }
+  return byPrompt;
+}
+
+/** A judge that answers every prompt with a level all its cases accept. */
+function rightJudge(list: Case[]): CommandDeps['runJudge'] {
+  const byPrompt = groupByPrompt(list);
+  return async (_ctx, _model, prompt) => {
+    const group = byPrompt.get(prompt);
+    expect(group, `unknown bench prompt: ${prompt}`).toBeTruthy();
+    const level = LEVELS.find((l) => (group as Case[]).every((c) => c.ok.includes(l)));
+    return { text: `LEVEL: ${level}\nWHY: test`, ms: 1, costUSD: 0.0001 };
+  };
+}
 
 const NOW = new Date(2026, 10, 10, 12, 0, 0).getTime();
 
@@ -373,16 +396,7 @@ test('bench with a fake judge correct on 70 of 75 cases prints 70/75 (93%) and t
   expect(cases.length).toBe(75);
   // A few cases share a judge prompt (they differ only in `current`, which the judge never
   // sees): answer them with a level every one of them accepts, and miss only unique prompts.
-  const byPrompt = new Map<string, Case[]>();
-  for (const c of cases) {
-    const prompt = buildJudgePrompt({
-      prompt: c.message,
-      lastReplyTail: c.context ?? '',
-      contextRatio: null,
-      isSubagent: false,
-    });
-    byPrompt.set(prompt, [...(byPrompt.get(prompt) ?? []), c]);
-  }
+  const byPrompt = groupByPrompt(cases);
   const missed = new Set(
     [...byPrompt.values()]
       .filter((group) => group.length === 1)
@@ -404,10 +418,11 @@ test('bench with a fake judge correct on 70 of 75 cases prints 70/75 (93%) and t
       },
     },
   );
-  await fake.runCommand('gearbox', 'bench opencode-go/claude-haiku-5-5');
+  await fake.runCommand('gearbox', 'bench effortless opencode-go/claude-haiku-5-5');
   const out = fake.lastMessage();
   expect(out).toMatch(/answered: 75\/75/);
-  expect(out).toMatch(/70\/75 \(93%\)/);
+  expect(out).toMatch(/effortless: 70\/75 \(93%\) of answered, 70\/75 \(93%\) of all/);
+  expect(out).not.toMatch(/gearbox:/);
   expect(out).toMatch(/Misses \(5\)/);
   expect(out).not.toMatch(/No answer/);
   expect(out).toMatch(/bench spend: \$0\.0075 over 75 judge calls/);
@@ -426,20 +441,129 @@ test('bench without a model uses the resolved judge model', async () => {
   );
   await fake.runCommand('gearbox', 'bench', 'ses_b');
   expect(fake.lastMessage()).toMatch(/p\/small/);
-  expect(fake.lastMessage()).toMatch(/0\/75 \(0%\)/);
+  expect(fake.lastMessage()).toMatch(/effortless: 0\/0 \(0%\) of answered, 0\/75 \(0%\) of all/);
+  expect(fake.lastMessage()).toMatch(/gearbox: 0\/0 \(0%\) of answered, 0\/60 \(0%\) of all/);
+});
+
+test('bench runs both sets by default and scores each apart, holdout included', async () => {
+  const judged: string[] = [];
+  const right = rightJudge([...cases, ...gearboxCases]);
+  const fake = await setup(
+    {},
+    {
+      runJudge: async (...args) => {
+        judged.push(args[2]);
+        return right(...args);
+      },
+    },
+  );
+  await fake.runCommand('gearbox', 'bench p/m');
+  const out = fake.lastMessage();
+  expect(judged.length).toBe(135);
+  expect(fake.toasts.some((t) => /benching p\/m on 135 prompts/.test(t.message))).toBeTruthy();
+  expect(out).toMatch(/answered: 135\/135/);
+  expect(out).toMatch(/effortless: 75\/75 \(100%\) of answered, 75\/75 \(100%\) of all/);
+  expect(out).toMatch(/gearbox: 60\/60 \(100%\) of answered, 60\/60 \(100%\) of all/);
+  expect(out.match(/ {2}holdout: 20\/20 \(100%\)/g)?.length).toBe(2);
+  expect(out).not.toMatch(/Misses/);
+});
+
+test('bench gearbox runs only the gearbox set', async () => {
+  let calls = 0;
+  const right = rightJudge(gearboxCases);
+  const fake = await setup(
+    {},
+    {
+      runJudge: async (...args) => {
+        calls += 1;
+        return right(...args);
+      },
+    },
+  );
+  await fake.runCommand('gearbox', 'bench gearbox p/m');
+  expect(calls).toBe(60);
+  expect(fake.lastMessage()).toMatch(/gearbox: 60\/60/);
+  expect(fake.lastMessage()).not.toMatch(/effortless:/);
+});
+
+test('bench passes a case reply, subagent flag and context ratio to the judge as production does', async () => {
+  const prompts = new Map<string, string>();
+  const byPrompt = groupByPrompt(gearboxCases);
+  const fake = await setup(
+    {},
+    {
+      runJudge: async (_ctx, _model, prompt) => {
+        for (const c of byPrompt.get(prompt) ?? []) prompts.set(c.id, prompt);
+        return { text: 'LEVEL: low', ms: 1, costUSD: 0 };
+      },
+    },
+  );
+  await fake.runCommand('gearbox', 'bench gearbox p/m');
+  const byId = (id: string) => gearboxCases.find((c) => c.id === id) as Case;
+  const sub = prompts.get('sub-01') as string;
+  expect(sub).toMatch(/task handed to a subagent/);
+  expect(sub).not.toMatch(/<reply>/);
+  const cont = prompts.get('cont-02') as string;
+  expect(cont).toMatch(/user prompt in the main chat/);
+  expect(cont).toContain(`<reply>\n${byId('cont-02').reply}\n</reply>`);
+  expect(prompts.get('ratio-01a')).toMatch(/Context window used: 5%\./);
+  expect(prompts.get('ratio-01b')).toMatch(/Context window used: 85%\./);
+  expect(prompts.get('edge-01')).not.toMatch(/Context window used/);
+});
+
+test('bench splits misses into too low and too high, and weighs too low double', async () => {
+  const answering = (level: Level) =>
+    setup({}, { runJudge: async () => ({ text: `LEVEL: ${level}`, ms: 1, costUSD: 0 }) });
+  const low = await answering('low');
+  await low.runCommand('gearbox', 'bench gearbox p/m');
+  const under = gearboxCases.filter((c) => c.ok[0] !== 'low');
+  const severe = under.filter((c) => rank(c.ok[0]) >= 2).length;
+  const cost = 2 * under.reduce((sum, c) => sum + rank(c.ok[0]), 0);
+  expect(low.lastMessage()).toContain(
+    `  misses: ${under.length} too low (${severe} by 2+ levels), 0 too high; miss cost ${cost} (too low counts double)`,
+  );
+  expect(low.lastMessage()).toMatch(/- gearbox edge-01 "[^"]+": low, too low \(ok: high\|xhigh\)/);
+
+  const max = await answering('max');
+  await max.runCommand('gearbox', 'bench gearbox p/m');
+  const over = gearboxCases.filter((c) => !c.ok.includes('max'));
+  const steps = over.reduce((sum, c) => sum + 4 - rank(c.ok[c.ok.length - 1]), 0);
+  expect(max.lastMessage()).toContain(
+    `  misses: 0 too low, ${over.length} too high; miss cost ${steps} (too low counts double)`,
+  );
+  expect(max.lastMessage()).toMatch(/- gearbox sub-01 "[^"]+": max, too high \(ok: low\)/);
+});
+
+test('bench lists the effortless cases that production never sends to the judge', async () => {
+  const fake = await setup({}, { runJudge: rightJudge(cases) });
+  await fake.runCommand('gearbox', 'bench effortless p/m');
+  expect(fake.lastMessage()).toMatch(
+    / {2}never judged in production \(follow-up or named level\): a02, a07, f01, f02, f03, h15, a10\n/,
+  );
+});
+
+test('bench rejects more than one model and an unknown set', async () => {
+  let calls = 0;
+  const fake = await setup(
+    {},
+    {
+      runJudge: async () => {
+        calls += 1;
+        return null;
+      },
+    },
+  );
+  await fake.runCommand('gearbox', 'bench p/m q/n');
+  expect(fake.lastMessage()).toMatch(
+    /Usage: \/gearbox bench \[effortless\|gearbox\] \[provider\/model\]/,
+  );
+  await fake.runCommand('gearbox', 'bench effortles');
+  expect(fake.lastMessage()).toMatch(/Usage: \/gearbox bench/);
+  expect(calls).toBe(0);
 });
 
 test('bench retries a failed case once and lists unanswered cases apart from misses', async () => {
-  const groups = new Map<string, Case[]>();
-  for (const c of cases) {
-    const prompt = buildJudgePrompt({
-      prompt: c.message,
-      lastReplyTail: c.context ?? '',
-      contextRatio: null,
-      isSubagent: false,
-    });
-    groups.set(prompt, [...(groups.get(prompt) ?? []), c]);
-  }
+  const groups = groupByPrompt(cases);
   const unique = [...groups.entries()].filter(([, group]) => group.length === 1);
   const failing = new Set(unique.slice(0, 3).map(([prompt]) => prompt));
   const flaky = unique[3][0];
@@ -460,12 +584,12 @@ test('bench retries a failed case once and lists unanswered cases apart from mis
       },
     },
   );
-  await fake.runCommand('gearbox', 'bench p/m', 'ses_bench');
+  await fake.runCommand('gearbox', 'bench effortless p/m', 'ses_bench');
   const out = fake.lastMessage();
   for (const prompt of failing) expect(calls.get(prompt), 'failed case retried once').toBe(2);
   expect(calls.get(flaky)).toBe(2);
   expect(out).toMatch(/answered: 72\/75/);
-  expect(out).toMatch(/72\/72 \(100%\) of answered, 72\/75 \(96%\) of all/);
+  expect(out).toMatch(/effortless: 72\/72 \(100%\) of answered, 72\/75 \(96%\) of all/);
   expect(out).toMatch(/No answer \(3\)/);
   expect(out).not.toMatch(/Misses/);
   for (const [, [c]] of unique.slice(0, 3)) expect(out).toMatch(new RegExp(`\\b${c.id}\\b`));

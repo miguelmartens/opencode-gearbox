@@ -3,11 +3,13 @@
 // toast API and a command must not start a model turn.
 
 import type { Plugin } from '@opencode/plugin';
+import { LEVELS } from '../core/types.ts';
 import type { Level, ModelRef } from '../core/types.ts';
 import { isValidSetting, mergeSettings, parseSetCommand } from '../core/settings.ts';
 import { summarize, usd } from '../core/stats.ts';
 import { saveModeActive } from '../core/levels.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
+import { classifyPrompt } from '../core/rules.ts';
 import { getState } from './state.ts';
 import { loadSettings, updateSettings } from './settings-store.ts';
 import { resolveJudgeModel, runJudge } from './judge-model.ts';
@@ -17,7 +19,8 @@ import { parseModelString, sessionModelRef } from './models.ts';
 import { buildStatus, onStepEnded, statusChanged } from './status.ts';
 import { logOnce, toast } from './notify.ts';
 import { defaultBoardPath, openFile, writeBoard } from './board.ts';
-import bench from '../../bench/judge-cases.json' with { type: 'json' };
+import effortlessCases from '../../bench/effortless-judge-cases.json' with { type: 'json' };
+import gearboxCases from '../../bench/gearbox-judge-cases.json' with { type: 'json' };
 
 type Ctx = Plugin.Context;
 
@@ -33,13 +36,25 @@ export type CommandDeps = {
   openFile: (path: string) => Promise<void>;
 };
 
-type BenchCase = {
+/** A labelled judge prompt; bench/judge-cases.md describes the fields. */
+export type BenchCase = {
   id: string;
   message: string;
+  /** effortless: a `user: … assistant: …` transcript. */
   context?: string;
+  /** gearbox: the end of the previous assistant reply, as production sends it. */
+  reply?: string;
+  subagent?: boolean;
+  contextRatio?: number;
   ok: Level[];
   holdout?: boolean;
 };
+
+const BENCH_SETS: Record<string, BenchCase[]> = {
+  effortless: (effortlessCases as { cases: BenchCase[] }).cases,
+  gearbox: (gearboxCases as { cases: BenchCase[] }).cases,
+};
+const BENCH_USAGE = `Usage: /gearbox bench [${Object.keys(BENCH_SETS).join('|')}] [provider/model]`;
 
 const BENCH_CONCURRENCY = 4;
 const MAX_FIELD = 60;
@@ -52,7 +67,7 @@ const HELP = [
   '/gearbox settings        show the settings',
   '/gearbox save [on|off]   cap effort at saveMode.cap for saveMode.hours',
   '/gearbox stats           turns per level, tokens and cost for this session',
-  '/gearbox bench [p/m]     score the judge model on the 75 labelled prompts',
+  '/gearbox bench [set] [p/m] score the judge on the labelled prompts: effortless, gearbox or both',
   '/gearbox handoff [full]  continue in a fresh session with a summary',
   '/gearbox compact [note]  compact now, keeping the note in mind',
   '/gearbox debug           last decision, judge answer and request model',
@@ -67,19 +82,85 @@ const clip = (text: string): string =>
 const formatModel = (m: ModelRef | null | undefined): string =>
   m ? `${m.providerID}/${m.id}${m.variant ? `#${m.variant}` : ''}` : 'unknown';
 
-type BenchResult = { c: BenchCase; answered: boolean; got: Level | null; ms: number };
+type BenchResult = {
+  set: string;
+  c: BenchCase;
+  answered: boolean;
+  got: Level | null;
+  ms: number;
+};
+type Miss = { dir: 'low' | 'high'; steps: number };
 
 const pct = (hits: number, of: number): string =>
   `${hits}/${of} (${of ? Math.round((hits / of) * 100) : 0}%)`;
 
-function benchLine(c: BenchCase, got: string): string {
-  return `- ${c.id} "${clip(c.message)}": ${got} (ok: ${c.ok.join('|')})`;
+const rank = (level: Level): number => LEVELS.indexOf(level);
+
+/** The judge prompt for a case, built from what production would send for it. */
+export function benchPrompt(c: BenchCase): string {
+  return buildJudgePrompt({
+    prompt: c.message,
+    lastReplyTail: c.subagent ? '' : (c.reply ?? c.context ?? ''),
+    contextRatio: c.contextRatio ?? null,
+    isSubagent: c.subagent === true,
+  });
+}
+
+/** How far a readable answer lands outside `ok`; `null` on a hit or no level. */
+function missOf(r: BenchResult): Miss | null {
+  if (r.got === null) return null;
+  const ranks = r.c.ok.map(rank);
+  const got = rank(r.got);
+  if (got < Math.min(...ranks)) return { dir: 'low', steps: Math.min(...ranks) - got };
+  if (got > Math.max(...ranks)) return { dir: 'high', steps: got - Math.max(...ranks) };
+  return null;
+}
+
+function benchLine(r: BenchResult, got: string): string {
+  const message = clip(r.c.message.replace(/\s+/g, ' '));
+  return `- ${r.set} ${r.c.id} "${message}": ${got} (ok: ${r.c.ok.join('|')})`;
+}
+
+const correct = (r: BenchResult) => r.got !== null && r.c.ok.includes(r.got);
+
+function score(list: BenchResult[]): string {
+  const answered = list.filter((r) => r.answered).length;
+  const hits = list.filter(correct).length;
+  return `${pct(hits, answered)} of answered, ${pct(hits, list.length)} of all`;
+}
+
+/** One set's score, holdout, miss directions and the cases production never judges. */
+function setLines(set: string, list: BenchResult[]): string[] {
+  const lines = [`${set}: ${score(list)}`];
+  const holdout = list.filter((r) => r.c.holdout);
+  if (holdout.length > 0) lines.push(`  holdout: ${score(holdout)}`);
+  const misses = list.map(missOf).filter((m): m is Miss => m !== null);
+  const low = misses.filter((m) => m.dir === 'low');
+  const high = misses.filter((m) => m.dir === 'high');
+  const unreadable = list.filter((r) => r.answered && r.got === null).length;
+  if (misses.length + unreadable > 0) {
+    const severe = low.filter((m) => m.steps >= 2).length;
+    const parts = [
+      `${low.length} too low${severe ? ` (${severe} by 2+ levels)` : ''}`,
+      `${high.length} too high`,
+    ];
+    if (unreadable) parts.push(`${unreadable} unreadable`);
+    const steps = (list: Miss[]) => list.reduce((sum, m) => sum + m.steps, 0);
+    const cost = 2 * steps(low) + steps(high);
+    lines.push(`  misses: ${parts.join(', ')}; miss cost ${cost} (too low counts double)`);
+  }
+  const skipped = list.filter((r) => classifyPrompt(r.c.message).kind !== 'judge');
+  if (skipped.length > 0)
+    lines.push(
+      `  never judged in production (follow-up or named level): ${skipped.map((r) => r.c.id).join(', ')}`,
+    );
+  return lines;
 }
 
 /**
- * Scores the judge on the labelled cases. A failed call (timeout, provider error) is retried once;
- * cases still unanswered are listed apart from wrong answers. Bench calls are real spend: they go
- * into today's spend, not into the session's stats.
+ * Scores the judge on the labelled cases of each set. A failed call (timeout, provider error) is
+ * retried once; cases still unanswered are listed apart from wrong answers. Bench calls are real
+ * spend: they go into today's spend, not into the session's stats.
  */
 async function runBench(
   ctx: Ctx,
@@ -87,8 +168,9 @@ async function runBench(
   sessionID: string,
   model: ModelRef,
   timeoutMs: number,
+  sets: string[],
 ): Promise<string> {
-  const cases = (bench as { cases: BenchCase[] }).cases;
+  const cases = sets.flatMap((set) => BENCH_SETS[set].map((c) => ({ set, c })));
   const results: BenchResult[] = new Array(cases.length);
   const meta = { sessionID, sessionStats: false };
   let calls = 0;
@@ -103,15 +185,11 @@ async function runBench(
   const worker = async () => {
     while (next < cases.length) {
       const index = next++;
-      const c = cases[index];
-      const prompt = buildJudgePrompt({
-        prompt: c.message,
-        lastReplyTail: c.context ?? '',
-        contextRatio: null,
-        isSubagent: false,
-      });
+      const { set, c } = cases[index];
+      const prompt = benchPrompt(c);
       const answer = (await ask(prompt)) ?? (await ask(prompt));
       results[index] = {
+        set,
         c,
         answered: answer !== null,
         got: answer ? (parseJudgeAnswer(answer.text)?.level ?? null) : null,
@@ -121,16 +199,9 @@ async function runBench(
   };
   await Promise.all(Array.from({ length: BENCH_CONCURRENCY }, worker));
 
-  const correct = (r: BenchResult) => r.got !== null && r.c.ok.includes(r.got);
-  const score = (list: BenchResult[]) => {
-    const answered = list.filter((r) => r.answered);
-    const hits = list.filter(correct).length;
-    return `${pct(hits, answered.length)} of answered, ${pct(hits, list.length)} of all`;
-  };
   const answered = results.filter((r) => r.answered);
   const unanswered = results.filter((r) => !r.answered);
   const misses = answered.filter((r) => !correct(r));
-  const holdout = results.filter((r) => r.c.holdout);
   const avgMs = answered.length
     ? Math.round(answered.reduce((sum, r) => sum + r.ms, 0) / answered.length)
     : 0;
@@ -138,20 +209,29 @@ async function runBench(
     `Bench ${formatModel(model)}`,
     `answered: ${answered.length}/${results.length}` +
       (unanswered.length ? ` (${unanswered.length} failed twice: timeout or provider error)` : ''),
-    `correct: ${score(results)}`,
   ];
-  if (holdout.length > 0) lines.push(`holdout: ${score(holdout)}`);
+  for (const set of sets)
+    lines.push(
+      ...setLines(
+        set,
+        results.filter((r) => r.set === set),
+      ),
+    );
   lines.push(`avg judge time: ${avgMs} ms`);
   lines.push(
     `bench spend: ${usd(spentUSD)} over ${calls} judge calls (today's spend, not session stats)`,
   );
   if (misses.length > 0) {
     lines.push(`Misses (${misses.length}):`);
-    for (const r of misses) lines.push(benchLine(r.c, r.got ?? 'unreadable answer'));
+    for (const r of misses) {
+      const miss = missOf(r);
+      const got = miss ? `${r.got}, too ${miss.dir}` : 'unreadable answer';
+      lines.push(benchLine(r, got));
+    }
   }
   if (unanswered.length > 0) {
     lines.push(`No answer (${unanswered.length}):`);
-    for (const r of unanswered) lines.push(benchLine(r.c, 'no answer'));
+    for (const r of unanswered) lines.push(benchLine(r, 'no answer'));
   }
   return lines.join('\n');
 }
@@ -265,22 +345,26 @@ export async function registerCommands(
       await say(sessionID, summarize(await readStats(ctx, sessionID)));
     },
     async bench(sessionID, arg) {
+      const tokens = arg.split(/\s+/).filter(Boolean);
+      const isSet = (t: string) => Object.hasOwn(BENCH_SETS, t);
+      const named = tokens.filter(isSet);
+      const rest = tokens.filter((t) => !isSet(t));
+      if (rest.length > 1) return say(sessionID, BENCH_USAGE, 'error');
+      const sets = named.length > 0 ? [...new Set(named)] : Object.keys(BENCH_SETS);
       const s = await loadSettings(ctx);
       let model: ModelRef | null;
-      if (arg) {
-        model = parseModelString(arg);
-        if (!model) return say(sessionID, 'Usage: /gearbox bench [provider/model]', 'error');
+      if (rest.length > 0) {
+        model = parseModelString(rest[0]);
+        if (!model) return say(sessionID, BENCH_USAGE, 'error');
       } else {
         const chat = await sessionModelRef(ctx, await ctx.session.get({ sessionID } as never));
         if (!chat)
           return say(sessionID, 'Gearbox: no model to bench; pass provider/model', 'error');
         model = await deps.resolveJudgeModel(ctx, chat, s);
       }
-      await say(
-        sessionID,
-        `Gearbox: benching ${formatModel(model)} on ${bench.cases.length} prompts…`,
-      );
-      await say(sessionID, await runBench(ctx, deps, sessionID, model, s.judge.timeoutMs));
+      const count = sets.reduce((sum, set) => sum + BENCH_SETS[set].length, 0);
+      await say(sessionID, `Gearbox: benching ${formatModel(model)} on ${count} prompts…`);
+      await say(sessionID, await runBench(ctx, deps, sessionID, model, s.judge.timeoutMs, sets));
     },
     async handoff(sessionID, arg) {
       if (arg !== '' && arg !== 'quick' && arg !== 'full')

@@ -18,7 +18,7 @@
   <a href="https://www.npmjs.com/package/opencode-gearbox"><img src="https://img.shields.io/npm/v/opencode-gearbox?style=flat-square&color=34343A&labelColor=0C0C0D&label=npm" alt="npm"></a>
   <a href="https://github.com/miguelmartens/opencode-gearbox/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/miguelmartens/opencode-gearbox/ci.yml?style=flat-square&color=34343A&labelColor=0C0C0D&label=ci" alt="CI"></a>
   <img src="https://img.shields.io/badge/opencode-V2%20%E2%89%A5%202.2.6-34343A?style=flat-square&labelColor=0C0C0D" alt="OpenCode V2 2.2.6+">
-  <img src="https://img.shields.io/badge/judge%20bench-75%20prompts-34343A?style=flat-square&labelColor=0C0C0D" alt="Judge benchmark: 75 labelled prompts">
+  <img src="https://img.shields.io/badge/judge%20bench-135%20prompts-34343A?style=flat-square&labelColor=0C0C0D" alt="Judge benchmark: 135 labelled prompts">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-34343A?style=flat-square&labelColor=0C0C0D" alt="MIT license"></a>
 </p>
 
@@ -30,6 +30,7 @@
   <a href="#commands">Commands</a> ·
   <a href="#board">Board</a> ·
   <a href="#options">Options</a> ·
+  <a href="#how-the-judge-decides">Judge</a> ·
   <a href="#how-model-switching-decides">Model switching</a>
 </p>
 
@@ -63,7 +64,7 @@ Gearbox is built for **Claude models** first; other models with effort variants 
 |  4   | `xhigh`  | Refactors, design trade-offs        | the chat model               |   16 000 tokens |
 |  5   | `max`    | Full reasoning, or say "max effort" | the chat model               |   32 000 tokens |
 
-The "typical prompt" column is a guide; the judge decides.
+The "typical prompt" column is a guide; [the judge decides](#how-the-judge-decides).
 
 ## What it does
 
@@ -80,7 +81,7 @@ The "typical prompt" column is a guide; the judge decides.
   - Per session: user turns per level, model requests, tokens, cost and judge cost.
   - Save mode caps effort for a few hours.
   - An optional daily spend budget turns save mode on at 80%. It counts the cost each provider reports per request. A reported cost of 0 (subscriptions) is trusted, so on those providers only judge calls add to the spend.
-- **Benchmark.** `/gearbox bench` scores a judge model on 75 labelled prompts.
+- **Benchmark.** `/gearbox bench` scores a judge model on 135 labelled prompts: 75 from effortless and 60 of Gearbox's own (subagent tasks, edge-case-heavy work, pasted logs, prompt injection).
 
 ## Benchmark
 
@@ -131,7 +132,7 @@ On a model with only `high` and `max`, a `low` turn runs on `high`. The status b
 What "Claude first" means:
 
 - The end-to-end run and the judge benchmark used Claude through the `opencode-go` provider. Claude through `anthropic` or any other provider that speaks Anthropic Messages gets the same treatment.
-- The recommended judge is a Claude Haiku model with thinking off (`#none`); it scored 71/75 at about 1 s per answer.
+- The recommended judge is a Claude Haiku model with thinking off (`#none`); it scored 71/75 on the effortless set at about 1 s per answer.
 - The 5-minute default cache TTL in the status bar matches Anthropic. For other providers it is an assumption; set `settings.cache.ttl` to correct it.
 - Model switching for subagents needs model prices. Subscription catalogs without prices give effort control only.
 
@@ -176,7 +177,7 @@ The judge must answer within `judge.timeoutMs` (4 s by default), or the turn fal
 
 For options 2–4, Gearbox picks the model's `none`, `minimal` or `low` variant when it has one, so the judge does not think for long. An explicit `judge.model` is used as given: add the variant yourself, e.g. `#none`.
 
-Run `/gearbox bench` for your judge, and `/gearbox bench provider/model` for a candidate, before you rely on it. In the end-to-end run on `opencode-go`, `claude-haiku-5-5#none` scored 71/75 at about 1 s per answer. `deepseek-v4.1-flash` was often overloaded and missed the 4 s timeout. See `test/e2e/CHECKLIST.md`.
+Run `/gearbox bench` for your judge, and `/gearbox bench provider/model` for a candidate, before you rely on it. In the end-to-end run on `opencode-go`, `claude-haiku-5-5#none` scored 71/75 on the effortless set at about 1 s per answer; the Gearbox set has no published run yet. `deepseek-v4.1-flash` was often overloaded and missed the 4 s timeout. See `test/e2e/CHECKLIST.md`.
 
 ## Try it
 
@@ -194,26 +195,24 @@ After you install Gearbox, open the TUI in any project and watch the status bar 
 
 All output appears as a toast or, for long text, as a dialog. No model turn is started.
 
-| Command                   | What it does                                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `/gearbox`                | Status: level, model, mode, reason, context, save mode, today's spend                                  |
-| `/gearbox help`           | The command list                                                                                       |
-| `/gearbox auto on\|off`   | Automatic effort on or off. `on` also resumes a session paused by a manual variant                     |
-| `/gearbox set <key> <v>`  | Change a setting, e.g. `set bias -1`, `set judge.model openai/gpt-6-luna#none`, `set judge.model null` |
-| `/gearbox settings`       | Show the current settings                                                                              |
-| `/gearbox save [on\|off]` | Cap effort at `saveMode.cap` for `saveMode.hours`                                                      |
-| `/gearbox stats`          | User turns per level, model requests, tokens, cost and judge cost for this session                     |
-| `/gearbox bench [p/m]`    | Score the judge model (or `provider/model[#variant]`) on the 75 labelled prompts; see below            |
-| `/gearbox handoff [full]` | Continue in a fresh session seeded with a summary. `full` also writes `HANDOFF.md`                     |
-| `/gearbox compact [note]` | Compact now; the summary keeps `note` in mind, whether the judge model or OpenCode writes it           |
-| `/gearbox debug`          | Last decision, the judge's raw answer, whether a judge call is running, and the last request's model   |
-| `/gearbox board`          | Write the [board](#board), a local page of every session and project, and open it in the browser       |
+| Command                      | What it does                                                                                                                                    |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/gearbox`                   | Status: level, model, mode, reason, context, save mode, today's spend                                                                           |
+| `/gearbox help`              | The command list                                                                                                                                |
+| `/gearbox auto on\|off`      | Automatic effort on or off. `on` also resumes a session paused by a manual variant                                                              |
+| `/gearbox set <key> <v>`     | Change a setting, e.g. `set bias -1`, `set judge.model openai/gpt-6-luna#none`, `set judge.model null`                                          |
+| `/gearbox settings`          | Show the current settings                                                                                                                       |
+| `/gearbox save [on\|off]`    | Cap effort at `saveMode.cap` for `saveMode.hours`                                                                                               |
+| `/gearbox stats`             | User turns per level, model requests, tokens, cost and judge cost for this session                                                              |
+| `/gearbox bench [set] [p/m]` | Score the judge model (or `provider/model[#variant]`) on the labelled prompts: `effortless`, `gearbox` or both; see [Judge cases](#judge-cases) |
+| `/gearbox handoff [full]`    | Continue in a fresh session seeded with a summary. `full` also writes `HANDOFF.md`                                                              |
+| `/gearbox compact [note]`    | Compact now; the summary keeps `note` in mind, whether the judge model or OpenCode writes it                                                    |
+| `/gearbox debug`             | Last decision, the judge's raw answer, whether a judge call is running, and the last request's model                                            |
+| `/gearbox board`             | Write the [board](#board), a local page of every session and project, and open it in the browser                                                |
 
 Plugin commands run from the TUI (or `client.session.command`). `opencode run "/gearbox …"` sends the text as a normal prompt.
 
 In `/gearbox stats` a **turn** is one user prompt, counted once at the level Gearbox set for it. A turn Gearbox did not route (auto off, paused by a manual variant, or a model without effort control) counts as **manual**. A **request** is one model call; a turn with tool calls makes several. Tokens and cost add up per request. Stats of a deleted session are removed, and daily spend is kept for 30 days.
-
-`/gearbox bench` retries a failed judge call (timeout or provider error) once. It prints how many cases were answered, the score over the answered cases and over all 75, and lists wrong answers ("Misses") apart from cases that got no answer. Bench calls are real spend: they count in today's spend (and the budget), and the bench output shows their cost, but they stay out of the session's stats.
 
 ## Status bar
 
@@ -278,6 +277,86 @@ Options from the plugin entry are the base. Changes made with `/gearbox set` are
 | `effortModels`               | `".*"`     | Regular expression of model ids Gearbox manages. Other models run unchanged and are left out of the ladder |
 
 The levels, lowest to highest: `low`, `medium`, `high`, `xhigh`, `max`. Shaping order: `bias`, then `floor` and `ceiling`, then the save-mode cap.
+
+## How the judge decides
+
+The judge is a small, fast model (see [Pick a fast judge](#pick-a-fast-judge)). Before a prompt reaches your chat model, Gearbox asks the judge how much effort the prompt needs.
+
+1. **Rules first, no model call.** A follow-up (`ok`, `go`, `continue`) keeps the last level. A level named in the prompt ("max effort") is used as given, unless a negation comes just before it.
+2. **Otherwise the judge reads a short prompt** ([`src/core/judge.ts`](src/core/judge.ts)) that holds:
+   - five one-line level descriptions:
+     - `low`: a lookup, a question or a trivial edit
+     - `medium`: one scoped change
+     - `high`: a multi-file change or debugging
+     - `xhigh`: architecture work or hard debugging
+     - `max`: only for explicitly critical or very hard work
+   - whether the request comes from the main chat or a subagent;
+   - the share of the context window in use;
+   - the last 500 characters of the previous reply;
+   - the request itself, up to 2000 characters.
+3. **The judge answers in two lines**, e.g. `LEVEL: high` and `WHY: debugging a bug in existing export code`. Gearbox reads the level, applies `bias`, `floor`, `ceiling` and save mode, and sends the model's matching variant.
+4. **No answer within `judge.timeoutMs`, or no readable answer,** falls back to the last level, else `medium`.
+
+The judge decides from those level descriptions and its own sense of programming work. Nothing else feeds into it:
+
+- It has no examples and no scoring formula.
+- It does not learn from your past prompts.
+- It cannot see which chat model you use.
+- It never sees the labelled bench prompts. They only grade it (see [Judge cases](#judge-cases)).
+
+To change how it decides, change the level descriptions, then check the change with `/gearbox bench`.
+
+## Judge cases
+
+`/gearbox bench` scores the judge on two sets of labelled prompts. Each case is a prompt and the levels a careful person would accept for it. The judge never sees the cases while you work; they only grade it (see [How the judge decides](#how-the-judge-decides)).
+
+- **`/gearbox bench`** runs both sets.
+- **`/gearbox bench effortless`** or **`/gearbox bench gearbox`** runs one.
+- Add `provider/model[#variant]` to score a candidate instead of your judge, e.g. `/gearbox bench gearbox anthropic/claude-haiku-5-5#none`.
+
+### The two sets
+
+**`effortless`: 75 prompts** from [HeyCubit/effortless](https://github.com/HeyCubit/effortless), kept byte-identical (`bench/effortless-judge-cases.json`). They rate prompts mostly by size and scope. Most judges score high here, so use the set as a regression check: a new judge or judge prompt should not lose cases.
+
+| Kind           | Cases | Example                                                      |
+| -------------- | ----: | ------------------------------------------------------------ |
+| trivial        |    11 | "what does the -r flag do in cp?"                            |
+| normal         |    13 | "write unit tests for the parseDate helper in utils/date.ts" |
+| big            |     8 | "migrate the whole app from REST to GraphQL, …"              |
+| short-but-big  |     7 | "make it production ready"                                   |
+| answer         |    14 | "B", after the assistant offered options                     |
+| follow-up      |     5 | "go"                                                         |
+| model-relative |     5 | the same prompt labelled for a stronger model                |
+| non-code       |     7 | "translate this paragraph to Swedish"                        |
+| meta           |     5 | "what effort are you using?"                                 |
+
+**`gearbox`: 60 prompts** of Gearbox's own (`bench/gearbox-judge-cases.json`). Their labels follow Anthropic's [Spending your effort](https://claude.dev/blog/spending-your-effort/): effort buys checking and edge-case testing, so it pays off on edge-case-heavy, brownfield, risky and unattended work, and low effort fits work where you stay in the loop. Expect a lower score here; it is the harder set.
+
+| Group            | Cases | Kinds                                                                                                                                                        |
+| ---------------- | ----: | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Effort signals   |    32 | edge cases, risky domains, brownfield/greenfield pairs, changes across layers, fully specified work, sketches, verify passes, unattended runs, critical work |
+| Gearbox's inputs |    14 | subagent tasks, urgency words written by a parent model, short replies to the previous answer, the same prompt at 5% and 85% context                         |
+| Traps            |    14 | long pasted logs, prompt injection, talk about effort, dramatic wording on small jobs, German, Spanish and Japanese                                          |
+
+Every `gearbox` case reaches the judge in production: none is a follow-up or names a level. Its cases pass the previous reply, the subagent flag and the context share to the judge exactly as Gearbox does while you work.
+
+### How a case is scored
+
+- **Hit:** the judged level is one of the case's acceptable levels (one level, or two adjacent ones).
+- **Holdout:** 20 cases in each set were written before any judge prompt was tuned and are never tuned against. The bench reports them on their own line; that is the honest score.
+- **Misses** are split into too low and too high. Too low risks the work and too high only costs more, so too-low steps count double in the miss cost, and answers 2 or more levels too low are counted apart.
+- **Never judged in production:** the bench lists the cases that Gearbox's rules handle before the judge (7 in the effortless set). They are still scored, to stay comparable with upstream.
+- A failed judge call (timeout or provider error) is retried once. Cases still unanswered are listed apart from wrong answers.
+- Bench calls are real spend: they count in today's spend (and the budget), and the bench output shows their cost, but they stay out of the session's stats.
+
+### Known limits
+
+- **Small sets.** At 60 cases, 51/60 means somewhere between 74% and 92%. Only large differences between two judges show. Judges are not deterministic either: run the bench 3 times before you compare.
+- **The `effortless` set is near its ceiling.** Upstream judges score 92–99% on it, so it shows regressions better than improvements.
+- **The `gearbox` labels are one view.** Gearbox's author labelled them with a written guide; a blind second labeller agreed on 59 of 60 cases, but it was a Claude model too. A labeller from another model family is still to do.
+- **Labels are not outcomes.** A hit means the judge agrees with the label, not that the level solved the task faster or cheaper. The task benchmark in [`bench/`](bench/README.md) measures outcomes.
+
+[`bench/judge-cases.md`](bench/judge-cases.md) has the field reference, the level meanings, the labelling rules and how to compare two judges.
 
 ## How model switching decides
 
@@ -346,8 +425,9 @@ Logo, emblems and banners live in [`assets/brand/`](assets/brand). They are free
 
 ## Credits
 
-- The 75 labelled benchmark prompts in `bench/judge-cases.json` come from [HeyCubit/effortless](https://github.com/HeyCubit/effortless) (MIT). They were taken via [tehchaoz/effortless-opencode](https://github.com/tehchaoz/effortless-opencode) (MIT). See [NOTICE.md](./NOTICE.md).
+- The 75 labelled benchmark prompts in `bench/effortless-judge-cases.json` come from [HeyCubit/effortless](https://github.com/HeyCubit/effortless) (MIT). They were taken via [tehchaoz/effortless-opencode](https://github.com/tehchaoz/effortless-opencode) (MIT). See [NOTICE.md](./NOTICE.md).
 - No code is shared with either project.
+- The labels of Gearbox's own 60 prompts (`bench/gearbox-judge-cases.json`) follow Anthropic's [Spending your effort](https://claude.dev/blog/spending-your-effort/) and the [effort docs](https://platform.claude.com/docs/en/build-with-claude/effort).
 
 ## License
 

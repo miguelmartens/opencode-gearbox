@@ -13,15 +13,11 @@ import { isObject } from '../core/guards.ts';
 import type { JudgeOutcome, TurnRecord } from '../board/build.ts';
 import { loadSettings } from './settings-store.ts';
 import { onForget } from './state.ts';
-import { bounded } from './lifecycle.ts';
+import { readSession, sessionChain } from './models.ts';
 
 type Ctx = Plugin.Context;
 
 const DAY_MS = 86_400_000;
-/** Bounds the walk from a subagent up to its root session. */
-const MAX_DEPTH = 16;
-/** A session lookup for the log never takes longer than this. */
-const LOOKUP_MS = 1000;
 /** A root without a title is asked for it again at most this often. */
 const TITLE_RETRY_MS = 60_000;
 
@@ -85,23 +81,11 @@ export async function* scanAll(ctx: Ctx, prefix: string) {
 /** Where a session's turns are logged: its root session, that root's project and title. */
 export type Place = { root: string; subagent: boolean; project: string; title: string | null };
 
-type Info = { parentID?: string | null; title?: unknown; location?: { directory?: unknown } };
-
 /** Places found by a complete lookup; `checkedAt`: when the root's title was last read. */
 const places = new Map<string, Place & { checkedAt: number }>();
 onForget((sessionID) => places.delete(sessionID));
 
-function lookup(ctx: Ctx, sessionID: string): Promise<Info | null> {
-  return bounded<Info | null | undefined>(
-    Promise.resolve().then(
-      () => ctx.session.get({ sessionID } as never) as unknown as Promise<Info | undefined>,
-    ),
-    LOOKUP_MS,
-    null,
-  ).then((info) => (isObject(info) ? info : null));
-}
-
-const titleOf = (info: Info | null): string | null =>
+const titleOf = (info: { title?: unknown } | null): string | null =>
   typeof info?.title === 'string' && info.title !== '' ? info.title : null;
 
 /**
@@ -122,35 +106,29 @@ export async function findPlace(
     if (found.complete) places.set(sessionID, place);
   } else if (place.title === null && titles && now - place.checkedAt >= TITLE_RETRY_MS) {
     place.checkedAt = now;
-    place.title = titleOf(await lookup(ctx, place.root));
+    place.title = titleOf(await readSession(ctx, place.root).catch(() => null));
   }
   const { checkedAt: _checkedAt, ...found } = place;
   return titles ? found : { ...found, title: null };
 }
 
-/** Walks up to the root session; `complete` is false when a lookup failed on the way. */
+/** The root session's place; `complete` is false when a session read failed on the way. */
 async function lookupPlace(
   ctx: Ctx,
   sessionID: string,
 ): Promise<{ place: Place; complete: boolean }> {
-  let id = sessionID;
-  let info = await lookup(ctx, id);
-  let complete = info !== null;
-  for (let depth = 0; info?.parentID && depth < MAX_DEPTH; depth++) {
-    id = info.parentID;
-    info = await lookup(ctx, id);
-    complete = info !== null;
-  }
-  const directory = info?.location?.directory;
+  const chain = await sessionChain(ctx, sessionID).catch(() => null);
+  const root = chain?.at(-1) ?? { id: sessionID, info: {} };
+  const directory = root.info.location?.directory;
   const dir = typeof directory === 'string' && directory ? directory : ctx.location?.directory;
   return {
     place: {
-      root: id,
-      subagent: id !== sessionID,
+      root: root.id,
+      subagent: root.id !== sessionID,
       project: dir ? basename(dir) : 'unknown',
-      title: titleOf(info),
+      title: titleOf(root.info),
     },
-    complete,
+    complete: chain !== null,
   };
 }
 

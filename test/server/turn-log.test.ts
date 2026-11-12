@@ -277,6 +277,25 @@ test('a subagent moved to a cheaper model is logged under its root session', asy
   expect([...fake.storage.keys()]).toContain(`turns/${DAY}/${root}/${child}/msg_c`);
 });
 
+test('routing and the turn log walk a subagent’s parent chain once', async () => {
+  const root = newSession();
+  const child = newSession();
+  const fake = await setup({
+    sessions: {
+      [root]: rootSession(root),
+      [child]: { id: child, parentID: root, agent: 'general', model: OPUS },
+    },
+    generateText: async () => ({ text: 'LEVEL: low' }),
+  });
+  await prompt(fake, child, 'msg_c', `${SUBAGENT_PREFIX}Find the config loader`);
+  await request(fake, child, 'msg_c', { ...HAIKU, variant: 'low' });
+  await waitFor(() => records(fake).length === 1);
+  const rootReads = fake
+    .callsTo('session.get')
+    .filter((call) => (call.input as { sessionID: string }).sessionID === root);
+  expect(rootReads.length).toBe(1);
+});
+
 test('board.titles false stores no title', async () => {
   const sessionID = newSession();
   const fake = await setup({

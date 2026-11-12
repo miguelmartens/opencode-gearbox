@@ -25,6 +25,7 @@ import {
   defaultModelRef,
   findInfo,
   listModelInfos,
+  sessionChain,
   toModelLite,
   toModelRef,
 } from './models.ts';
@@ -68,15 +69,11 @@ type Local = {
   /** The manual variant that paused auto; accepted once the user turns auto back on. */
   pausedVariant: string | null;
   statusTurn: number | null;
-  /** A child's parent chain, walked once; `null` until looked up. */
-  lineage: Promise<Lineage> | null;
 };
 
 const SUBAGENT_PREFIX = 'You are a subagent spawned by another session.\n';
 const MANUAL_VARIANT = 'manual variant';
 const NO_EFFORT_CONTROL = 'no effort control';
-/** Bounds the walk up a child's parent chain. */
-const MAX_DEPTH = 16;
 /** Admitted prompts kept per session: the running turn and a few queued ones. */
 const ADMITTED_MAX = 8;
 /** The prompt hook returns at most this long after the judge timeout. */
@@ -94,7 +91,6 @@ function getLocal(sessionID: string): Local {
       latestMeta: null,
       pausedVariant: null,
       statusTurn: null,
-      lineage: null,
     };
     locals.set(sessionID, local);
   }
@@ -166,37 +162,17 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     return state.isSubagent;
   }
 
-  async function walkUp(parentID: string): Promise<Lineage> {
-    let id = parentID;
-    let model: ModelRef | null = null;
-    for (let depth = 1; ; depth++) {
-      const info = await getSession(id);
-      const ref = toModelRef(info.model);
-      model ??= ref;
-      if (info.parentID == null || depth >= MAX_DEPTH)
-        return { rootID: id, rootVariant: ref?.variant, model };
-      id = info.parentID;
-    }
-  }
-
-  /** A child's parent chain, walked once per child. `null` when the session is not a child. */
-  async function childLineage(
-    sessionID: string,
-    parentID?: string | null,
-  ): Promise<Lineage | null> {
-    const local = getLocal(sessionID);
-    if (!local.lineage) {
-      const parent = parentID ?? (await getSession(sessionID)).parentID;
-      if (parent == null) return null;
-      if (!local.lineage) {
-        const walk = walkUp(parent);
-        local.lineage = walk;
-        walk.catch(() => {
-          if (local.lineage === walk) local.lineage = null;
-        });
-      }
-    }
-    return local.lineage;
+  /** A child's parent chain, read once per child. `null` when the session is not a child. */
+  async function childLineage(sessionID: string): Promise<Lineage | null> {
+    const [, ...ancestors] = await sessionChain(ctx, sessionID);
+    const root = ancestors.at(-1);
+    if (!root) return null;
+    const model = ancestors.map((link) => toModelRef(link.info.model)).find((ref) => ref !== null);
+    return {
+      rootID: root.id,
+      rootVariant: toModelRef(root.info.model)?.variant,
+      model: model ?? null,
+    };
   }
 
   /**
@@ -440,9 +416,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const subagent = session.parentID != null;
       state.isSubagent = subagent;
       const own = toModelRef(session.model);
-      const lineage = subagent
-        ? await within(childLineage(sessionID, session.parentID), deadline, null)
-        : null;
+      const lineage = subagent ? await within(childLineage(sessionID), deadline, null) : null;
       // An unknown parent chain may hide the user's pick: the child is left alone.
       if (subagent && !lineage) {
         meta.judgeOutcome = 'error';

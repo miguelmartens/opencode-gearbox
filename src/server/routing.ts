@@ -549,7 +549,9 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const model = toModelRef(event?.model);
       if (!settings.auto || !model) return;
       if (!effortRegex(settings).test(model.id)) return;
-      const subagent = await isSubagent(state, sessionID);
+      // Unknown (a hanging session read) may hide the user's pick: the request is left alone.
+      const subagent = await bounded(isSubagent(state, sessionID), settings.judge.timeoutMs, null);
+      if (subagent === null) return;
       if (!subagent && (await manualVariantPause(sessionID, state, model))) return;
       if (subagent) {
         const lineage = await bounded(childLineage(sessionID), settings.judge.timeoutMs, null);

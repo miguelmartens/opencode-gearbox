@@ -133,6 +133,19 @@ test('a hanging model catalog does not hold the request', async () => {
   expect(result).not.toBe('hung');
 });
 
+test('a hanging session read does not hold a request whose prompt Gearbox never saw', async () => {
+  // E.g. after a plugin reload mid-turn: nothing says yet whether the session is a subagent.
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { judge: { timeoutMs: 50 } },
+    overrides: { session: { get: () => new Promise(() => {}) } },
+  });
+  const late = new Promise((resolve) => setTimeout(() => resolve('hung'), 1000));
+  const result = await Promise.race([fake.fire('context', contextEvent(sessionID)), late]);
+  expect(result).not.toBe('hung');
+  expect((result as any).options, 'left alone').toStrictEqual({ maxTokens: 32000 });
+});
+
 function userMessage(id: string, text: string) {
   return { id, role: 'user', content: [{ type: 'text', text }] };
 }

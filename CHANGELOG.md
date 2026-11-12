@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/miguelmartens/opencode-gearbox/compare/v0.4.0...v0.4.1) (2026-11-12)
+
+
+### Bug Fixes
+
+* give the judge the reply it answers and stop losing spend across projects ([#37](https://github.com/miguelmartens/opencode-gearbox/issues/37)) ([ff1f180](https://github.com/miguelmartens/opencode-gearbox/commit/ff1f1800677d7715265979c5bede7a8eba31f995))
+
 ## [0.4.0](https://github.com/miguelmartens/opencode-gearbox/compare/v0.3.1...v0.4.0) (2026-11-12)
 
 

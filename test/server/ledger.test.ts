@@ -3,7 +3,7 @@ import { makeFakeCtx } from '../fake-ctx.ts';
 import { registerRouting } from '../../src/server/routing.ts';
 import { registerCommands } from '../../src/server/commands.ts';
 import { runJudge } from '../../src/server/judge-model.ts';
-import { recordJudgeCall, recordStep } from '../../src/server/ledger.ts';
+import { readSpend, recordJudgeCall, recordStep } from '../../src/server/ledger.ts';
 import { DEFAULT_SETTINGS, LEVELS } from '../../src/core/types.ts';
 
 const NOW = new Date(2026, 10, 10, 12, 0, 0).getTime();
@@ -133,7 +133,7 @@ test('daily spend older than 30 days is pruned when spend is recorded', async ()
   await recordJudgeCall(fake.ctx, 'ses_prune', 0.01, NOW);
   expect(fake.storage.has('spend/2026-09-01')).toBe(false);
   expect(fake.storage.has('spend/2026-10-20')).toBe(true);
-  expect((fake.storage.get('spend/2026-11-10') as any).usd).toBe(0.01);
+  expect((await readSpend(fake.ctx, NOW)).usd).toBe(0.01);
 });
 
 test('session stats untouched for more than 30 days are pruned when spend is recorded', async () => {
@@ -171,7 +171,43 @@ test('a step and a judge call finishing together are both counted (writes run on
   const stats = fake.storage.get('stats/ses_race') as any;
   expect(stats.costUSD).toBe(0.5);
   expect(stats.judgeCalls).toBe(1);
-  expect((fake.storage.get('spend/2026-11-10') as any).usd).toBe(0.75);
+  expect((await readSpend(fake.ctx, NOW)).usd).toBe(0.75);
+});
+
+test('spend another process wrote today counts toward the total and the budget', async () => {
+  const fake = makeFakeCtx({
+    models: MODELS,
+    storage: {
+      settings: { budget: { dailyUSD: 10 } },
+      // An OpenCode process sharing the store, and the one key older versions wrote.
+      'spend/2026-11-10/other-process': { usd: 7, warnedFor: null },
+      'spend/2026-11-10': { usd: 1, warnedFor: null },
+    },
+  });
+  const step = { level: 'low' as const, input: 1, output: 1, cacheRead: 0, costUSD: 0.5, turn: 1 };
+  await recordStep(fake.ctx, 'ses_shared', step, NOW);
+  expect((await readSpend(fake.ctx, NOW)).usd).toBe(8.5);
+  expect((fake.storage.get('spend/2026-11-10/other-process') as any).usd, 'not overwritten').toBe(
+    7,
+  );
+  expect(fake.toasts.filter((t) => /daily budget/.test(t.message)).length, 'warned at 80%').toBe(1);
+});
+
+test('two plugin contexts of one process never lose each other’s spend', async () => {
+  const a = makeFakeCtx({ models: MODELS });
+  // One OpenCode process runs one plugin instance per project; they share one store.
+  const b = makeFakeCtx({ models: MODELS, overrides: { storage: a.ctx.storage } });
+  const read = a.ctx.storage.get;
+  a.ctx.storage.get = b.ctx.storage.get = async (key: string) => {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    return read(key);
+  };
+  const step = { level: 'low' as const, input: 1, output: 1, cacheRead: 0, costUSD: 0.5, turn: 1 };
+  await Promise.all([
+    recordStep(a.ctx, 'ses_project_a', step, NOW),
+    recordStep(b.ctx, 'ses_project_b', { ...step, costUSD: 0.25 }, NOW),
+  ]);
+  expect((await readSpend(a.ctx, NOW)).usd).toBe(0.75);
 });
 
 test('a judge call settling after its session is deleted does not write its stats again', async () => {
@@ -181,7 +217,7 @@ test('a judge call settling after its session is deleted does not write its stat
   await waitFor(() => !fake.storage.has('stats/ses_late'));
   await recordJudgeCall(fake.ctx, 'ses_late', 0.01, NOW);
   expect(fake.storage.has('stats/ses_late')).toBe(false);
-  expect((fake.storage.get('spend/2026-11-10') as any).usd, 'still real spend').toBe(0.01);
+  expect((await readSpend(fake.ctx, NOW)).usd, 'still real spend').toBe(0.01);
 });
 
 test('a failing spend prune never fails the request record', async () => {
@@ -192,5 +228,5 @@ test('a failing spend prune never fails the request record', async () => {
   const step = { level: 'low' as const, input: 1, output: 1, cacheRead: 0, costUSD: 0.1, turn: 1 };
   await recordStep(fake.ctx, 'ses_prune_fail', step, NOW);
   expect((fake.storage.get('stats/ses_prune_fail') as any).costUSD).toBe(0.1);
-  expect((fake.storage.get('spend/2026-11-10') as any).usd).toBe(0.1);
+  expect((await readSpend(fake.ctx, NOW)).usd).toBe(0.1);
 });

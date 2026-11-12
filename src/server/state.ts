@@ -7,6 +7,11 @@ export type SessionState = {
   lastLevel: Level | null;
   pending: Promise<Decision> | null;
   autoPaused: string | null;
+  /**
+   * Set by `/gearbox auto on`: the variant of the next request is accepted, not a pause. Gearbox
+   * may not have seen the session's variant yet (e.g. right after OpenCode starts).
+   */
+  acceptVariant: boolean;
   lastRequestAt: number | null;
   userTurn: number;
   isSubagent: boolean | null;
@@ -58,6 +63,7 @@ function freshState(): SessionState {
     lastLevel: null,
     pending: null,
     autoPaused: null,
+    acceptVariant: false,
     lastRequestAt: null,
     userTurn: 0,
     isSubagent: null,

@@ -141,6 +141,7 @@ test('auto on persists auto: true and clears autoPaused', async () => {
   await fake.runCommand('gearbox', 'auto on', 'ses_auto');
   expect((await loadSettings(fake.ctx)).auto).toBe(true);
   expect(getState('ses_auto').autoPaused).toBe(null);
+  expect(getState('ses_auto').acceptVariant).toBe(true);
 });
 
 test('save on sets saveMode.until to now + hours, save off clears it', async () => {

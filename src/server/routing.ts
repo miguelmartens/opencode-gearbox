@@ -11,7 +11,6 @@ import type { Plugin } from '@opencode/plugin';
 import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
 import { applyShaping, pickVariant } from '../core/levels.ts';
 import { classifyPrompt } from '../core/rules.ts';
-import { isLevel } from '../core/settings.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
 import { buildLadder, preferEffortRungs, routeModel, sameModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
@@ -109,11 +108,6 @@ function isManualVariant(variant: string | undefined): variant is string {
 /** The `effortModels` pattern; `mergeSettings` drops an invalid one. */
 function effortRegex(settings: Settings): RegExp {
   return new RegExp(settings.effortModels);
-}
-
-/** Variant IDs that are effort levels; `none`, `minimal`, `thinking` are dropped. */
-function effortVariants(ids: string[]): string[] {
-  return ids.filter(isLevel);
 }
 
 function liteModels(infos: ModelInfo[]): ModelLite[] {
@@ -393,7 +387,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     const ladder = preferEffortRungs(buildLadder(lites, top, effortRegex(settings)));
     if (ladder.length === 0) return;
     const target = routeModel(level, ladder);
-    const variant = pickVariant(level, effortVariants(target.variants));
+    const variant = pickVariant(level, target.variants);
     const next: ModelRef = { providerID: target.ref.providerID, id: target.ref.id };
     if (variant) next.variant = variant;
     if (sameModel(next, model) && next.variant === model.variant) return;
@@ -565,7 +559,10 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       // A hanging catalog read must not hold the request: no catalog → no effort control.
       const infos = await bounded(listModelInfos(ctx), settings.judge.timeoutMs, []);
       const info = findInfo(infos, model);
-      const variantID = pickVariant(level, effortVariants((info?.variants ?? []).map((v) => v.id)));
+      const variantID = pickVariant(
+        level,
+        (info?.variants ?? []).map((v) => v.id),
+      );
       const effort = info?.variants?.find((v) => v.id === variantID)?.settings;
       state.lastLevel = decision.level;
       state.lastDecision = { ...decision, level };

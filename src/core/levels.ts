@@ -24,7 +24,10 @@ export function applyShaping(level: Level, s: Settings, now: number): Level {
   return out;
 }
 
-/** Exact variant; else the nearest lower level; else the nearest higher; else undefined. */
+/**
+ * Exact variant; else the nearest lower level; else the nearest higher; else undefined. Only level
+ * names are picked: `none`, `minimal` or `thinking` never are.
+ */
 export function pickVariant(level: Level, available: string[]): string | undefined {
   const target = rank(level);
   for (let i = target; i >= 0; i--) if (available.includes(LEVELS[i])) return LEVELS[i];

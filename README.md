@@ -266,7 +266,6 @@ Options from the plugin entry are the base. Changes made with `/gearbox set` are
 | `saveMode.hours`             | `5`        | How long `/gearbox save` lasts                                                                             |
 | `judge.model`                | unset      | Judge and summary model, `provider/model[#variant]`. Unset: see [Pick a fast judge](#pick-a-fast-judge)    |
 | `judge.timeoutMs`            | `4000`     | How long a turn waits for the judge before it falls back                                                   |
-| `modelSwitch.main`           | `false`    | Reserved. **No effect:** the main chat gets effort only (see below)                                        |
 | `modelSwitch.subagents`      | `true`     | Give subagents without an explicit `model` a model from the price ladder                                   |
 | `modelSwitch.minSavingRatio` | `0.2`      | A resumed subagent's switch must save at least this share of the cost of staying                           |
 | `compactWith`                | `"small"`  | `small`: the judge model writes compaction summaries when cheaper. `session`: OpenCode compacts as usual   |
@@ -395,7 +394,7 @@ Expected output per level is 800, 3 000, 8 000, 16 000 and 32 000 tokens.
 
 **OpenCode 2.2.6 limits.**
 
-- 2.2.6 does not fire the `experimental.model.resolve` hook, the only place a main-chat switch could happen per request. So the main chat gets effort only and `modelSwitch.main` does nothing. Gearbox does not register the hook; main-chat switching will be built and probed against a release that fires it.
+- 2.2.6 does not fire the `experimental.model.resolve` hook, the only place a main-chat switch could happen per request. So the main chat gets effort only. Gearbox does not register the hook; main-chat switching will be built and probed against a release that fires it.
 - Effort goes through the `context` hook on every agent-loop step. Gearbox copies the chosen variant's settings into the request options, e.g. `output_config.effort` on Anthropic and `reasoning.effort` on OpenAI.
 
 ## Development

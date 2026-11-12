@@ -114,6 +114,23 @@ test('concurrent settings updates both persist', async () => {
   expect(s.swampedAt).toBe(0.5);
 });
 
+test('settings updates from two plugin contexts of one process both persist', async () => {
+  const a = makeFakeCtx();
+  // One OpenCode process runs one plugin instance per project; they share one store.
+  const b = makeFakeCtx({ overrides: { storage: a.ctx.storage } });
+  await Promise.all([
+    updateSettings(a.ctx, (s) => {
+      s.bias = 1;
+    }),
+    updateSettings(b.ctx, (s) => {
+      s.swampedAt = 0.5;
+    }),
+  ]);
+  const s = await loadSettings(a.ctx);
+  expect(s.bias).toBe(1);
+  expect(s.swampedAt).toBe(0.5);
+});
+
 test('a settings update that returns false stores nothing', async () => {
   const fake = makeFakeCtx();
   await updateSettings(fake.ctx, (s) => {
@@ -175,11 +192,11 @@ test('save on sets saveMode.until to now + hours, save off clears it', async () 
   expect((await loadSettings(fake.ctx)).saveMode.until).toBe(null);
 });
 
-test('settings prints the settings and the modelSwitch.main caveat', async () => {
+test('settings prints the settings', async () => {
   const fake = await setup();
   await fake.runCommand('gearbox', 'settings');
   expect(fake.lastMessage()).toMatch(/"bias": 0/);
-  expect(fake.lastMessage()).toMatch(/modelSwitch\.main/);
+  expect(fake.lastMessage()).not.toMatch(/"main"/);
 });
 
 test('help lists the subcommands; an unknown subcommand shows help', async () => {

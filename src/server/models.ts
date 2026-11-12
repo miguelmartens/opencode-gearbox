@@ -1,9 +1,12 @@
 // Model catalog reads (docs/api-probe.md §2, §11), memoized for a few seconds so one step does not
 // list the models once per module. Never read at setup: the catalog is complete only in hooks.
+// Also a session's parent chain, read once per session for routing and the turn log.
 
 import type { Plugin } from '@opencode/plugin';
 import type { ModelLite, ModelRef } from '../core/types.ts';
 import { sameModel } from '../core/ladder.ts';
+import { bounded } from './lifecycle.ts';
+import { onForget } from './state.ts';
 
 type Ctx = Plugin.Context;
 
@@ -33,7 +36,56 @@ export type SessionInfo = {
   agent?: string;
   title?: string;
   model?: unknown;
+  location?: { directory?: unknown };
 };
+
+/** A session read never takes longer than this. */
+const LOOKUP_MS = 1000;
+/** Bounds the walk from a session up to its root. */
+const MAX_DEPTH = 16;
+
+/** `Session.Info`, `{}` when OpenCode returns none. Rejects on an error or after `LOOKUP_MS`. */
+export async function readSession(ctx: Ctx, sessionID: string): Promise<Partial<SessionInfo>> {
+  const read = Promise.resolve().then(() => ctx.session.get({ sessionID } as never));
+  const info = await bounded<unknown>(read, LOOKUP_MS, null);
+  if (info === null) throw new Error(`no answer for session ${sessionID}`);
+  return (info ?? {}) as Partial<SessionInfo>;
+}
+
+/** One session of a chain. */
+export type ChainLink = { id: string; info: Partial<SessionInfo> };
+
+/** Chains read in full, by session; a failed read is not kept. Parents never change. */
+const chains = new Map<string, Promise<ChainLink[]>>();
+onForget((sessionID) => chains.delete(sessionID));
+
+async function walkChain(ctx: Ctx, sessionID: string): Promise<ChainLink[]> {
+  const chain: ChainLink[] = [];
+  let id = sessionID;
+  for (let depth = 0; ; depth++) {
+    const info = await readSession(ctx, id);
+    chain.push({ id, info });
+    if (info.parentID == null || depth >= MAX_DEPTH) return chain;
+    id = info.parentID;
+  }
+}
+
+/**
+ * The session, then its ancestors up to the root (at most `MAX_DEPTH` above it), each read once.
+ * The infos are those of the first read: a title or model set later is not in them.
+ */
+export function sessionChain(ctx: Ctx, sessionID: string): Promise<ChainLink[]> {
+  let chain = chains.get(sessionID);
+  if (!chain) {
+    const walk = walkChain(ctx, sessionID);
+    chains.set(sessionID, walk);
+    walk.catch(() => {
+      if (chains.get(sessionID) === walk) chains.delete(sessionID);
+    });
+    chain = walk;
+  }
+  return chain;
+}
 
 /** How long a catalog read is reused: long enough for one step, short enough for config edits. */
 export const MEMO_MS = 3000;
@@ -79,6 +131,10 @@ export function toModelRef(value: unknown): ModelRef | null {
     ref.variant = model.variant;
   return ref;
 }
+
+/** `provider/model[#variant]`, as `parseModelString` reads it; `unknown` without a model. */
+export const formatModel = (m: ModelRef | null | undefined): string =>
+  m ? `${m.providerID}/${m.id}${m.variant ? `#${m.variant}` : ''}` : 'unknown';
 
 /** `provider/model[#variant]`, as typed in settings and commands; the model part may contain `/`. */
 export function parseModelString(value: string): ModelRef | null {

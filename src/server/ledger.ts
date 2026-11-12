@@ -1,7 +1,9 @@
-// Spend ledger: per-session stats (`stats/<sessionID>`) and today's spend (`spend/<day>`), fed by
-// model requests and by every judge call when it settles. Writes run one at a time per context, so
-// a judge finishing in the background never loses a concurrent step's update. Both are kept for
-// 30 days. Each request also goes into the board's turn log (turn-log.ts), through the same queue.
+// Spend ledger: per-session stats (`stats/<sessionID>`) and today's spend (`spend/<day>/<writer>`),
+// fed by model requests and by every judge call when it settles. Writes run one at a time per
+// process, so a judge finishing in the background never loses a concurrent step's update. Each
+// process writes only its own spend key, so OpenCode processes sharing the store never overwrite
+// each other. Both are kept for 30 days. Each request also goes into the board's turn log
+// (turn-log.ts), through the same queue.
 
 import type { Plugin } from '@opencode/plugin';
 import { LEVELS } from '../core/types.ts';
@@ -12,11 +14,12 @@ import type { SessionStats, Turn } from '../core/stats.ts';
 import { budgetState } from '../core/context.ts';
 import { isNumber, isObject, num } from '../core/guards.ts';
 import { getState, onForget } from './state.ts';
-import { loadSettings, serial, updateSettings } from './settings-store.ts';
+import { loadSettings, updateSettings, writeQueue } from './settings-store.ts';
 import { logOnce, toast } from './notify.ts';
 import { findModelInfo, toModelLite } from './models.ts';
 import {
   boardOptions,
+  DAY_MS,
   findPlace,
   localDay,
   pruneTurns,
@@ -30,18 +33,42 @@ type Ctx = Plugin.Context;
 
 export const HOUR_MS = 3_600_000;
 
+/** Prefix of a day's spend keys; older versions wrote this key itself. */
 export function dayKey(now: number): string {
   return `spend/${localDay(now)}`;
 }
 
-/** `warnedFor`: the daily budget the warning fired for today, so a changed budget warns again. */
-export type Spend = { usd: number; warnedFor: number | null };
+/** This process's spend key: a new writer per process (and per plugin reload). */
+const WRITER = crypto.randomUUID();
+const ownKey = (now: number): string => `${dayKey(now)}/${WRITER}`;
 
-export async function readSpend(ctx: Ctx, now: number): Promise<Spend> {
-  const stored: unknown = await ctx.storage.get(dayKey(now));
+/** One writer's spend; `warnedFor`: the daily budget its warning fired for, so a change warns again. */
+type Entry = { usd: number; warnedFor: number | null };
+
+/** Today's spend over every writer; `warned`: the daily budgets a warning fired for today. */
+export type Spend = { usd: number; warned: number[]; own: Entry };
+
+function toEntry(stored: unknown): Entry {
   return isObject(stored)
     ? { usd: num(stored.usd), warnedFor: isNumber(stored.warnedFor) ? stored.warnedFor : null }
     : { usd: 0, warnedFor: null };
+}
+
+/** A failing scan leaves out the other writers' spend: this process's own is still read. */
+export async function readSpend(ctx: Ctx, now: number): Promise<Spend> {
+  const own = toEntry(await ctx.storage.get(ownKey(now)));
+  const spend: Spend = { usd: own.usd, warned: own.warnedFor === null ? [] : [own.warnedFor], own };
+  try {
+    for await (const { key, value } of scanAll(ctx, dayKey(now))) {
+      if (key === ownKey(now)) continue;
+      const other = toEntry(value);
+      spend.usd += other.usd;
+      if (other.warnedFor !== null) spend.warned.push(other.warnedFor);
+    }
+  } catch (error) {
+    logOnce('*', 'read spend', error);
+  }
+  return spend;
 }
 
 function isStats(v: unknown): v is SessionStats {
@@ -70,10 +97,10 @@ export async function readStats(ctx: Ctx, sessionID: string): Promise<SessionSta
 }
 
 /**
- * Ledger writes, one at a time per context. Not the settings queue: a ledger write waits on
+ * Ledger writes, one at a time per process. Not the settings queue: a ledger write waits on
  * `updateSettings`, so one shared queue would deadlock.
  */
-const queues = new WeakMap<object, Promise<unknown>>();
+const writes = writeQueue();
 
 /**
  * Recently deleted sessions: a judge call that settles after the delete must not write their
@@ -86,14 +113,13 @@ const DELETED_MAX = 1000;
 export function forgetStats(ctx: Ctx, sessionID: string): Promise<void> {
   deleted.add(sessionID);
   if (deleted.size > DELETED_MAX) deleted.delete(deleted.values().next().value as string);
-  return serial(queues, ctx, () => ctx.storage.remove(`stats/${sessionID}`)).catch((error) =>
+  return writes(() => ctx.storage.remove(`stats/${sessionID}`)).catch((error) =>
     logOnce(sessionID, 'forget stats', error),
   );
 }
 
 /** Daily spend and session stats are kept this long; older ones are removed. */
 const KEEP_DAYS = 30;
-const DAY_MS = 24 * HOUR_MS;
 /** The day storage was last pruned, per context: pruning runs once a day. */
 const prunedOn = new WeakMap<object, string>();
 
@@ -145,11 +171,12 @@ onForget((sessionID) => overToastTurn.delete(sessionID));
 async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now: number) {
   const spend = await readSpend(ctx, now);
   spend.usd += addUSD;
+  spend.own.usd += addUSD;
   const settings = await loadSettings(ctx);
   const daily = settings.budget.dailyUSD;
   const level = budgetState(spend.usd, daily);
-  if ((level === 'warn' || level === 'over') && spend.warnedFor !== daily) {
-    spend.warnedFor = daily;
+  if ((level === 'warn' || level === 'over') && daily !== null && !spend.warned.includes(daily)) {
+    spend.own.warnedFor = daily;
     const saved = await updateSettings(ctx, (s) => {
       if (saveModeActive(s, now)) return false;
       s.saveMode.until = now + s.saveMode.hours * HOUR_MS;
@@ -163,7 +190,7 @@ async function addSpend(ctx: Ctx, sessionID: string | null, addUSD: number, now:
       });
     }
   }
-  await ctx.storage.set(dayKey(now), spend as never);
+  await ctx.storage.set(ownKey(now), spend.own as never);
   if (level === 'over' && sessionID) {
     const turn = getState(sessionID).userTurn;
     if (overToastTurn.get(sessionID) !== turn) {
@@ -197,7 +224,7 @@ export function recordStep(
   step: StepUsage,
   now = Date.now(),
 ): Promise<void> {
-  return serial(queues, ctx, async () => {
+  return writes(async () => {
     if (!deleted.has(sessionID))
       await writeStats(ctx, sessionID, addRequest(await readStats(ctx, sessionID), step), now);
     await addSpend(ctx, sessionID, step.costUSD, now);
@@ -287,7 +314,7 @@ function logTurn(ctx: Ctx, req: TurnRequest): void {
     try {
       // Looked up outside the ledger queue: a slow session read holds no other ledger write.
       const place = await findPlace(ctx, req.sessionID, boardOptions(ctx).titles, req.now);
-      await serial(queues, ctx, () => writeTurn(ctx, req, place));
+      await writes(() => writeTurn(ctx, req, place));
     } catch (error) {
       logOnce(req.sessionID, 'turn log', error);
     }
@@ -300,7 +327,7 @@ function logTurn(ctx: Ctx, req: TurnRequest): void {
 
 /** A judge call settled after its turn was logged: the turn's record takes its cost. */
 export function recordTurnJudgeCost(ctx: Ctx, sessionID: string, meta: TurnMeta): Promise<void> {
-  return serial(queues, ctx, () => writeJudgeCost(ctx, meta)).catch((error) =>
+  return writes(() => writeJudgeCost(ctx, meta)).catch((error) =>
     logOnce(sessionID, 'turn log', error),
   );
 }
@@ -316,7 +343,7 @@ export function recordJudgeCall(
   now = Date.now(),
   opts: { sessionStats?: boolean } = {},
 ): Promise<void> {
-  return serial(queues, ctx, async () => {
+  return writes(async () => {
     if (sessionID && opts.sessionStats !== false && !deleted.has(sessionID)) {
       const stats = await readStats(ctx, sessionID);
       await writeStats(

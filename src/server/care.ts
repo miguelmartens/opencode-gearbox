@@ -74,6 +74,23 @@ const dataOf = <T>(result: unknown): T[] => {
   return Array.isArray(data) ? (data as T[]) : [];
 };
 
+async function sessionMessages(ctx: Ctx, sessionID: string): Promise<SessionMessage[]> {
+  return dataOf<SessionMessage>(await ctx.session.context({ sessionID }));
+}
+
+function lastReplyText(messages: SessionMessage[]): string {
+  const reply = messages.filter((m) => m.type === 'assistant').at(-1);
+  return reply ? textOf(reply.content) : '';
+}
+
+/**
+ * Text of the session's last assistant reply; `''` when there is none. The reply a new prompt
+ * answers was written by the previous turn's last request, which no `context` hook carried.
+ */
+export async function lastReply(ctx: Ctx, sessionID: string): Promise<string> {
+  return lastReplyText(await sessionMessages(ctx, sessionID));
+}
+
 async function sessionModel(ctx: Ctx, session: SessionInfo): Promise<ModelRef> {
   const ref = await sessionModelRef(ctx, session);
   if (!ref) throw new Error('no model for the session');
@@ -230,15 +247,14 @@ async function askHandoff(
   ratio: number,
   settings: Settings,
 ): Promise<void> {
-  const messages = dataOf<SessionMessage>(await ctx.session.context({ sessionID: session.id }));
+  const messages = await sessionMessages(ctx, session.id);
   const topics = messages
     .filter((m) => m.type === 'user' && m.text?.trim())
     .map((m) => (m.text ?? '').trim().split('\n')[0].slice(0, TOPIC_MAX))
     .slice(-TOPICS_MAX);
-  const lastReply = messages.filter((m) => m.type === 'assistant').at(-1);
   const prompt = buildHandoffAdvicePrompt({
     topics,
-    lastReplyTail: lastReply ? textOf(lastReply.content) : '',
+    lastReplyTail: lastReplyText(messages),
     contextRatio: ratio,
   });
   const judge = await resolveJudgeModel(ctx, ref, settings);
@@ -355,7 +371,7 @@ export async function handoff(
   const session = (await ctx.session.get({ sessionID })) as SessionInfo;
   const ref = await sessionModel(ctx, session);
   const settings = await loadSettings(ctx);
-  const messages = dataOf<SessionMessage>(await ctx.session.context({ sessionID }));
+  const messages = await sessionMessages(ctx, sessionID);
   const resolved = await resolveJudgeModel(ctx, ref, settings);
   const judge = otherProvider(resolved, ref, settings) ? ref : resolved;
   // A handoff is advised when the context is full: keep the newest part that fits the judge.

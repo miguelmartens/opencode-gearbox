@@ -67,7 +67,7 @@ Miguel's own OpenCode plugin, inspired by HeyCubit/effortless (a Claude Code mod
 - Experimental APIs (`experimental.model.resolve`, `ctx.experimental.generate.*`) are feature-detected; if absent, Gearbox degrades to effort-only via the `context` hook.
 - Never write to any `opencode.json(c)`. Settings = plugin `options` merged with user overrides in `ctx.storage` key `settings`.
 - Level order, lowest to highest: `low, medium, high, xhigh, max`.
-- Default settings (exact): `auto: true`, `bias: 0`, `floor: "low"`, `ceiling: "max"`, `saveMode: { until: null, cap: "medium", hours: 5 }`, `judge: { timeoutMs: 4000 }`, `modelSwitch: { main: false, subagents: true, minSavingRatio: 0.2 }`, `compactWith: "small"`, `swampedAt: 0.7`, `handoffAdviceFrom: 0.3`, `budget: { dailyUSD: null }`, `effortModels: ".*"`.
+- Default settings (exact): `auto: true`, `bias: 0`, `floor: "low"`, `ceiling: "max"`, `saveMode: { until: null, cap: "medium", hours: 5 }`, `judge: { timeoutMs: 4000 }`, `modelSwitch: { subagents: true, minSavingRatio: 0.2 }` (`main` removed 2026-11-12: it had no effect), `compactWith: "small"`, `swampedAt: 0.7`, `handoffAdviceFrom: 0.3`, `budget: { dailyUSD: null }`, `effortModels: ".*"`.
 - Expected output tokens per level (cost model): `low 800, medium 3000, high 8000, xhigh 16000, max 32000`.
 - Conventional Commits. No `git push`, no `npm publish`, no GitHub repo creation, no edits to `~/.config/opencode` without asking Miguel.
 

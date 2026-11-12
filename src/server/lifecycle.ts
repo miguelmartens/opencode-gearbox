@@ -44,6 +44,19 @@ export async function disposeLifecycle(ctx: Ctx): Promise<void> {
   }
 }
 
+/** Resolves to `promise`, or to `fallback` after `ms` or when `promise` rejects. */
+export async function bounded<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(fallback), ms);
+  });
+  try {
+    return await Promise.race([promise.catch(() => fallback), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(done, ms);

@@ -133,6 +133,19 @@ test('a hanging model catalog does not hold the request', async () => {
   expect(result).not.toBe('hung');
 });
 
+test('a hanging session read does not hold a request whose prompt Gearbox never saw', async () => {
+  // E.g. after a plugin reload mid-turn: nothing says yet whether the session is a subagent.
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { judge: { timeoutMs: 50 } },
+    overrides: { session: { get: () => new Promise(() => {}) } },
+  });
+  const late = new Promise((resolve) => setTimeout(() => resolve('hung'), 1000));
+  const result = await Promise.race([fake.fire('context', contextEvent(sessionID)), late]);
+  expect(result).not.toBe('hung');
+  expect((result as any).options, 'left alone').toStrictEqual({ maxTokens: 32000 });
+});
+
 function userMessage(id: string, text: string) {
   return { id, role: 'user', content: [{ type: 'text', text }] };
 }
@@ -163,6 +176,47 @@ test('a prompt queued during a turn does not change that turn’s effort', async
   expect(step2.options.effort, 'first turn keeps its level').toBe('xhigh');
   expect(next.options.effort, 'the queued prompt gets its own level').toBe('low');
   expect(getState(sessionID).requestTurn).toBe('msg_B');
+});
+
+test('the judge sees the reply the prompt answers, read from the session', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    generateText: async () => ({ text: 'LEVEL: medium' }),
+    overrides: {
+      session: {
+        // The reply was written by the last request of the previous turn: no `context` hook
+        // carried it, so only the session's messages hold it.
+        context: async () => [
+          { id: 'u1', type: 'user', text: 'Should I refactor or patch?' },
+          {
+            id: 'a1',
+            type: 'assistant',
+            content: [{ type: 'text', text: 'A) full refactor, B) quick patch. Which one?' }],
+          },
+        ],
+      },
+    },
+  });
+  await fake.fire('prompt', promptEvent(sessionID, 'B'));
+  await fake.fire('context', contextEvent(sessionID));
+  const [call] = fake.callsTo('generate.text');
+  expect((call.input as { prompt: string }).prompt).toContain(
+    '<reply>\nA) full refactor, B) quick patch. Which one?\n</reply>',
+  );
+});
+
+test('a hanging session read still judges the prompt, without a reply', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { judge: { timeoutMs: 50 } },
+    generateText: async () => ({ text: 'LEVEL: high' }),
+    overrides: { session: { context: () => new Promise(() => {}) } },
+  });
+  await fake.fire('prompt', promptEvent(sessionID, 'Debug the flaky upload test'));
+  const event = await fake.fire('context', contextEvent(sessionID));
+  expect(event.options.effort).toBe('high');
+  const [call] = fake.callsTo('generate.text');
+  expect((call.input as { prompt: string }).prompt).not.toContain('<reply>');
 });
 
 test('the request level is cleared even when reading the settings fails', async () => {
@@ -409,7 +463,7 @@ test('subagent routing skips cheaper models without effort variants', async () =
 test('subagent model switching off keeps the model', async () => {
   const sessionID = newSession();
   const fake = await setup({
-    settings: { modelSwitch: { main: false, subagents: false, minSavingRatio: 0.2 } },
+    settings: { modelSwitch: { subagents: false, minSavingRatio: 0.2 } },
     sessions: {
       [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'general', model: OPUS },
     },
@@ -420,10 +474,9 @@ test('subagent model switching off keeps the model', async () => {
   expect(fake.callsTo('session.switchModel').length).toBe(0);
 });
 
-test('main chat never switches the model, even with modelSwitch.main on', async () => {
+test('main chat never switches the model', async () => {
   const sessionID = newSession();
   const fake = await setup({
-    settings: { modelSwitch: { main: true, subagents: true, minSavingRatio: 0.2 } },
     generateText: async () => ({ text: 'LEVEL: low' }),
   });
   await fake.fire('prompt', promptEvent(sessionID, 'What does this function do?'));

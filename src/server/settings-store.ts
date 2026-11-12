@@ -52,32 +52,31 @@ export async function saveSettings(ctx: Ctx, s: Settings): Promise<void> {
   else await ctx.storage.set(SETTINGS_KEY, overrides as never);
 }
 
-/** Runs `task` after every earlier task of `queues` for this context, so writes never overlap. */
-export function serial<T>(
-  queues: WeakMap<object, Promise<unknown>>,
-  ctx: object,
-  task: () => Promise<T>,
-): Promise<T> {
-  const run = (queues.get(ctx) ?? Promise.resolve()).then(task, task);
-  queues.set(
-    ctx,
-    run.catch(() => {}),
-  );
-  return run;
+/**
+ * A write queue: each task runs after every earlier one, so read-then-write never overlaps. One
+ * queue per process, not per plugin context: the plugin instances of every project share a store.
+ */
+export function writeQueue(): <T>(task: () => Promise<T>) => Promise<T> {
+  let last: Promise<unknown> = Promise.resolve();
+  return (task) => {
+    const run = last.then(task, task);
+    last = run.catch(() => {});
+    return run;
+  };
 }
 
-const updates = new WeakMap<object, Promise<unknown>>();
+const updates = writeQueue();
 
 /**
- * Loads the settings, lets `change` edit them in place and saves them, after every earlier update
- * of this context: a command and the budget changing settings together never lose a change.
- * `change` returns `false` to save nothing.
+ * Loads the settings, lets `change` edit them in place and saves them, after every earlier update:
+ * a command and the budget changing settings together never lose a change. `change` returns
+ * `false` to save nothing.
  */
 export function updateSettings(
   ctx: Ctx,
   change: (s: Settings) => boolean | void,
 ): Promise<Settings> {
-  return serial(updates, ctx, async () => {
+  return updates(async () => {
     const s = await loadSettings(ctx);
     if (change(s) !== false) await saveSettings(ctx, s);
     return s;

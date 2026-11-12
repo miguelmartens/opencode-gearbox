@@ -6,21 +6,17 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { ModelRef } from '../core/types.ts';
 import { buildBoard } from '../board/build.ts';
 import type { BoardData } from '../board/build.ts';
 import { loadSettings } from './settings-store.ts';
 import { NO_MODEL, resolveJudgeModel } from './judge-model.ts';
-import { sessionModelRef } from './models.ts';
+import { formatModel, sessionModelRef } from './models.ts';
 import { localDay, readTurns } from './turn-log.ts';
 
 type Ctx = Plugin.Context;
 
 /** How long the opener may run before it counts as started (`xdg-open` can wait on the browser). */
 const OPEN_WAIT_MS = 3000;
-
-const modelName = (m: ModelRef): string =>
-  `${m.providerID}/${m.id}${m.variant ? `#${m.variant}` : ''}`;
 
 /** The judge model this session would use now; `null` when none is known. */
 async function judgeName(ctx: Ctx, sessionID: string): Promise<string | null> {
@@ -30,7 +26,7 @@ async function judgeName(ctx: Ctx, sessionID: string): Promise<string | null> {
     };
     const chat = (await sessionModelRef(ctx, session ?? {})) ?? NO_MODEL;
     const judge = await resolveJudgeModel(ctx, chat, await loadSettings(ctx));
-    return judge.providerID && judge.id ? modelName(judge) : null;
+    return judge.providerID && judge.id ? formatModel(judge) : null;
   } catch {
     return null;
   }

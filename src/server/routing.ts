@@ -11,26 +11,27 @@ import type { Plugin } from '@opencode/plugin';
 import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
 import { applyShaping, pickVariant } from '../core/levels.ts';
 import { classifyPrompt } from '../core/rules.ts';
-import { isLevel } from '../core/settings.ts';
-import { buildJudgePrompt, parseJudgeAnswer, REPLY_TAIL_MAX } from '../core/judge.ts';
+import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
 import { buildLadder, preferEffortRungs, routeModel, sameModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
 import { contextRatio } from '../core/context.ts';
-import { textOf } from '../core/guards.ts';
 import { getState, onForget } from './state.ts';
 import type { SessionState } from './state.ts';
 import { loadSettings } from './settings-store.ts';
-import { bounded, NO_MODEL, resolveJudgeModel, runJudge } from './judge-model.ts';
+import { NO_MODEL, resolveJudgeModel, runJudge } from './judge-model.ts';
+import { bounded } from './lifecycle.ts';
 import {
   cacheWarm,
   defaultModelRef,
   findInfo,
   listModelInfos,
+  sessionChain,
   toModelLite,
   toModelRef,
 } from './models.ts';
 import type { ModelInfo, SessionInfo } from './models.ts';
 import { logOnce, toast } from './notify.ts';
+import { lastReply } from './care.ts';
 import { statusChanged, trackUsage } from './status.ts';
 import { recordTurnJudgeCost } from './ledger.ts';
 import { newTurnMeta } from './turn-log.ts';
@@ -65,19 +66,14 @@ type Local = {
   metas: Map<string, TurnMeta>;
   /** The latest prompt's meta: requests whose prompt ID is unknown use it. */
   latestMeta: TurnMeta | null;
-  replyTail: string;
   /** The manual variant that paused auto; accepted once the user turns auto back on. */
   pausedVariant: string | null;
   statusTurn: number | null;
-  /** A child's parent chain, walked once; `null` until looked up. */
-  lineage: Promise<Lineage> | null;
 };
 
 const SUBAGENT_PREFIX = 'You are a subagent spawned by another session.\n';
 const MANUAL_VARIANT = 'manual variant';
 const NO_EFFORT_CONTROL = 'no effort control';
-/** Bounds the walk up a child's parent chain. */
-const MAX_DEPTH = 16;
 /** Admitted prompts kept per session: the running turn and a few queued ones. */
 const ADMITTED_MAX = 8;
 /** The prompt hook returns at most this long after the judge timeout. */
@@ -93,10 +89,8 @@ function getLocal(sessionID: string): Local {
       admitted: new Map(),
       metas: new Map(),
       latestMeta: null,
-      replyTail: '',
       pausedVariant: null,
       statusTurn: null,
-      lineage: null,
     };
     locals.set(sessionID, local);
   }
@@ -111,11 +105,6 @@ function isManualVariant(variant: string | undefined): variant is string {
 /** The `effortModels` pattern; `mergeSettings` drops an invalid one. */
 function effortRegex(settings: Settings): RegExp {
   return new RegExp(settings.effortModels);
-}
-
-/** Variant IDs that are effort levels; `none`, `minimal`, `thinking` are dropped. */
-function effortVariants(ids: string[]): string[] {
-  return ids.filter(isLevel);
 }
 
 function liteModels(infos: ModelInfo[]): ModelLite[] {
@@ -147,17 +136,6 @@ function rememberMeta(local: Local, messageID: unknown, meta: TurnMeta): void {
     local.metas.delete(local.metas.keys().next().value as string);
 }
 
-function lastReplyTail(messages: unknown): string | null {
-  if (!Array.isArray(messages)) return null;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role !== 'assistant') continue;
-    const text = textOf(messages[i].content);
-    // Stored per session: keep only what the judge prompt uses.
-    if (text) return text.slice(-REPLY_TAIL_MAX);
-  }
-  return null;
-}
-
 function fallbackDecision(state: SessionState, reason: string): Decision {
   return { level: state.lastLevel ?? 'medium', source: 'fallback', reason };
 }
@@ -184,37 +162,17 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     return state.isSubagent;
   }
 
-  async function walkUp(parentID: string): Promise<Lineage> {
-    let id = parentID;
-    let model: ModelRef | null = null;
-    for (let depth = 1; ; depth++) {
-      const info = await getSession(id);
-      const ref = toModelRef(info.model);
-      model ??= ref;
-      if (info.parentID == null || depth >= MAX_DEPTH)
-        return { rootID: id, rootVariant: ref?.variant, model };
-      id = info.parentID;
-    }
-  }
-
-  /** A child's parent chain, walked once per child. `null` when the session is not a child. */
-  async function childLineage(
-    sessionID: string,
-    parentID?: string | null,
-  ): Promise<Lineage | null> {
-    const local = getLocal(sessionID);
-    if (!local.lineage) {
-      const parent = parentID ?? (await getSession(sessionID)).parentID;
-      if (parent == null) return null;
-      if (!local.lineage) {
-        const walk = walkUp(parent);
-        local.lineage = walk;
-        walk.catch(() => {
-          if (local.lineage === walk) local.lineage = null;
-        });
-      }
-    }
-    return local.lineage;
+  /** A child's parent chain, read once per child. `null` when the session is not a child. */
+  async function childLineage(sessionID: string): Promise<Lineage | null> {
+    const [, ...ancestors] = await sessionChain(ctx, sessionID);
+    const root = ancestors.at(-1);
+    if (!root) return null;
+    const model = ancestors.map((link) => toModelRef(link.info.model)).find((ref) => ref !== null);
+    return {
+      rootID: root.id,
+      rootVariant: toModelRef(root.info.model)?.variant,
+      model: model ?? null,
+    };
   }
 
   /**
@@ -257,13 +215,16 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     try {
       // A session without a model runs on OpenCode's default model; unknown → the judge is skipped.
       const chat = sessionModel ?? (await defaultModelRef(ctx)) ?? NO_MODEL;
+      // A subagent's task stands alone. A slow read uses at most half the judge's time.
+      const reply = subagent
+        ? ''
+        : bounded(lastReply(ctx, sessionID), settings.judge.timeoutMs / 2, '');
       const model = await resolveJudgeModel(ctx, chat, settings);
-      const local = getLocal(sessionID);
       const info = chat.id ? findInfo(await listModelInfos(ctx).catch(() => []), chat) : undefined;
       const lite = info ? toModelLite(info) : null;
       const prompt = buildJudgePrompt({
         prompt: text,
-        lastReplyTail: subagent ? '' : local.replyTail,
+        lastReplyTail: await reply,
         contextRatio:
           lite && state.contextTokens !== null
             ? contextRatio(state.contextTokens, lite.contextLimit)
@@ -403,7 +364,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     const ladder = preferEffortRungs(buildLadder(lites, top, effortRegex(settings)));
     if (ladder.length === 0) return;
     const target = routeModel(level, ladder);
-    const variant = pickVariant(level, effortVariants(target.variants));
+    const variant = pickVariant(level, target.variants);
     const next: ModelRef = { providerID: target.ref.providerID, id: target.ref.id };
     if (variant) next.variant = variant;
     if (sameModel(next, model) && next.variant === model.variant) return;
@@ -455,9 +416,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const subagent = session.parentID != null;
       state.isSubagent = subagent;
       const own = toModelRef(session.model);
-      const lineage = subagent
-        ? await within(childLineage(sessionID, session.parentID), deadline, null)
-        : null;
+      const lineage = subagent ? await within(childLineage(sessionID), deadline, null) : null;
       // An unknown parent chain may hide the user's pick: the child is left alone.
       if (subagent && !lineage) {
         meta.judgeOutcome = 'error';
@@ -555,12 +514,13 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       // Set below only when Gearbox applies an effort level to this request.
       state.requestLevel = null;
       const settings = await load(ctx);
-      local.replyTail = lastReplyTail(event?.messages) ?? local.replyTail;
 
       const model = toModelRef(event?.model);
       if (!settings.auto || !model) return;
       if (!effortRegex(settings).test(model.id)) return;
-      const subagent = await isSubagent(state, sessionID);
+      // Unknown (a hanging session read) may hide the user's pick: the request is left alone.
+      const subagent = await bounded(isSubagent(state, sessionID), settings.judge.timeoutMs, null);
+      if (subagent === null) return;
       if (!subagent && (await manualVariantPause(sessionID, state, model))) return;
       if (subagent) {
         const lineage = await bounded(childLineage(sessionID), settings.judge.timeoutMs, null);
@@ -574,7 +534,10 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       // A hanging catalog read must not hold the request: no catalog → no effort control.
       const infos = await bounded(listModelInfos(ctx), settings.judge.timeoutMs, []);
       const info = findInfo(infos, model);
-      const variantID = pickVariant(level, effortVariants((info?.variants ?? []).map((v) => v.id)));
+      const variantID = pickVariant(
+        level,
+        (info?.variants ?? []).map((v) => v.id),
+      );
       const effort = info?.variants?.find((v) => v.id === variantID)?.settings;
       state.lastLevel = decision.level;
       state.lastDecision = { ...decision, level };

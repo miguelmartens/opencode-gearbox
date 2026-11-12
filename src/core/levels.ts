@@ -1,7 +1,7 @@
 import { LEVELS } from './types.ts';
 import type { Level, Settings } from './types.ts';
 
-const rank = (level: Level): number => LEVELS.indexOf(level);
+export const rank = (level: Level): number => LEVELS.indexOf(level);
 
 /** Moves `level` by `by` steps, clamped to the ends of LEVELS. */
 export function shiftLevel(level: Level, by: number): Level {
@@ -24,7 +24,10 @@ export function applyShaping(level: Level, s: Settings, now: number): Level {
   return out;
 }
 
-/** Exact variant; else the nearest lower level; else the nearest higher; else undefined. */
+/**
+ * Exact variant; else the nearest lower level; else the nearest higher; else undefined. Only level
+ * names are picked: `none`, `minimal` or `thinking` never are.
+ */
 export function pickVariant(level: Level, available: string[]): string | undefined {
   const target = rank(level);
   for (let i = target; i >= 0; i--) if (available.includes(LEVELS[i])) return LEVELS[i];

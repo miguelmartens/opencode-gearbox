@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.3](https://github.com/miguelmartens/opencode-gearbox/compare/v0.2.2...v0.2.3) (2026-11-12)
+
+
+### Bug Fixes
+
+* **routing:** accept the session's variant on auto on before first prompt ([#27](https://github.com/miguelmartens/opencode-gearbox/issues/27)) ([90a16c4](https://github.com/miguelmartens/opencode-gearbox/commit/90a16c4649fa3b81d8259a25229de5a30bc1b491))
+
 ## [0.2.2](https://github.com/miguelmartens/opencode-gearbox/compare/v0.2.1...v0.2.2) (2026-11-11)
 
 

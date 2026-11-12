@@ -2,6 +2,7 @@
 
 import type { Decision, GearboxStatus, Level, ModelRef } from '../core/types.ts';
 import type { Turn } from '../core/stats.ts';
+import type { TurnMeta } from './turn-log.ts';
 
 export type SessionState = {
   lastLevel: Level | null;
@@ -27,11 +28,19 @@ export type SessionState = {
   requestTurn: Turn;
   /** Effort level Gearbox set on the last request; `null` when it left the request alone. */
   requestLevel: Level | null;
+  /** Routing's record of the last request's turn, for the board's turn log; `null` if unknown. */
+  requestMeta: TurnMeta | null;
   /**
-   * Turn, level and model of the running request, copied on `session.step.started`. The next
-   * request's `context` hook can overwrite the fields above before this step's end arrives.
+   * Turn, level, model and turn meta of the running request, copied on `session.step.started`.
+   * The next request's `context` hook can overwrite the fields above before this step's end
+   * arrives.
    */
-  step: { turn: Turn; level: Level | null; model: ModelRef | null } | null;
+  step: {
+    turn: Turn;
+    level: Level | null;
+    model: ModelRef | null;
+    meta: TurnMeta | null;
+  } | null;
   /** Context size of the last request (`session.step.ended`). */
   contextTokens: number | null;
   /** Raw text of the last judge answer, for `/gearbox debug`. */
@@ -72,6 +81,7 @@ function freshState(): SessionState {
     requestModel: null,
     requestTurn: 0,
     requestLevel: null,
+    requestMeta: null,
     step: null,
     contextTokens: null,
     judgeAnswer: null,

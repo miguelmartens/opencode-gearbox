@@ -1,7 +1,7 @@
 // Spend ledger: per-session stats (`stats/<sessionID>`) and today's spend (`spend/<day>`), fed by
 // model requests and by every judge call when it settles. Writes run one at a time per context, so
 // a judge finishing in the background never loses a concurrent step's update. Both are kept for
-// 30 days.
+// 30 days. Each request also goes into the board's turn log (turn-log.ts), through the same queue.
 
 import type { Plugin } from '@opencode/plugin';
 import { LEVELS } from '../core/types.ts';
@@ -15,15 +15,23 @@ import { getState, onForget } from './state.ts';
 import { loadSettings, serial, updateSettings } from './settings-store.ts';
 import { logOnce, toast } from './notify.ts';
 import { findModelInfo, toModelLite } from './models.ts';
+import {
+  boardOptions,
+  findPlace,
+  localDay,
+  pruneTurns,
+  scanAll,
+  writeJudgeCost,
+  writeTurn,
+} from './turn-log.ts';
+import type { TurnMeta, TurnRequest } from './turn-log.ts';
 
 type Ctx = Plugin.Context;
 
 export const HOUR_MS = 3_600_000;
 
 export function dayKey(now: number): string {
-  const d = new Date(now);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `spend/${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  return `spend/${localDay(now)}`;
 }
 
 /** `warnedFor`: the daily budget the warning fired for today, so a changed budget warns again. */
@@ -89,18 +97,10 @@ const DAY_MS = 24 * HOUR_MS;
 /** The day storage was last pruned, per context: pruning runs once a day. */
 const prunedOn = new WeakMap<object, string>();
 
-async function* scanAll(ctx: Ctx, prefix: string) {
-  let after: string | undefined;
-  do {
-    const page = await ctx.storage.scan({ prefix, ...(after ? { after } : {}) });
-    yield* page.entries;
-    after = page.next;
-  } while (after);
-}
-
 /**
- * Removes spend older than 30 days and stats untouched for 30 days, once a day; a failure is
- * logged and retried the next day. Stats without `updatedAt` (older versions) are stamped now.
+ * Removes spend older than 30 days, stats untouched for 30 days and turn records past
+ * `board.retentionDays`, once a day; a failure is logged and retried the next day. Stats without
+ * `updatedAt` (older versions) are stamped now.
  */
 async function pruneOld(ctx: Ctx, now: number): Promise<void> {
   const today = dayKey(now);
@@ -121,9 +121,13 @@ async function pruneOld(ctx: Ctx, now: number): Promise<void> {
     }
   } catch (error) {
     logOnce('*', 'prune storage', error);
-  } finally {
-    prunedOn.set(ctx, today);
   }
+  try {
+    await pruneTurns(ctx, now);
+  } catch (error) {
+    logOnce('*', 'prune turn log', error);
+  }
+  prunedOn.set(ctx, today);
 }
 
 async function writeStats(
@@ -230,6 +234,7 @@ export async function recordRequest(ctx: Ctx, data: any, now = Date.now()): Prom
     turn: state.requestTurn,
     level: state.requestLevel,
     model: state.requestModel,
+    meta: state.requestMeta,
   };
   const tokens = isObject(data.tokens) ? data.tokens : {};
   const t = {
@@ -254,6 +259,49 @@ export async function recordRequest(ctx: Ctx, data: any, now = Date.now()): Prom
       turn: step.turn,
     },
     now,
+  );
+  logTurn(ctx, {
+    sessionID,
+    turn: step.turn,
+    level: step.level,
+    model: step.model,
+    input: t.input,
+    output: t.output,
+    cacheRead: t.cacheRead,
+    costUSD,
+    meta: step.meta,
+    now,
+  });
+}
+
+/** Turn log work per session, in request order; dropped once it is done. */
+const turnLogs = new Map<string, Promise<void>>();
+
+/**
+ * One request into the board's turn log. Not awaited: the session lookup can be slow, and the bus
+ * events after this step must not wait on it. Requests of one session are logged in order. A
+ * failure is logged once per session; the request's stats and spend stand.
+ */
+function logTurn(ctx: Ctx, req: TurnRequest): void {
+  const run = (turnLogs.get(req.sessionID) ?? Promise.resolve()).then(async () => {
+    try {
+      // Looked up outside the ledger queue: a slow session read holds no other ledger write.
+      const place = await findPlace(ctx, req.sessionID, boardOptions(ctx).titles, req.now);
+      await serial(queues, ctx, () => writeTurn(ctx, req, place));
+    } catch (error) {
+      logOnce(req.sessionID, 'turn log', error);
+    }
+  });
+  turnLogs.set(req.sessionID, run);
+  void run.then(() => {
+    if (turnLogs.get(req.sessionID) === run) turnLogs.delete(req.sessionID);
+  });
+}
+
+/** A judge call settled after its turn was logged: the turn's record takes its cost. */
+export function recordTurnJudgeCost(ctx: Ctx, sessionID: string, meta: TurnMeta): Promise<void> {
+  return serial(queues, ctx, () => writeJudgeCost(ctx, meta)).catch((error) =>
+    logOnce(sessionID, 'turn log', error),
   );
 }
 

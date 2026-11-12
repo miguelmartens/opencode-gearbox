@@ -111,6 +111,18 @@ Each task run appends one line to `results/raw/<run id>.jsonl` (format: `bench/l
 
 Each published run adds a line here: date, commit, model, judge, runs and the raw file.
 
+- **2026-11-12 · Sonnet, not summarised.** Model `anthropic/claude-sonnet-5-5`, judge `anthropic/claude-haiku-5-5#none`. OpenCode 2.2.6, Gearbox 0.4.1, Bun 1.4.4, commit `26f7d57`. Raw file [`results/raw/2026-11-12T18-54-27-830Z.jsonl`](results/raw/2026-11-12T18-54-27-830Z.jsonl): two complete runs × 5 arms (`medium`, `high`, `xhigh`, `auto`, `auto-effort`; `max` left out after the transport timeouts of the Haiku run) × 24 tasks = 240 task runs. Total cost $30.23 billed by Anthropic, judge included. `summary.json`, the chart and the README block still show the Haiku run.
+
+  | Arm           | Solved | Cost per task | Seconds per task | Output tokens per task |
+  | ------------- | -----: | ------------: | ---------------: | ---------------------: |
+  | `medium`      |  48/48 |       $0.1008 |               24 |                   2371 |
+  | `high`        |  47/48 |       $0.1204 |               32 |                   3578 |
+  | `xhigh`       |  47/48 |       $0.1774 |               58 |                   7260 |
+  | `auto`        |  48/48 |       $0.1155 |               34 |                   3929 |
+  | `auto-effort` |  46/48 |       $0.1158 |               31 |                   3372 |
+
+  Means over both runs, not the summariser's medians. All four unsolved task runs are harness errors, not wrong answers: three ended with `run error: Location plugins did not finish activating` before the first prompt (`high` / `m08-schedule-overlap-bug`, `auto-effort` / `m07-config-env-validation`, `auto-effort` / `e01-rename-function`) and one with `run error: Transport: The operation timed out` (`xhigh` / `h04-callbacks-to-async`).
+
 - **2026-11-12 · two complete runs, `max` withheld.** Model `opencode-go/claude-haiku-5-5`, judge `opencode-go/claude-haiku-5-5#none`. OpenCode 2.2.6, Gearbox 0.3.1, Bun 1.4.4, commit `9665ea8`. Raw file [`results/raw/2026-11-12T11-46-29-322Z.jsonl`](results/raw/2026-11-12T11-46-29-322Z.jsonl): two complete runs × 6 arms × 24 tasks, plus 29 task runs of a third run stopped by hand. Total cost $4.63, judge included. The summary and README block use runs 1–2 and leave out the `max` arm: 16 of its 48 task runs ended with `run error: Transport: The operation timed out`, so its 67% solved and $0.035 per task measure the harness, not the model. Run 3 is not summarised because it is incomplete. To regenerate:
 
   ```sh

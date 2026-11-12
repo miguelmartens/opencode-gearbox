@@ -18,7 +18,8 @@ import { contextRatio } from '../core/context.ts';
 import { getState, onForget } from './state.ts';
 import type { SessionState } from './state.ts';
 import { loadSettings } from './settings-store.ts';
-import { bounded, NO_MODEL, resolveJudgeModel, runJudge } from './judge-model.ts';
+import { NO_MODEL, resolveJudgeModel, runJudge } from './judge-model.ts';
+import { bounded } from './lifecycle.ts';
 import {
   cacheWarm,
   defaultModelRef,

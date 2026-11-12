@@ -14,6 +14,7 @@ import {
 import type { ModelInfo } from './models.ts';
 import { recordJudgeCall } from './ledger.ts';
 import { logOnce } from './notify.ts';
+import { bounded } from './lifecycle.ts';
 
 type Ctx = Plugin.Context;
 
@@ -91,19 +92,6 @@ export async function resolveJudgeModel(
   }
   if (cheapest) return lighten({ ...cheapest.ref }, infos);
   return lighten({ providerID: sessionModel.providerID, id: sessionModel.id }, infos);
-}
-
-/** Resolves to `promise`, or to `fallback` after `ms` or when `promise` rejects. */
-export async function bounded<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(fallback), ms);
-  });
-  try {
-    return await Promise.race([promise.catch(() => fallback), timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 type GenerateText = (input: { model?: ModelRef; prompt: string }) => Promise<{ text?: unknown }>;

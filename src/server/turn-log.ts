@@ -13,6 +13,7 @@ import { isObject } from '../core/guards.ts';
 import type { JudgeOutcome, TurnRecord } from '../board/build.ts';
 import { loadSettings } from './settings-store.ts';
 import { onForget } from './state.ts';
+import { bounded } from './lifecycle.ts';
 
 type Ctx = Plugin.Context;
 
@@ -90,20 +91,13 @@ type Info = { parentID?: string | null; title?: unknown; location?: { directory?
 const places = new Map<string, Place & { checkedAt: number }>();
 onForget((sessionID) => places.delete(sessionID));
 
-function within<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<null>((resolve) => {
-    timer = setTimeout(() => resolve(null), ms);
-  });
-  return Promise.race([promise.catch(() => null), timeout]).finally(() => clearTimeout(timer));
-}
-
 function lookup(ctx: Ctx, sessionID: string): Promise<Info | null> {
-  return within(
+  return bounded<Info | null | undefined>(
     Promise.resolve().then(
       () => ctx.session.get({ sessionID } as never) as unknown as Promise<Info | undefined>,
     ),
     LOOKUP_MS,
+    null,
   ).then((info) => (isObject(info) ? info : null));
 }
 

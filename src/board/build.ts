@@ -1,4 +1,4 @@
-// The board's data: the turn log records the board page reads.
+// The board page: the template with the turn log injected as JSON. Pure, no I/O.
 
 import type { Level } from '../core/types.ts';
 
@@ -40,3 +40,15 @@ export type BoardData = {
   timezone: string;
   turns: TurnRecord[];
 };
+
+/** The template's data script; its placeholder is replaced, the one in the page's code is not. */
+export const DATA_TAG = '<script id="gearbox-data" type="application/json">/*DATA*/</script>';
+
+/** The template with `data` in its data script. `<` is escaped, so no string can close the script. */
+export function buildBoard(template: string, data: BoardData): string {
+  const at = template.indexOf(DATA_TAG);
+  if (at < 0) throw new Error('board template has no /*DATA*/ placeholder');
+  const json = JSON.stringify(data).replace(/</g, '\\u003c');
+  const tag = DATA_TAG.replace('/*DATA*/', () => json);
+  return template.slice(0, at) + tag + template.slice(at + DATA_TAG.length);
+}

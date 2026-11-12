@@ -16,6 +16,7 @@ import { HOUR_MS, readSpend, readStats, recordRequest } from './ledger.ts';
 import { parseModelString, sessionModelRef } from './models.ts';
 import { buildStatus, onStepEnded, statusChanged } from './status.ts';
 import { logOnce, toast } from './notify.ts';
+import { defaultBoardPath, openFile, writeBoard } from './board.ts';
 import bench from '../../bench/judge-cases.json' with { type: 'json' };
 
 type Ctx = Plugin.Context;
@@ -26,6 +27,10 @@ export type CommandDeps = {
   handoff: typeof handoff;
   compactNow: typeof compactNow;
   now: () => number;
+  /** Where `/gearbox board` writes the page. */
+  boardPath: () => Promise<string>;
+  /** Opens the written page in the browser. */
+  openFile: (path: string) => Promise<void>;
 };
 
 type BenchCase = {
@@ -51,6 +56,7 @@ const HELP = [
   '/gearbox handoff [full]  continue in a fresh session with a summary',
   '/gearbox compact [note]  compact now, keeping the note in mind',
   '/gearbox debug           last decision, judge answer and request model',
+  '/gearbox board           all sessions and projects as a local page, opened in the browser',
 ].join('\n');
 
 const MAIN_SWITCH_NOTE = 'Note: modelSwitch.main has no effect; the main chat gets effort only.';
@@ -167,6 +173,8 @@ export async function registerCommands(
     handoff,
     compactNow,
     now: Date.now,
+    boardPath: () => defaultBoardPath(),
+    openFile: (path) => openFile(path),
     ...overrides,
   };
 
@@ -295,6 +303,22 @@ export async function registerCommands(
           ? 'Gearbox: compaction queued. The note goes into the summary prompt, whether the judge model or OpenCode writes the summary.'
           : 'Gearbox: compaction queued',
       );
+    },
+    async board(sessionID) {
+      const path = await deps.boardPath();
+      const { turns, days } = await writeBoard(ctx, sessionID, deps.now(), path);
+      const line = `board: ${turns} turns, ${days} days → ${path}`;
+      try {
+        await deps.openFile(path);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        return say(
+          sessionID,
+          `${line}\nCould not open a browser (${reason}); open the file yourself.`,
+          'warning',
+        );
+      }
+      await say(sessionID, line);
     },
     async debug(sessionID) {
       const state = getState(sessionID);

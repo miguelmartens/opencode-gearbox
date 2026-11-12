@@ -32,6 +32,9 @@ import {
 import type { ModelInfo, SessionInfo } from './models.ts';
 import { logOnce, toast } from './notify.ts';
 import { statusChanged, trackUsage } from './status.ts';
+import { recordTurnJudgeCost } from './ledger.ts';
+import { newTurnMeta } from './turn-log.ts';
+import type { TurnMeta } from './turn-log.ts';
 
 type Ctx = Plugin.Context;
 
@@ -58,6 +61,10 @@ type Local = {
    * hook fires before the running turn ends), so each request uses its own prompt's decision.
    */
   admitted: Map<string, Admitted>;
+  /** What each admitted prompt's turn did, for the board's turn log, by message ID. */
+  metas: Map<string, TurnMeta>;
+  /** The latest prompt's meta: requests whose prompt ID is unknown use it. */
+  latestMeta: TurnMeta | null;
   replyTail: string;
   /** The manual variant that paused auto; accepted once the user turns auto back on. */
   pausedVariant: string | null;
@@ -84,6 +91,8 @@ function getLocal(sessionID: string): Local {
   if (!local) {
     local = {
       admitted: new Map(),
+      metas: new Map(),
+      latestMeta: null,
       replyTail: '',
       pausedVariant: null,
       statusTurn: null,
@@ -128,6 +137,14 @@ function rememberAdmitted(local: Local, messageID: unknown, entry: Admitted): vo
   if (local.admitted.size > ADMITTED_MAX) {
     local.admitted.delete(local.admitted.keys().next().value as string);
   }
+}
+
+function rememberMeta(local: Local, messageID: unknown, meta: TurnMeta): void {
+  local.latestMeta = meta;
+  if (typeof messageID !== 'string') return;
+  local.metas.set(messageID, meta);
+  if (local.metas.size > ADMITTED_MAX)
+    local.metas.delete(local.metas.keys().next().value as string);
 }
 
 function lastReplyTail(messages: unknown): string | null {
@@ -231,8 +248,12 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     text: string,
     subagent: boolean,
     sessionID: string,
+    meta: TurnMeta,
   ): Promise<Decision> {
     state.judging += 1;
+    // A request that runs before the call reports back runs on the fallback: a timeout for it.
+    meta.judgeOutcome = 'timeout';
+    let reported = false;
     try {
       // A session without a model runs on OpenCode's default model; unknown → the judge is skipped.
       const chat = sessionModel ?? (await defaultModelRef(ctx)) ?? NO_MODEL;
@@ -249,11 +270,29 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
             : null,
         isSubagent: subagent,
       });
-      const result = await runJudge(ctx, model, prompt, settings.judge.timeoutMs, { sessionID });
-      if (!result) return fallbackDecision(state, 'judge timed out or failed');
+      const result = await runJudge(ctx, model, prompt, settings.judge.timeoutMs, {
+        sessionID,
+        onOutcome: (outcome, ms) => {
+          reported = true;
+          meta.judgeOutcome = outcome;
+          meta.judgeMs = ms;
+        },
+        onCost: (costUSD) => {
+          meta.judgeCostUSD += costUSD;
+          void recordTurnJudgeCost(ctx, sessionID, meta);
+        },
+      });
+      if (!result) {
+        // No call at all: no judge model or no `generate.text`.
+        if (!reported) meta.judgeOutcome = 'error';
+        return fallbackDecision(state, 'judge timed out or failed');
+      }
       state.judgeAnswer = result.text;
       const parsed = parseJudgeAnswer(result.text);
-      if (!parsed) return fallbackDecision(state, 'judge answer unreadable');
+      if (!parsed) {
+        meta.judgeOutcome = 'error';
+        return fallbackDecision(state, 'judge answer unreadable');
+      }
       const decision: Decision = {
         level: parsed.level,
         source: 'judge',
@@ -263,6 +302,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (result.costUSD !== undefined) decision.judgeCostUSD = result.costUSD;
       return decision;
     } catch (error) {
+      meta.judgeOutcome = 'error';
       logOnce(sessionID, 'routing.judge', error);
       return fallbackDecision(state, 'judge failed');
     } finally {
@@ -340,6 +380,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     model: ModelRef,
     agent: string | undefined,
     entry: Admitted,
+    meta: TurnMeta,
     deadline: number,
     hardDeadline: number,
   ): Promise<void> {
@@ -388,6 +429,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     }
     if (Date.now() >= hardDeadline) return;
     await ctx.session.switchModel({ sessionID, model: next } as never);
+    if (!sameModel(next, model)) meta.switchedFrom = { providerID: model.providerID, id: model.id };
   }
 
   /** Prompt-hook work: reads wait until `deadline`, and nothing changes after `hardDeadline`. */
@@ -402,8 +444,14 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const state = getState(sessionID);
       state.userTurn += 1;
       state.pending = null;
+      // Every early return below leaves the turn to the user, unless it says otherwise.
+      const meta = newTurnMeta();
+      rememberMeta(getLocal(sessionID), event?.messageID, meta);
       const session = await within(getSession(sessionID), deadline, null);
-      if (!session) return;
+      if (!session) {
+        meta.judgeOutcome = 'error';
+        return;
+      }
       const subagent = session.parentID != null;
       state.isSubagent = subagent;
       const own = toModelRef(session.model);
@@ -411,7 +459,10 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
         ? await within(childLineage(sessionID, session.parentID), deadline, null)
         : null;
       // An unknown parent chain may hide the user's pick: the child is left alone.
-      if (subagent && !lineage) return;
+      if (subagent && !lineage) {
+        meta.judgeOutcome = 'error';
+        return;
+      }
       // A child without a model of its own runs on its nearest ancestor's, else on the default.
       const model = lineage
         ? (own ?? lineage.model ?? (await within(defaultModelRef(ctx), deadline, null)))
@@ -424,12 +475,16 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (!subagent && model && (await manualVariantPause(sessionID, state, model))) return;
       if (lineage && pausedByRoot(lineage)) return;
       if (state.autoPaused) return;
-      if (Date.now() >= hardDeadline) return;
+      if (Date.now() >= hardDeadline) {
+        meta.judgeOutcome = 'timeout';
+        return;
+      }
 
       let text: string = typeof event?.prompt?.text === 'string' ? event.prompt.text : '';
       if (subagent && text.startsWith(SUBAGENT_PREFIX)) text = text.slice(SUBAGENT_PREFIX.length);
 
       const kind = classifyPrompt(text);
+      if (kind.kind !== 'judge') meta.judgeOutcome = 'skipped';
       if (kind.kind === 'followup')
         state.pending = Promise.resolve({
           level: state.lastLevel ?? 'medium',
@@ -442,7 +497,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
           source: 'named',
           reason: `asked for ${kind.level} effort`,
         });
-      else state.pending = judge(settings, state, model, text, subagent, sessionID);
+      else state.pending = judge(settings, state, model, text, subagent, sessionID, meta);
       const entry: Admitted = { decision: state.pending };
       rememberAdmitted(getLocal(sessionID), event?.messageID, entry);
 
@@ -457,6 +512,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
         model,
         session.agent,
         entry,
+        meta,
         deadline,
         hardDeadline,
       );
@@ -494,6 +550,8 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       const entry = promptID === undefined ? undefined : local.admitted.get(promptID);
       // Before anything that can fail: stats must never count this request under the last one.
       state.requestTurn = promptID ?? state.userTurn;
+      state.requestMeta =
+        promptID === undefined ? local.latestMeta : (local.metas.get(promptID) ?? null);
       // Set below only when Gearbox applies an effort level to this request.
       state.requestLevel = null;
       const settings = await load(ctx);

@@ -18,3 +18,6 @@ bun.lock
 # Generated brand assets and the static site
 assets/brand/
 site/
+
+# The board page template ships as designed: embedded fonts and the /*DATA*/ placeholder stay verbatim
+src/board/template.html

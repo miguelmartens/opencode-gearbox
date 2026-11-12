@@ -28,6 +28,7 @@
   <a href="#supported-models">Models</a> ·
   <a href="#the-five-gears">Gears</a> ·
   <a href="#commands">Commands</a> ·
+  <a href="#board">Board</a> ·
   <a href="#options">Options</a> ·
   <a href="#how-model-switching-decides">Model switching</a>
 </p>
@@ -206,6 +207,7 @@ All output appears as a toast or, for long text, as a dialog. No model turn is s
 | `/gearbox handoff [full]` | Continue in a fresh session seeded with a summary. `full` also writes `HANDOFF.md`                     |
 | `/gearbox compact [note]` | Compact now; the summary keeps `note` in mind, whether the judge model or OpenCode writes it           |
 | `/gearbox debug`          | Last decision, the judge's raw answer, whether a judge call is running, and the last request's model   |
+| `/gearbox board`          | Write the [board](#board), a local page of every session and project, and open it in the browser       |
 
 Plugin commands run from the TUI (or `client.session.command`). `opencode run "/gearbox …"` sends the text as a normal prompt.
 
@@ -224,6 +226,32 @@ In `/gearbox stats` a **turn** is one user prompt, counted once at the level Gea
 - **Context:** how full the context window is.
 - **Cache:** how long the provider's prompt cache stays warm. It uses the model's `settings.cache.ttl`, else the provider's `settings.cache.ttl`, else 5 minutes.
 - **Mode:** `Manual` means `auto` is off. `Paused: manual variant` means you picked a variant. `Paused: no effort control` means the model has no effort variants.
+
+## Board
+
+<p align="center"><img src="assets/board/board-preview.png" width="720" alt="The Gearbox board, with sample data: effort mix per day, spend per day, judge answer times, subagent model switches and sessions"></p>
+
+The board shows how Gearbox shifted across all your sessions and projects: the effort mix per day, spend per day against the budget, judge answer times and timeouts, subagents moved to a cheaper model, and every session as a strip of its turns. Switch between 7, 30 and 90 days, or pick one project. The preview above uses sample data.
+
+Run `/gearbox board`. Gearbox writes one self-contained HTML file and opens it in your browser:
+
+- `<OpenCode data dir>/gearbox/board.html`, usually `~/.local/share/opencode/gearbox/board.html`;
+- `~/.local/share/opencode-gearbox/board.html` when OpenCode has no data directory.
+
+If no browser opens, the toast gives the path. Run the command again to refresh the page.
+
+The page is built from a turn log that Gearbox keeps in plugin storage: one record per user turn (or subagent run) with its project, session title, model, level, tokens, cost and judge result. The page has no server, makes no network requests and carries its own fonts. Nothing leaves your machine.
+
+Two plugin options control the log. Set them in the plugin entry's `options`; `/gearbox set` does not change them.
+
+| Key                   | Default | Meaning                                                                    |
+| --------------------- | ------- | -------------------------------------------------------------------------- |
+| `board.retentionDays` | `90`    | Days of turns to keep; older records are removed once a day                |
+| `board.titles`        | `true`  | Store session titles. `false` stores none, and the board shows session IDs |
+
+```jsonc
+{ "package": "opencode-gearbox", "options": { "board": { "retentionDays": 30, "titles": false } } }
+```
 
 ## Options
 

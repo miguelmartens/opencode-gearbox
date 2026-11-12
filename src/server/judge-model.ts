@@ -21,9 +21,24 @@ export type JudgeResult = { text: string; ms: number; costUSD?: number };
 
 /**
  * Who the call is for: its cost goes into today's spend and, unless `sessionStats` is false
- * (bench), into that session's stats.
+ * (bench), into that session's stats. The observers only watch the call (the board's turn log):
+ * `onOutcome` when the race ends, `onCost` when the call settles, with the cost the ledger takes.
  */
-export type JudgeMeta = { sessionID?: string; sessionStats?: boolean };
+export type JudgeMeta = {
+  sessionID?: string;
+  sessionStats?: boolean;
+  onOutcome?: (outcome: 'ok' | 'timeout' | 'error', ms: number) => void;
+  onCost?: (costUSD: number) => void;
+};
+
+/** Runs an observer; its failure never touches the judge call. */
+function observe(run: () => void): void {
+  try {
+    run();
+  } catch (error) {
+    logOnce('*', 'judge observer', error);
+  }
+}
 
 /** No model known: `runJudge` skips the call. */
 export const NO_MODEL: ModelRef = { providerID: '', id: '' };
@@ -137,22 +152,31 @@ export async function runJudge(
   if (!generate || !model.providerID || !model.id) return null;
   const sessionID = meta.sessionID ?? null;
   const start = Date.now();
+  let settled = false;
   const call = Promise.resolve()
     .then(() => generate({ model, prompt }))
     .then((output) => (typeof output?.text === 'string' ? output.text : null))
     .catch((error) => {
       logOnce(sessionID ?? '*', 'judge call', error);
       return null;
+    })
+    .finally(() => {
+      settled = true;
     });
   const cost = call.then((text) =>
     text === null ? undefined : estimateCost(ctx, model, prompt, text),
   );
-  void cost.then((usd) =>
-    recordJudgeCall(ctx, sessionID, usd ?? 0, Date.now(), { sessionStats: meta.sessionStats }),
-  );
+  void cost.then((usd) => {
+    observe(() => meta.onCost?.(usd ?? 0));
+    return recordJudgeCall(ctx, sessionID, usd ?? 0, Date.now(), {
+      sessionStats: meta.sessionStats,
+    });
+  });
   const text = await bounded(call, timeoutMs, null);
-  if (text === null) return null;
   const ms = Date.now() - start;
+  const outcome = text !== null ? 'ok' : settled ? 'error' : 'timeout';
+  observe(() => meta.onOutcome?.(outcome, ms));
+  if (text === null) return null;
   const costUSD = await bounded(cost, Math.max(0, timeoutMs - ms), undefined);
   return costUSD === undefined ? { text, ms } : { text, ms, costUSD };
 }

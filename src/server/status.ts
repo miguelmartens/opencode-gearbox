@@ -137,6 +137,7 @@ export function trackUsage(ctx: Ctx): void {
           turn: state.requestTurn,
           level: state.requestLevel,
           model: state.requestModel,
+          meta: state.requestMeta,
         };
         return;
       }

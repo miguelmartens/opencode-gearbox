@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/miguelmartens/opencode-gearbox/compare/v0.2.3...v0.3.0) (2026-11-12)
+
+
+### Features
+
+* **board:** add /gearbox board, a local page of every session ([#30](https://github.com/miguelmartens/opencode-gearbox/issues/30)) ([ac0ca48](https://github.com/miguelmartens/opencode-gearbox/commit/ac0ca486501e402ab4402434f934fda0269ed15c))
+
 ## [0.2.3](https://github.com/miguelmartens/opencode-gearbox/compare/v0.2.2...v0.2.3) (2026-11-12)
 
 

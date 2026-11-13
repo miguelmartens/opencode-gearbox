@@ -258,6 +258,7 @@ Options from the plugin entry are the base. Changes made with `/gearbox set` are
 | `bias`                       | `0`        | Shift every level (judged, follow-up or named) by −2…2 steps                                               |
 | `floor`                      | `"low"`    | Lowest level Gearbox may choose                                                                            |
 | `ceiling`                    | `"max"`    | Highest level Gearbox may choose                                                                           |
+| `subagentCeiling`            | `"high"`   | Highest level for subagents, also when their prompt names a level                                          |
 | `saveMode.until`             | `null`     | Save mode end (epoch ms); set by `/gearbox save`                                                           |
 | `saveMode.cap`               | `"medium"` | Highest level while save mode is on                                                                        |
 | `saveMode.hours`             | `5`        | How long `/gearbox save` lasts                                                                             |
@@ -271,7 +272,7 @@ Options from the plugin entry are the base. Changes made with `/gearbox set` are
 | `budget.dailyUSD`            | `null`     | Daily spend budget. At 80% one warning, and save mode turns on. Above 100%, a warning every turn           |
 | `effortModels`               | `".*"`     | Regular expression of model ids Gearbox manages. Other models run unchanged and are left out of the ladder |
 
-The levels, lowest to highest: `low`, `medium`, `high`, `xhigh`, `max`. Shaping order: `bias`, then `floor` and `ceiling`, then the save-mode cap.
+The levels, lowest to highest: `low`, `medium`, `high`, `xhigh`, `max`. Shaping order: `bias`, then `floor` and `ceiling`, then `subagentCeiling` for subagents, then the save-mode cap.
 
 ## How the judge decides
 

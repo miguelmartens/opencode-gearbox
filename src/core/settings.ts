@@ -28,6 +28,7 @@ const CHECKS: Record<string, Check> = {
   bias: (v) => isNumber(v) && Number.isInteger(v) && v >= -2 && v <= 2,
   floor: isLevel,
   ceiling: isLevel,
+  subagentCeiling: isLevel,
   'saveMode.until': (v) => v === null || isNumber(v),
   'saveMode.cap': isLevel,
   'saveMode.hours': isPositive,

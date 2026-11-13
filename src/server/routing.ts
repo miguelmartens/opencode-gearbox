@@ -359,7 +359,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     if (await within(explicit, deadline, true)) return;
     const infos = await within(catalog, deadline, null);
     if (!infos) return;
-    const level = applyShaping(decision.level, settings, Date.now());
+    const level = applyShaping(decision.level, settings, Date.now(), true);
     const lites = liteModels(infos);
     // The ladder of the model the child started with, never above it.
     const top = state.firstModel ?? model;
@@ -542,7 +542,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (state.autoPaused) return;
 
       const decision = await turnDecision(state, settings.judge.timeoutMs, entry);
-      const level = applyShaping(decision.level, settings, Date.now());
+      const level = applyShaping(decision.level, settings, Date.now(), subagent);
       // A hanging catalog read must not hold the request: no catalog → no effort control.
       const infos = await bounded(listModelInfos(ctx), settings.judge.timeoutMs, []);
       const info = findInfo(infos, model);

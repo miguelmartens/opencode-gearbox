@@ -11,6 +11,7 @@ test('DEFAULT_SETTINGS match the Global Constraints', () => {
     bias: 0,
     floor: 'low',
     ceiling: 'max',
+    subagentCeiling: 'high',
     saveMode: { until: null, cap: 'medium', hours: 5 },
     judge: { timeoutMs: 4000 },
     modelSwitch: { subagents: true, minSavingRatio: 0.2 },

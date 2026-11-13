@@ -61,3 +61,11 @@ test('pickVariant returns undefined without level variants', () => {
   expect(pickVariant('medium', [])).toBe(undefined);
   expect(pickVariant('medium', ['thinking', 'fast'])).toBe(undefined);
 });
+
+test('applyShaping caps subagents at subagentCeiling, after the floor', () => {
+  expect(DEFAULT_SETTINGS.subagentCeiling).toBe('high');
+  expect(applyShaping('max', DEFAULT_SETTINGS, 0, true)).toBe('high');
+  expect(applyShaping('max', DEFAULT_SETTINGS, 0)).toBe('max');
+  expect(applyShaping('low', { ...DEFAULT_SETTINGS, floor: 'max' }, 0, true)).toBe('high');
+  expect(applyShaping('max', { ...DEFAULT_SETTINGS, subagentCeiling: 'max' }, 0, true)).toBe('max');
+});

@@ -36,6 +36,8 @@ export type Settings = {
   bias: -2 | -1 | 0 | 1 | 2;
   floor: Level;
   ceiling: Level;
+  /** Highest level for subagents: text a subagent reads must not push it to max. */
+  subagentCeiling: Level;
   saveMode: { until: number | null; cap: Level; hours: number };
   judge: { model?: string; timeoutMs: number };
   modelSwitch: { subagents: boolean; minSavingRatio: number };
@@ -51,6 +53,7 @@ export const DEFAULT_SETTINGS: Settings = {
   bias: 0,
   floor: 'low',
   ceiling: 'max',
+  subagentCeiling: 'high',
   saveMode: { until: null, cap: 'medium', hours: 5 },
   judge: { timeoutMs: 4000 },
   modelSwitch: { subagents: true, minSavingRatio: 0.2 },

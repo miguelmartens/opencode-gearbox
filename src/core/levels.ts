@@ -16,10 +16,14 @@ export function saveModeActive(s: Settings, now: number): boolean {
   return s.saveMode.until !== null && s.saveMode.until > now;
 }
 
-/** Bias, then floor/ceiling, then the save-mode cap while save mode is active. */
-export function applyShaping(level: Level, s: Settings, now: number): Level {
+/**
+ * Bias, then floor/ceiling, then `subagentCeiling` for a subagent, then the save-mode cap while
+ * save mode is active.
+ */
+export function applyShaping(level: Level, s: Settings, now: number, subagent = false): Level {
   let out = shiftLevel(level, s.bias);
   out = atMost(atLeast(out, s.floor), s.ceiling);
+  if (subagent) out = atMost(out, s.subagentCeiling);
   if (saveModeActive(s, now)) out = atMost(out, s.saveMode.cap);
   return out;
 }

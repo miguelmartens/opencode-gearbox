@@ -110,7 +110,7 @@ Every fixed-arm request, subagents included, sent the arm's effort. `auto` again
 
 ## Gearbox settings in the Gearbox arms
 
-Gearbox keeps `/gearbox set` overrides in plugin storage, which a user's own Gearbox install shares. Before the first prompt of every Gearbox task run, the runner sends `/gearbox settings` through `client.session.command` and checks the answer: `auto` on, `bias` 0, `floor` low, `ceiling` max, `judge.model` = `--judge`, `modelSwitch.subagents` per arm, no budget, save mode off. A mismatch aborts that task run, and the runner refuses to start when stored overrides exist.
+Gearbox keeps `/gearbox set` overrides in plugin storage, which a user's own Gearbox install shares. Before the first prompt of every Gearbox task run, the runner sends `/gearbox settings` through `client.session.command` and checks the answer: `auto` on, `bias` 0, `floor` low, `ceiling` max, `subagentCeiling` high, `judge.model` = `--judge`, `modelSwitch.subagents` per arm, no budget, save mode off. A mismatch aborts that task run, and the runner refuses to start when stored overrides exist.
 
 ## Usage numbers: cross-checks
 

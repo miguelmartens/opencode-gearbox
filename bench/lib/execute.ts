@@ -124,6 +124,7 @@ export function settingsProblems(
   expect('bias', settings?.bias, 0);
   expect('floor', settings?.floor, 'low');
   expect('ceiling', settings?.ceiling, 'max');
+  expect('subagentCeiling', settings?.subagentCeiling, 'high');
   expect('judge.model', settings?.judge?.model, judge);
   expect('modelSwitch.subagents', settings?.modelSwitch?.subagents, arm.subagentSwitch);
   expect('budget.dailyUSD', settings?.budget?.dailyUSD, null);

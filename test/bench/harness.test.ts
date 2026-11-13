@@ -166,6 +166,7 @@ describe('gearbox settings check', () => {
     bias: 0,
     floor: 'low',
     ceiling: 'max',
+    subagentCeiling: 'high',
     judge: { model: 'p/j#none' },
     modelSwitch: { subagents: true },
     budget: { dailyUSD: null },

@@ -533,6 +533,25 @@ test('a named level still wins in an explore subagent', async () => {
   expect(event.options.effort).toBe('high');
 });
 
+test('a subagent judged max runs at subagentCeiling', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    settings: { modelSwitch: { subagents: false, minSavingRatio: 0.2 } },
+    sessions: {
+      [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'general', model: OPUS },
+    },
+    agents: [{ id: 'general' }],
+    generateText: async () => ({ text: 'LEVEL: max\nWHY: critical' }),
+  });
+  await fake.fire(
+    'prompt',
+    promptEvent(sessionID, `${SUBAGENT_PREFIX}This is critical, think hard`),
+  );
+  const event = contextEvent(sessionID, OPUS);
+  await fake.fire('context', event);
+  expect(event.options.effort).toBe('high');
+});
+
 test('subagent model switching off keeps the model', async () => {
   const sessionID = newSession();
   const fake = await setup({
@@ -695,6 +714,7 @@ async function resumedSubagent(cached: number, second: string) {
     [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'general', model: OPUS },
   };
   const fake = await setup({
+    settings: { subagentCeiling: 'max' },
     sessions,
     agents: [{ id: 'general' }],
     generateText: async () => ({ text: 'LEVEL: low' }),
@@ -726,6 +746,7 @@ test('a resumed subagent never switches to a pricier model', async () => {
     [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'general', model: OPUS },
   };
   const fake = await setup({
+    settings: { subagentCeiling: 'max' },
     sessions,
     agents: [{ id: 'general' }],
     generateText: async () => ({ text: 'LEVEL: low' }),

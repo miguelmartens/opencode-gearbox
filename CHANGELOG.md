@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/miguelmartens/opencode-gearbox/compare/v0.4.1...v0.4.2) (2026-11-13)
+
+
+### Bug Fixes
+
+* route subagents off outdated models, cap their effort, and harden the bench ([#42](https://github.com/miguelmartens/opencode-gearbox/issues/42)) ([a13dae7](https://github.com/miguelmartens/opencode-gearbox/commit/a13dae76e3b3eecf95b8468065ca4222756680d8))
+
 ## [0.4.1](https://github.com/miguelmartens/opencode-gearbox/compare/v0.4.0...v0.4.1) (2026-11-12)
 
 

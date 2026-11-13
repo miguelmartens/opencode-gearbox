@@ -85,9 +85,6 @@ The "typical prompt" column is a guide; [the judge decides](#how-the-judge-decid
 
 ## Benchmark
 
-> [!WARNING]
-> **Partial run, not comparable across setups.** The 2026-11-11 run was stopped after 30 of 432 planned task runs. Each setup ran a different 3 to 7 of the 24 tasks, so a row reflects its own tasks as much as its effort control. One of the two failures (always max, `m07`) ended with a transport error after 324 s, well before the 15-minute task limit; its cause is not yet known. A full run will replace these numbers. Raw data and coverage: [bench/README.md](bench/README.md#published-runs).
-
 <!-- The block between bench:start and bench:end is generated from the published bench run. Do not edit it by hand. -->
 <!-- bench:start -->
 
@@ -96,15 +93,15 @@ The "typical prompt" column is a guide; [the judge decides](#how-the-judge-decid
   <img src="assets/bench/chart-light.svg" width="720" alt="Tasks solved vs cost per task for each setup">
 </picture>
 
-| Setup                 |  Solved | Output tokens / task | Cost / task | Time / task | Cost vs always-high |
-| --------------------- | ------: | -------------------: | ----------: | ----------: | ------------------: |
-| always medium         |     98% |                 4.4k |     $0.0079 |        29 s |                −24% |
-| always high           |     98% |                 7.4k |       $0.01 |        39 s |            baseline |
-| always xhigh          |     98% |                15.7k |      $0.018 |        78 s |                +73% |
-| gearbox · effort only |    100% |                 5.8k |     $0.0091 |        36 s |                −12% |
-| **gearbox auto**      | **98%** |             **5.8k** | **$0.0093** |    **41 s** |            **−10%** |
+| Setup                 |   Solved | Output tokens / task | Cost / task | Time / task | Cost vs always-high |
+| --------------------- | -------: | -------------------: | ----------: | ----------: | ------------------: |
+| always medium         |     100% |                 2.4k |        $0.1 |        24 s |                −16% |
+| always high           |      98% |                 3.6k |       $0.12 |        32 s |            baseline |
+| always xhigh          |      98% |                 7.3k |       $0.18 |        58 s |                +47% |
+| gearbox · effort only |      96% |                 3.4k |       $0.12 |        31 s |                 −4% |
+| **gearbox auto**      | **100%** |             **3.9k** |   **$0.12** |    **34 s** |             **−4%** |
 
-<sub>24 tasks × 2 runs · model opencode-go/claude-haiku-5-5 · judge opencode-go/claude-haiku-5-5#none · OpenCode 2.2.6 · Gearbox 0.3.1 · 2026-11-12 · medians, judge cost included. [Method and raw data](bench/README.md)</sub>
+<sub>24 tasks × 2 runs · model anthropic/claude-sonnet-5-5 · judge anthropic/claude-haiku-5-5#none · OpenCode 2.2.6 · Gearbox 0.4.1 · 2026-11-12 · medians, judge cost included. [Method and raw data](bench/README.md)</sub>
 <!-- bench:end -->
 
 ## Supported models

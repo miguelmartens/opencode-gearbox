@@ -99,7 +99,7 @@ Each task run appends one line to `results/raw/<run id>.jsonl` (format: `bench/l
 ## Known limits
 
 - **The task mix drives the result.** Small, well-specified tasks favour low effort; more hard tasks would favour high effort. The suite is 50% easy, 33% medium and 17% hard; read the numbers with that mix in mind.
-- **One model, one provider.** Results for `claude-haiku-5-5` on `opencode-go` say little about other models. Rerun with `--model` for yours.
+- **One model, one provider.** The published results for `claude-sonnet-5-5` on `anthropic` say little about other models. Rerun with `--model` for yours.
 - **Provider cache effects.** Anthropic caches prompts per model for minutes; task runs back to back can hit a warm cache that another order would not. The shuffled order spreads this across arms but does not remove it.
 - **Catalog prices on subscriptions.** On a subscription provider the cost is what the tokens would cost at the provider's catalog price, not what was billed.
 - **Judge cost is an estimate** from text length, not provider usage.
@@ -111,7 +111,12 @@ Each task run appends one line to `results/raw/<run id>.jsonl` (format: `bench/l
 
 Each published run adds a line here: date, commit, model, judge, runs and the raw file.
 
-- **2026-11-12 · Sonnet, not summarised.** Model `anthropic/claude-sonnet-5-5`, judge `anthropic/claude-haiku-5-5#none`. OpenCode 2.2.6, Gearbox 0.4.1, Bun 1.4.4, commit `26f7d57`. Raw file [`results/raw/2026-11-12T18-54-27-830Z.jsonl`](results/raw/2026-11-12T18-54-27-830Z.jsonl): two complete runs × 5 arms (`medium`, `high`, `xhigh`, `auto`, `auto-effort`; `max` left out after the transport timeouts of the Haiku run) × 24 tasks = 240 task runs. Total cost $30.23 billed by Anthropic, judge included. `summary.json`, the chart and the README block still show the Haiku run.
+- **2026-11-12 · Sonnet, the published summary.** Model `anthropic/claude-sonnet-5-5`, judge `anthropic/claude-haiku-5-5#none`. OpenCode 2.2.6, Gearbox 0.4.1, Bun 1.4.4, commit `26f7d57`. Raw file [`results/raw/2026-11-12T18-54-27-830Z.jsonl`](results/raw/2026-11-12T18-54-27-830Z.jsonl): two complete runs × 5 arms (`medium`, `high`, `xhigh`, `auto`, `auto-effort`; `max` left out after the transport timeouts of the Haiku run) × 24 tasks = 240 task runs. Total cost $30.23 billed by Anthropic, judge included. `summary.json`, the chart, the README block and the website show this run. To regenerate (the date is the run's, not the day it is summarised):
+
+  ```sh
+  bun -e 'import {readRaw,summarize} from "./bench/lib/summary.ts";import {writeFileSync} from "node:fs";const s=summarize(readRaw(["bench/results/raw/2026-11-12T18-54-27-830Z.jsonl"]),{date:"2026-11-12"});writeFileSync("bench/results/summary.json",JSON.stringify(s,null,2)+"\n")'
+  bun bench/render.ts
+  ```
 
   | Arm           | Solved | Cost per task | Seconds per task | Output tokens per task |
   | ------------- | -----: | ------------: | ---------------: | ---------------------: |
@@ -123,7 +128,7 @@ Each published run adds a line here: date, commit, model, judge, runs and the ra
 
   Means over both runs, not the summariser's medians. All four unsolved task runs are harness errors, not wrong answers: three ended with `run error: Location plugins did not finish activating` before the first prompt (`high` / `m08-schedule-overlap-bug`, `auto-effort` / `m07-config-env-validation`, `auto-effort` / `e01-rename-function`) and one with `run error: Transport: The operation timed out` (`xhigh` / `h04-callbacks-to-async`).
 
-- **2026-11-12 · two complete runs, `max` withheld.** Model `opencode-go/claude-haiku-5-5`, judge `opencode-go/claude-haiku-5-5#none`. OpenCode 2.2.6, Gearbox 0.3.1, Bun 1.4.4, commit `9665ea8`. Raw file [`results/raw/2026-11-12T11-46-29-322Z.jsonl`](results/raw/2026-11-12T11-46-29-322Z.jsonl): two complete runs × 6 arms × 24 tasks, plus 29 task runs of a third run stopped by hand. Total cost $4.63, judge included. The summary and README block use runs 1–2 and leave out the `max` arm: 16 of its 48 task runs ended with `run error: Transport: The operation timed out`, so its 67% solved and $0.035 per task measure the harness, not the model. Run 3 is not summarised because it is incomplete. To regenerate:
+- **2026-11-12 · two complete runs, `max` withheld.** Model `opencode-go/claude-haiku-5-5`, judge `opencode-go/claude-haiku-5-5#none`. OpenCode 2.2.6, Gearbox 0.3.1, Bun 1.4.4, commit `9665ea8`. Raw file [`results/raw/2026-11-12T11-46-29-322Z.jsonl`](results/raw/2026-11-12T11-46-29-322Z.jsonl): two complete runs × 6 arms × 24 tasks, plus 29 task runs of a third run stopped by hand. Total cost $4.63, judge included. Its summary and README block, published until the Sonnet run replaced them, used runs 1–2 and left out the `max` arm: 16 of its 48 task runs ended with `run error: Transport: The operation timed out`, so its 67% solved and $0.035 per task measure the harness, not the model. Run 3 is not summarised because it is incomplete. To regenerate:
 
   ```sh
   # runs 1–2, every arm but `max`

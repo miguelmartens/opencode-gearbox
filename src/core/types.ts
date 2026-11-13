@@ -25,7 +25,7 @@ export type ModelLite = {
 
 export type Decision = {
   level: Level;
-  source: 'judge' | 'followup' | 'named' | 'fallback' | 'manual';
+  source: 'judge' | 'followup' | 'named' | 'agent' | 'fallback' | 'manual';
   reason: string;
   judgeMs?: number;
   judgeCostUSD?: number;

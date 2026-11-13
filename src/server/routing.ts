@@ -72,6 +72,8 @@ type Local = {
 };
 
 const SUBAGENT_PREFIX = 'You are a subagent spawned by another session.\n';
+/** Read-only subagents: they search and report, so they run at `low` without a judge call. */
+const READ_ONLY_AGENTS: ReadonlySet<string> = new Set(['explore']);
 const MANUAL_VARIANT = 'manual variant';
 const NO_EFFORT_CONTROL = 'no effort control';
 /** Admitted prompts kept per session: the running turn and a few queued ones. */
@@ -446,7 +448,8 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (subagent && text.startsWith(SUBAGENT_PREFIX)) text = text.slice(SUBAGENT_PREFIX.length);
 
       const kind = classifyPrompt(text);
-      if (kind.kind !== 'judge') meta.judgeOutcome = 'skipped';
+      const readOnly = subagent && READ_ONLY_AGENTS.has(session.agent ?? '');
+      if (kind.kind !== 'judge' || readOnly) meta.judgeOutcome = 'skipped';
       if (kind.kind === 'followup')
         state.pending = Promise.resolve({
           level: state.lastLevel ?? 'medium',
@@ -458,6 +461,12 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
           level: kind.level,
           source: 'named',
           reason: `asked for ${kind.level} effort`,
+        });
+      else if (readOnly)
+        state.pending = Promise.resolve({
+          level: 'low',
+          source: 'agent',
+          reason: `read-only ${session.agent} subagent`,
         });
       else state.pending = judge(settings, state, model, text, subagent, sessionID, meta);
       const entry: Admitted = { decision: state.pending };

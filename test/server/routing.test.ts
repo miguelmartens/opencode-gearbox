@@ -500,6 +500,39 @@ test('subagent routing skips older dearer models and rungs whose lowest effort i
   });
 });
 
+test('an explore subagent runs at low without a judge call', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    sessions: {
+      [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'explore', model: OPUS },
+    },
+    agents: [{ id: 'explore' }],
+    generateText: async () => ({ text: 'LEVEL: max' }),
+  });
+  await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}Find every TODO`));
+  expect(fake.callsTo('generate.text').length).toBe(0);
+  const [call] = fake.callsTo('session.switchModel');
+  expect((call.input as any).model).toStrictEqual({ ...HAIKU, variant: 'low' });
+  const event = contextEvent(sessionID, OPUS);
+  await fake.fire('context', event);
+  expect(event.options.effort).toBe('low');
+  expect(getState(sessionID).lastDecision?.source).toBe('agent');
+});
+
+test('a named level still wins in an explore subagent', async () => {
+  const sessionID = newSession();
+  const fake = await setup({
+    sessions: {
+      [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'explore', model: OPUS },
+    },
+    agents: [{ id: 'explore' }],
+  });
+  await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}high effort: trace the bug`));
+  const event = contextEvent(sessionID, OPUS);
+  await fake.fire('context', event);
+  expect(event.options.effort).toBe('high');
+});
+
 test('subagent model switching off keeps the model', async () => {
   const sessionID = newSession();
   const fake = await setup({

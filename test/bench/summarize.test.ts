@@ -94,6 +94,17 @@ describe('summarize', () => {
     expect(s.arms[1].levels).toEqual({ low: 0.25, medium: 0.25, high: 0.5, xhigh: 0, max: 0 });
   });
 
+  test('date defaults to the UTC day of the latest task run, not today', () => {
+    const late = fakeRecord({
+      arm: 'max',
+      task: 'a',
+      run: 1,
+      startedAt: '2026-01-03T23:59:00.000Z',
+    });
+    expect(summarize([late, ...high]).date).toBe('2026-01-03');
+    expect(summarize(high).date).toBe('2026-01-01');
+  });
+
   test('dry runs are left out unless asked for', () => {
     const dry = [fakeRecord({ arm: 'max', task: 'a', run: 1, dryRun: true })];
     expect(summarize([...high, ...dry]).arms.map((a) => a.id)).toEqual(['high']);

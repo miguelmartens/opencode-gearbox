@@ -75,7 +75,8 @@ Every task run also records the effort each request actually sent (from a scratc
 - per-task values are the median over runs of the per-run mean per task;
 - ranges (`passRange`, `costRange`) are the min and max of the per-run values;
 - `levels` (Gearbox arms) is the share of main-chat turns per level, from Gearbox's stats;
-- dry-run records are left out, and records of different models, judges, OpenCode or Gearbox versions or commits are refused.
+- dry-run records are left out, and records of different models, judges, OpenCode or Gearbox versions or commits are refused;
+- `date` is the UTC day of the latest task run, not the day of summarising (`--date YYYY-MM-DD` overrides it).
 
 `bench/render.ts` writes `assets/bench/chart-dark.svg` and `chart-light.svg` (labels drawn as paths, so they render on GitHub) and the README block between `<!-- bench:start -->` and `<!-- bench:end -->`. The website's Benchmark section renders the same `summary.json` (the Pages workflow copies it to `site/bench.json`); it stays hidden until that file exists.
 
@@ -111,10 +112,10 @@ Each task run appends one line to `results/raw/<run id>.jsonl` (format: `bench/l
 
 Each published run adds a line here: date, commit, model, judge, runs and the raw file.
 
-- **2026-11-12 · Sonnet, the published summary.** Model `anthropic/claude-sonnet-5-5`, judge `anthropic/claude-haiku-5-5#none`. OpenCode 2.2.6, Gearbox 0.4.1, Bun 1.4.4, commit `26f7d57`. Raw file [`results/raw/2026-11-12T18-54-27-830Z.jsonl`](results/raw/2026-11-12T18-54-27-830Z.jsonl): two complete runs × 5 arms (`medium`, `high`, `xhigh`, `auto`, `auto-effort`; `max` left out after the transport timeouts of the Haiku run) × 24 tasks = 240 task runs. Total cost $30.23 billed by Anthropic, judge included. `summary.json`, the chart, the README block and the website show this run. To regenerate (the date is the run's, not the day it is summarised):
+- **2026-11-12 · Sonnet, the published summary.** Model `anthropic/claude-sonnet-5-5`, judge `anthropic/claude-haiku-5-5#none`. OpenCode 2.2.6, Gearbox 0.4.1, Bun 1.4.4, commit `26f7d57`. Raw file [`results/raw/2026-11-12T18-54-27-830Z.jsonl`](results/raw/2026-11-12T18-54-27-830Z.jsonl): two complete runs × 5 arms (`medium`, `high`, `xhigh`, `auto`, `auto-effort`; `max` left out after the transport timeouts of the Haiku run) × 24 tasks = 240 task runs. Total cost $30.23 billed by Anthropic, judge included. `summary.json`, the chart, the README block and the website show this run. To regenerate:
 
   ```sh
-  bun -e 'import {readRaw,summarize} from "./bench/lib/summary.ts";import {writeFileSync} from "node:fs";const s=summarize(readRaw(["bench/results/raw/2026-11-12T18-54-27-830Z.jsonl"]),{date:"2026-11-12"});writeFileSync("bench/results/summary.json",JSON.stringify(s,null,2)+"\n")'
+  bun bench/summarize.ts bench/results/raw/2026-11-12T18-54-27-830Z.jsonl
   bun bench/render.ts
   ```
 

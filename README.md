@@ -73,7 +73,7 @@ The "typical prompt" column is a guide; [the judge decides](#how-the-judge-decid
 - **No judge for the obvious cases.** Follow-ups (`ok`, `go`, `yes please`, `continue`) reuse the last level. A read-only `explore` subagent runs at `low`, so it starts without waiting for the judge. "max effort", "low effort" and the other level names in a prompt set that level directly, unless a negation comes just before ("no need for max effort").
 - **Never in your way.** If you pick a variant yourself, Gearbox pauses for that session and tells you once. A judge timeout, an unreadable answer or a provider error falls back to the last level, else `medium`. The judge never blocks a prompt.
 - **Context care.**
-  - Compaction summaries are written by the judge model (see [Pick a fast judge](#pick-a-fast-judge)) when that is cheaper than the session's own compaction and the conversation fits the judge's context. A warm session cache can make the session's model cheaper; then OpenCode compacts as usual. A judge summary that takes over 30 s also falls back to OpenCode. The summary model receives the whole conversation, so a judge model picked automatically from another provider (e.g. your `small_model`) is never used for it: compaction stays with OpenCode, and handoff summaries use the session's model.
+  - Compaction summaries are written by the judge model (see [Pick a fast judge](#pick-a-fast-judge)) when that is cheaper than the session's own compaction and the conversation fits the judge's context. A warm session cache can make the session's model cheaper; then OpenCode compacts as usual. A judge summary that takes over 30 s also falls back to OpenCode. The summary model receives the whole conversation; a judge model picked automatically is always on the session's provider (see [Pick a fast judge](#pick-a-fast-judge)).
   - `/gearbox handoff` starts a fresh session seeded with a summary.
   - A warning when the context gets swamped.
   - Handoff advice when the work has moved on.
@@ -167,7 +167,7 @@ To run it from a checkout, use the absolute path of the repository instead of th
 The judge must answer within `judge.timeoutMs` (4 s by default), or the turn falls back to the last level. The same model writes compaction and handoff summaries. Gearbox uses, in order:
 
 1. `judge.model`.
-2. Your `small_model` (V2 stores it as the `title` agent's model).
+2. Your `small_model` (V2 stores it as the `title` agent's model), when it is on the session's provider. Prompts never go to another provider unless you name that model in `judge.model`.
 3. The cheapest tool-capable model of the session's provider.
 4. The session's own model.
 

@@ -66,8 +66,8 @@ async function titleModel(ctx: Ctx): Promise<ModelRef | null> {
 }
 
 /**
- * `settings.judge.model` → title agent model (V1 `small_model`) → cheapest tool-capable model of
- * the provider → the session's own model, lightened. An unknown session model yields an empty ref,
+ * `settings.judge.model` → title agent model (V1 `small_model`) when it is on the session's
+ * provider → cheapest tool-capable model of the provider → the session's own model, lightened. An unknown session model yields an empty ref,
  * which `runJudge` skips.
  */
 export async function resolveJudgeModel(
@@ -80,8 +80,11 @@ export async function resolveJudgeModel(
 
   const infos = await listModelInfos(ctx).catch(() => [] as ModelInfo[]);
   const small = await titleModel(ctx);
-  if (small) return lighten(small, infos);
-  if (!sessionModel.providerID || !sessionModel.id) return NO_MODEL;
+  const known = Boolean(sessionModel.providerID && sessionModel.id);
+  // Only a model the user picked for it may get prompts from another provider than the session's.
+  if (small && (!known || small.providerID === sessionModel.providerID))
+    return lighten(small, infos);
+  if (!known) return NO_MODEL;
 
   let cheapest: ModelLite | null = null;
   for (const info of infos) {

@@ -58,7 +58,7 @@ Every task run also records the effort each request actually sent (from a scratc
 
 ### What counts as solved
 
-`check.sh` exits 0. A task run that timed out, errored or hit `--max-usd` is not solved, even if the check would pass. Nothing is retried; every error is recorded in the raw line.
+`check.sh` exits 0. A task run that timed out, errored or hit `--max-usd` is not solved, even if the check would pass. A task run that fails before its first model request (e.g. `Location plugins did not finish activating`) spent and measured nothing, so the runner tries it once more and records `retried once after: …`. Nothing else is retried; every error is recorded in the raw line.
 
 ### How cost is measured
 

@@ -1,0 +1,3 @@
+Our dependency checker reports some fine installs as broken and lets some bad ones through. `brokenDeps` and `maxSatisfying` in `src/deps.ts` rely on `compare` and `satisfies` in `src/semver.ts`, our own small semver implementation (the checker must not depend on any package).
+
+Make `satisfies(version, range)` and `compare(a, b)` behave exactly like npm's `semver` package (v7, default options: no `loose`, no `includePrerelease`) for valid versions and ranges. That covers primitive comparators, x-ranges and `*`, tilde and caret ranges, hyphen ranges, `||`, how prerelease versions are matched, and SemVer 2.0.0 precedence for `compare` (which returns -1, 0 or 1). Keep the existing tests passing and add tests for what you fix.

@@ -70,10 +70,10 @@ The "typical prompt" column is a guide; [the judge decides](#how-the-judge-decid
 
 - **Auto effort.** The judge rates each main-chat prompt `low | medium | high | xhigh | max`. Gearbox applies that level as the model's matching variant settings on every request of the turn.
 - **Subagents.** Each task-tool subagent gets its own level. By default it also gets a model from your provider's price ladder on its first prompt, because a fresh subagent has no cache to lose. A subagent whose agent file sets `model` keeps that model; Gearbox only sets its effort.
-- **No judge for the obvious cases.** Follow-ups (`ok`, `go`, `yes please`, `continue`) reuse the last level. "max effort", "low effort" and the other level names in a prompt set that level directly, unless a negation comes just before ("no need for max effort").
+- **No judge for the obvious cases.** Follow-ups (`ok`, `go`, `yes please`, `continue`) reuse the last level. A read-only `explore` subagent runs at `low`, so it starts without waiting for the judge. "max effort", "low effort" and the other level names in a prompt set that level directly, unless a negation comes just before ("no need for max effort").
 - **Never in your way.** If you pick a variant yourself, Gearbox pauses for that session and tells you once. A judge timeout, an unreadable answer or a provider error falls back to the last level, else `medium`. The judge never blocks a prompt.
 - **Context care.**
-  - Compaction summaries are written by the judge model (see [Pick a fast judge](#pick-a-fast-judge)) when that is cheaper than the session's own compaction and the conversation fits the judge's context. A warm session cache can make the session's model cheaper; then OpenCode compacts as usual. A judge summary that takes over 30 s also falls back to OpenCode. The summary model receives the whole conversation, so a judge model picked automatically from another provider (e.g. your `small_model`) is never used for it: compaction stays with OpenCode, and handoff summaries use the session's model.
+  - Compaction summaries are written by the judge model (see [Pick a fast judge](#pick-a-fast-judge)) when that is cheaper than the session's own compaction and the conversation fits the judge's context. A warm session cache can make the session's model cheaper; then OpenCode compacts as usual. A judge summary that takes over 30 s also falls back to OpenCode. The summary model receives the whole conversation; a judge model picked automatically is always on the session's provider (see [Pick a fast judge](#pick-a-fast-judge)).
   - `/gearbox handoff` starts a fresh session seeded with a summary.
   - A warning when the context gets swamped.
   - Handoff advice when the work has moved on.
@@ -167,7 +167,7 @@ To run it from a checkout, use the absolute path of the repository instead of th
 The judge must answer within `judge.timeoutMs` (4 s by default), or the turn falls back to the last level. The same model writes compaction and handoff summaries. Gearbox uses, in order:
 
 1. `judge.model`.
-2. Your `small_model` (V2 stores it as the `title` agent's model).
+2. Your `small_model` (V2 stores it as the `title` agent's model), when it is on the session's provider. Prompts never go to another provider unless you name that model in `judge.model`.
 3. The cheapest tool-capable model of the session's provider.
 4. The session's own model.
 
@@ -258,6 +258,7 @@ Options from the plugin entry are the base. Changes made with `/gearbox set` are
 | `bias`                       | `0`        | Shift every level (judged, follow-up or named) by −2…2 steps                                               |
 | `floor`                      | `"low"`    | Lowest level Gearbox may choose                                                                            |
 | `ceiling`                    | `"max"`    | Highest level Gearbox may choose                                                                           |
+| `subagentCeiling`            | `"high"`   | Highest level for subagents, also when their prompt names a level                                          |
 | `saveMode.until`             | `null`     | Save mode end (epoch ms); set by `/gearbox save`                                                           |
 | `saveMode.cap`               | `"medium"` | Highest level while save mode is on                                                                        |
 | `saveMode.hours`             | `5`        | How long `/gearbox save` lasts                                                                             |
@@ -271,7 +272,7 @@ Options from the plugin entry are the base. Changes made with `/gearbox set` are
 | `budget.dailyUSD`            | `null`     | Daily spend budget. At 80% one warning, and save mode turns on. Above 100%, a warning every turn           |
 | `effortModels`               | `".*"`     | Regular expression of model ids Gearbox manages. Other models run unchanged and are left out of the ladder |
 
-The levels, lowest to highest: `low`, `medium`, `high`, `xhigh`, `max`. Shaping order: `bias`, then `floor` and `ceiling`, then the save-mode cap.
+The levels, lowest to highest: `low`, `medium`, `high`, `xhigh`, `max`. Shaping order: `bias`, then `floor` and `ceiling`, then `subagentCeiling` for subagents, then the save-mode cap.
 
 ## How the judge decides
 
@@ -361,6 +362,7 @@ Gearbox only switches between models of the session's own provider and never pic
 
 - **Who is on it:** every enabled, tool-capable model of the provider whose id matches `effortModels`.
 - **Price limit:** its output price is at or below the chat model's. Models without a price (subscription catalogs with an empty `cost`) are left out.
+- **No outdated models:** a model is left out when a newer model of the same family (OpenCode's `family`, e.g. `claude-haiku`) costs no more and offers effort control too. Of two aliases with the same price and date, one stays. For example, under `claude-sonnet-5-5` the ladder is `claude-haiku-5-5`, then `claude-sonnet-5-5`: `claude-haiku-4-5` and `claude-sonnet-5` are left out.
 - **Order:** cheapest first, with the chat model last.
 
 **Which rung a level gets.**
@@ -374,6 +376,7 @@ Gearbox only switches between models of the session's own provider and never pic
 - **First prompt:** the child has no cache yet, so Gearbox switches it to the ladder model with the matching variant.
 - **Later prompts** (a resumed subagent): the child holds a warm cache. Gearbox changes its model only when the cost check below (with `minSavingRatio`) says switching is cheaper than staying. So a resumed child never climbs to a pricier model; its effort still follows the level.
 - **Effort rungs first:** the subagent ladder skips cheaper models without effort variants, unless no model on it has any.
+- **No effort above the level:** it also skips cheaper models whose lowest effort variant is above the level, e.g. a model with only `high` and `max` for a `medium` subagent.
 - **Your pick wins:** an agent with its own `model` keeps it. While the root session runs on a variant you picked (and you have not run `/gearbox auto on`), its subagents are left alone too.
 - **No model of its own:** a subagent whose session has no model is routed from its nearest ancestor's model, else from OpenCode's default model. If that ancestor runs on a picked variant, the subagent keeps it.
 

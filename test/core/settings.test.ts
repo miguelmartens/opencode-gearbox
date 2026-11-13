@@ -143,3 +143,14 @@ test('parseSetCommand rejects unknown keys', () => {
   expect('error' in parseSetCommand('modelSwitch true')).toBe(true);
   expect('error' in parseSetCommand('judge..model x')).toBe(true);
 });
+
+test('subagentCeiling takes a level', () => {
+  expect(mergeSettings(DEFAULT_SETTINGS, { subagentCeiling: 'xhigh' }).subagentCeiling).toBe(
+    'xhigh',
+  );
+  expect(mergeSettings(DEFAULT_SETTINGS, { subagentCeiling: 'huge' }).subagentCeiling).toBe('high');
+  expect(parseSetCommand('subagentCeiling max')).toStrictEqual({
+    key: 'subagentCeiling',
+    value: 'max',
+  });
+});

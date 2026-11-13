@@ -124,12 +124,28 @@ export function settingsProblems(
   expect('bias', settings?.bias, 0);
   expect('floor', settings?.floor, 'low');
   expect('ceiling', settings?.ceiling, 'max');
+  expect('subagentCeiling', settings?.subagentCeiling, 'high');
   expect('judge.model', settings?.judge?.model, judge);
   expect('modelSwitch.subagents', settings?.modelSwitch?.subagents, arm.subagentSwitch);
   expect('budget.dailyUSD', settings?.budget?.dailyUSD, null);
   const until = settings?.saveMode?.until;
   if (typeof until === 'number' && until > now) problems.push('save mode is on');
   return problems;
+}
+
+/** Run errors a second try cannot fix: the setup itself is wrong. */
+const SETUP_ERRORS = ['run error: model not in the catalog', 'run error: Gearbox settings differ'];
+
+/**
+ * The run error of a task run that failed before its first model request (e.g. `Location plugins
+ * did not finish activating`), else `null`. Such a run spent nothing and measured nothing, so the
+ * runner tries it once more instead of recording it as unsolved.
+ */
+export function startupFailure(outcome: Pick<TaskOutcome, 'requests' | 'errors'>): string | null {
+  if (outcome.requests > 0) return null;
+  const error = outcome.errors.find((e) => e.startsWith('run error'));
+  if (!error || SETUP_ERRORS.some((prefix) => error.startsWith(prefix))) return null;
+  return error;
 }
 
 /**

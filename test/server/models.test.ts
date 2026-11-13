@@ -59,3 +59,13 @@ test('parseTtlMs reads OpenCode TTL strings', () => {
   expect(parseTtlMs('soon')).toBe(null);
   expect(parseTtlMs(undefined)).toBe(null);
 });
+
+test('toModelLite keeps a known family and release time and drops unknown ones', () => {
+  const info = { id: 'm', providerID: 'p', cost: [{ input: 1, output: 5 }] };
+  const known = toModelLite({ ...info, family: 'claude-haiku', time: { released: 1760486400000 } });
+  expect(known?.family).toBe('claude-haiku');
+  expect(known?.released).toBe(1760486400000);
+  const unknown = toModelLite({ ...info, family: '', time: { released: 0 } });
+  expect(unknown && 'family' in unknown).toBe(false);
+  expect(unknown && 'released' in unknown).toBe(false);
+});

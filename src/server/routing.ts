@@ -12,7 +12,7 @@ import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
 import { applyShaping, pickVariant } from '../core/levels.ts';
 import { classifyPrompt } from '../core/rules.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
-import { buildLadder, preferEffortRungs, routeModel, sameModel } from '../core/ladder.ts';
+import { buildLadder, fitRungs, preferEffortRungs, routeModel, sameModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
 import { contextRatio } from '../core/context.ts';
 import { getState, onForget } from './state.ts';
@@ -72,6 +72,8 @@ type Local = {
 };
 
 const SUBAGENT_PREFIX = 'You are a subagent spawned by another session.\n';
+/** Read-only subagents: they search and report, so they run at `low` without a judge call. */
+const READ_ONLY_AGENTS: ReadonlySet<string> = new Set(['explore']);
 const MANUAL_VARIANT = 'manual variant';
 const NO_EFFORT_CONTROL = 'no effort control';
 /** Admitted prompts kept per session: the running turn and a few queued ones. */
@@ -357,11 +359,14 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     if (await within(explicit, deadline, true)) return;
     const infos = await within(catalog, deadline, null);
     if (!infos) return;
-    const level = applyShaping(decision.level, settings, Date.now());
+    const level = applyShaping(decision.level, settings, Date.now(), true);
     const lites = liteModels(infos);
     // The ladder of the model the child started with, never above it.
     const top = state.firstModel ?? model;
-    const ladder = preferEffortRungs(buildLadder(lites, top, effortRegex(settings)));
+    const ladder = fitRungs(
+      preferEffortRungs(buildLadder(lites, top, effortRegex(settings))),
+      level,
+    );
     if (ladder.length === 0) return;
     const target = routeModel(level, ladder);
     const variant = pickVariant(level, target.variants);
@@ -443,7 +448,8 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (subagent && text.startsWith(SUBAGENT_PREFIX)) text = text.slice(SUBAGENT_PREFIX.length);
 
       const kind = classifyPrompt(text);
-      if (kind.kind !== 'judge') meta.judgeOutcome = 'skipped';
+      const readOnly = subagent && READ_ONLY_AGENTS.has(session.agent ?? '');
+      if (kind.kind !== 'judge' || readOnly) meta.judgeOutcome = 'skipped';
       if (kind.kind === 'followup')
         state.pending = Promise.resolve({
           level: state.lastLevel ?? 'medium',
@@ -455,6 +461,12 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
           level: kind.level,
           source: 'named',
           reason: `asked for ${kind.level} effort`,
+        });
+      else if (readOnly)
+        state.pending = Promise.resolve({
+          level: 'low',
+          source: 'agent',
+          reason: `read-only ${session.agent} subagent`,
         });
       else state.pending = judge(settings, state, model, text, subagent, sessionID, meta);
       const entry: Admitted = { decision: state.pending };
@@ -530,7 +542,7 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
       if (state.autoPaused) return;
 
       const decision = await turnDecision(state, settings.judge.timeoutMs, entry);
-      const level = applyShaping(decision.level, settings, Date.now());
+      const level = applyShaping(decision.level, settings, Date.now(), subagent);
       // A hanging catalog read must not hold the request: no catalog → no effort control.
       const infos = await bounded(listModelInfos(ctx), settings.judge.timeoutMs, []);
       const info = findInfo(infos, model);

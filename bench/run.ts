@@ -11,7 +11,7 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ARMS, ARM_IDS, DEFAULT_ARMS, isArmId, parseModel, REPO_ROOT } from './lib/arms.ts';
 import type { ArmId } from './lib/arms.ts';
-import { executeTask, storedGearboxOverrides } from './lib/execute.ts';
+import { executeTask, startupFailure, storedGearboxOverrides } from './lib/execute.ts';
 import { defaultDbPath } from './lib/gearbox-stats.ts';
 import type { RawRecord } from './lib/record.ts';
 import { readRaw } from './lib/summary.ts';
@@ -332,18 +332,27 @@ async function main() {
       const arm = ARMS[job.arm];
       const startedAt = new Date().toISOString();
       const base = spent;
-      const outcome = await executeTask({
-        arm,
-        task: job.task,
-        model: args.model,
-        judge: args.judge,
-        dbPath: args.db,
-        timeoutMs: args.timeoutMin * 60_000,
-        keepDir: args.keep,
-        keepSessions: args.keepSessions,
-        onCost: (c) => args.maxUSD !== null && base + c >= args.maxUSD,
-        log: (l) => console.log(`  ${l}`),
-      });
+      const execute = () =>
+        executeTask({
+          arm,
+          task: job.task,
+          model: args.model,
+          judge: args.judge,
+          dbPath: args.db,
+          timeoutMs: args.timeoutMin * 60_000,
+          keepDir: args.keep,
+          keepSessions: args.keepSessions,
+          onCost: (c) => args.maxUSD !== null && base + c >= args.maxUSD,
+          log: (l) => console.log(`  ${l}`),
+        });
+      let outcome = await execute();
+      // A run that failed before its first request spent and measured nothing: try it once more.
+      const startup = startupFailure(outcome);
+      if (startup) {
+        console.log(`  retrying ${job.arm} / ${job.task.id}: ${startup}`);
+        outcome = await execute();
+        outcome.errors.unshift(`retried once after: ${startup}`);
+      }
       opencode.version = outcome.opencodeVersion;
       const { opencodeVersion, ...rest } = outcome;
       const record: RawRecord = {

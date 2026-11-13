@@ -582,19 +582,19 @@ const withNano = [
   { ...models[1], id: 'nano', providerID: 'q', cost: [{ input: 0.1, output: 0.4 }] },
 ];
 
-test('compaction is left to OpenCode when the implicit judge is on another provider', async () => {
+test('compaction never sends the transcript to a title model on another provider', async () => {
   const fake = fakeWith({
     agents: otherProviderAgents,
     models: withNano,
     generateText: async () => ({ text: 'summary' }),
   });
   await registerContextCare(fake.ctx);
-  const event = await fake.fire('compaction', compactionEvent('ses_other'));
-  expect(event.result).toBe(undefined);
-  expect(fake.callsTo('generate.text').length).toBe(0);
+  await fake.fire('compaction', compactionEvent('ses_other'));
+  for (const call of fake.callsTo('generate.text'))
+    expect((call.input as { model: { providerID: string } }).model.providerID).toBe('p');
 });
 
-test('handoff summarizes on the session model when the implicit judge is on another provider', async () => {
+test('handoff never summarizes on a title model of another provider', async () => {
   const fake = fakeWith(
     {
       agents: otherProviderAgents,

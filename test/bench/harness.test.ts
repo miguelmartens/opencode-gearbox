@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { ARMS, armConfig, gearboxOptions, parseModel, sessionModel } from '../../bench/lib/arms.ts';
-import { effortLabel, settingsProblems } from '../../bench/lib/execute.ts';
+import { effortLabel, settingsProblems, startupFailure } from '../../bench/lib/execute.ts';
 import { pluginKey } from '../../bench/lib/gearbox-stats.ts';
 import { parsePrompts } from '../../bench/lib/tasks.ts';
 import { pickTier, priceRequest, requestCost, stepTokens } from '../../bench/lib/usage.ts';
@@ -166,6 +166,7 @@ describe('gearbox settings check', () => {
     bias: 0,
     floor: 'low',
     ceiling: 'max',
+    subagentCeiling: 'high',
     judge: { model: 'p/j#none' },
     modelSwitch: { subagents: true },
     budget: { dailyUSD: null },
@@ -212,5 +213,27 @@ describe('misc', () => {
   });
   test('plugin storage key', () => {
     expect(pluginKey('gearbox', 'stats/x')).toBe('plugin:00670065006100720062006f0078:stats/x');
+  });
+});
+
+describe('startup failures', () => {
+  test('a run error before any model request is a startup failure', () => {
+    const error = 'run error: Location plugins did not finish activating';
+    expect(startupFailure({ requests: 0, errors: [error, 'server log tail: …'] })).toBe(error);
+  });
+  test('a run error after a model request is not: the run already spent money', () => {
+    const error = 'run error: Transport: The operation timed out';
+    expect(startupFailure({ requests: 12, errors: [error] })).toBe(null);
+  });
+  test('setup mistakes that a retry cannot fix are not startup failures', () => {
+    for (const error of [
+      'run error: model not in the catalog: p/m',
+      'run error: Gearbox settings differ from the arm (stored /gearbox set overrides?): bias',
+    ])
+      expect(startupFailure({ requests: 0, errors: [error] })).toBe(null);
+  });
+  test('a failed check or a timeout is not a startup failure', () => {
+    expect(startupFailure({ requests: 0, errors: ['check failed: …'] })).toBe(null);
+    expect(startupFailure({ requests: 0, errors: ['timeout after 900 s'] })).toBe(null);
   });
 });

@@ -1,6 +1,6 @@
 import { afterEach, expect, mock, spyOn, test } from 'bun:test';
 import { makeFakeCtx } from '../fake-ctx.ts';
-import { resolveJudgeModel, runJudge } from '../../src/server/judge-model.ts';
+import { NO_MODEL, resolveJudgeModel, runJudge } from '../../src/server/judge-model.ts';
 import { listModelInfos, toModelLite } from '../../src/server/models.ts';
 import { DEFAULT_SETTINGS } from '../../src/core/types.ts';
 
@@ -76,12 +76,29 @@ test('resolveJudgeModel prefers settings.judge.model', async () => {
   });
 });
 
-test('resolveJudgeModel uses the title agent model (V1 small_model)', async () => {
+test('resolveJudgeModel uses the title agent model (V1 small_model) of the same provider', async () => {
+  const fake = makeFakeCtx({
+    models: [opus, haiku],
+    agents: [{ id: 'title', model: { providerID: 'anthropic', id: 'claude-sonnet-5-5' } }],
+  });
+  expect(await resolveJudgeModel(fake.ctx, chat, DEFAULT_SETTINGS)).toStrictEqual({
+    providerID: 'anthropic',
+    id: 'claude-sonnet-5-5',
+  });
+});
+
+test('resolveJudgeModel never sends prompts to a title model of another provider', async () => {
   const fake = makeFakeCtx({
     models: [opus, haiku],
     agents: [{ id: 'title', model: { providerID: 'deepseek', id: 'v4-flash', variant: 'none' } }],
   });
   expect(await resolveJudgeModel(fake.ctx, chat, DEFAULT_SETTINGS)).toStrictEqual({
+    providerID: 'anthropic',
+    id: 'claude-haiku-5-5',
+    variant: 'none',
+  });
+  // An unknown session model has no provider to keep to.
+  expect(await resolveJudgeModel(fake.ctx, NO_MODEL, DEFAULT_SETTINGS)).toStrictEqual({
     providerID: 'deepseek',
     id: 'v4-flash',
     variant: 'none',

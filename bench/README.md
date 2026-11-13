@@ -10,7 +10,13 @@ This directory also holds the labelled prompts of `/gearbox bench`, a separate b
 
 ### Tasks
 
-`bench/tasks/<id>/`, 24 tasks: 12 easy (renames, small fixes, a new field), 8 medium (a feature plus its test, a bug across two files) and 4 hard (refactors across modules, subtle bugs).
+`bench/tasks/<id>/`, 27 tasks: 12 easy (renames, small fixes, a new field), 8 medium (a feature plus its test, a bug across two files) and 7 hard (refactors across modules, subtle bugs). The runs published so far used the first 24; `h05`–`h07` were added after them.
+
+The hard tasks `h05`–`h07` are built to separate effort levels: every always-level arm solved the first 24 at Sonnet 5.5, so they could not show what a higher level buys. Each has root causes the prompt only hints at, and a hidden check wide enough to catch a partial fix:
+
+- `h05-posix-paths`: path helpers must match `node:path` `posix` exactly; the check compares them on 8 000 generated paths.
+- `h06-semver-ranges`: `satisfies` and `compare` must follow npm `semver`, prerelease rules and caret on `0.x` included; the check has 48 hand-picked npm cases plus 5 000 generated ranges against `Bun.semver`.
+- `h07-user-cache-stale`: a user cache with several stale-read causes (case-insensitive email keys, cached misses, shared objects, reads that overlap writes) and a read budget.
 
 | Part            | What it is                                                                                          |
 | --------------- | --------------------------------------------------------------------------------------------------- |
@@ -58,7 +64,7 @@ Every task run also records the effort each request actually sent (from a scratc
 
 ### What counts as solved
 
-`check.sh` exits 0. A task run that timed out, errored or hit `--max-usd` is not solved, even if the check would pass. Nothing is retried; every error is recorded in the raw line.
+`check.sh` exits 0. A task run that timed out, errored or hit `--max-usd` is not solved, even if the check would pass. A task run that fails before its first model request (e.g. `Location plugins did not finish activating`) spent and measured nothing, so the runner tries it once more and records `retried once after: …`. Nothing else is retried; every error is recorded in the raw line.
 
 ### How cost is measured
 
@@ -99,7 +105,7 @@ Each task run appends one line to `results/raw/<run id>.jsonl` (format: `bench/l
 
 ## Known limits
 
-- **The task mix drives the result.** Small, well-specified tasks favour low effort; more hard tasks would favour high effort. The suite is 50% easy, 33% medium and 17% hard; read the numbers with that mix in mind.
+- **The task mix drives the result.** Small, well-specified tasks favour low effort; more hard tasks would favour high effort. The suite is 44% easy, 30% medium and 26% hard (the published runs: 50%, 33% and 17%); read the numbers with that mix in mind.
 - **One model, one provider.** The published results for `claude-sonnet-5-5` on `anthropic` say little about other models. Rerun with `--model` for yours.
 - **Provider cache effects.** Anthropic caches prompts per model for minutes; task runs back to back can hit a warm cache that another order would not. The shuffled order spreads this across arms but does not remove it.
 - **Catalog prices on subscriptions.** On a subscription provider the cost is what the tokens would cost at the provider's catalog price, not what was billed.

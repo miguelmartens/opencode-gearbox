@@ -153,7 +153,8 @@ export function summarize(
 
   return {
     version: 1,
-    date: opts.date ?? new Date().toISOString().slice(0, 10),
+    // The day of the run, not of summarising: the UTC day of the latest task run.
+    date: opts.date ?? rs.reduce((d, r) => (r.startedAt > d ? r.startedAt : d), '').slice(0, 10),
     opencode,
     gearbox,
     commit,

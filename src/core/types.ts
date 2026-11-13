@@ -17,6 +17,10 @@ export type ModelLite = {
   tools: boolean;
   enabled: boolean;
   contextLimit: number;
+  /** Model family, e.g. `claude-haiku`; absent when the catalog does not give one. */
+  family?: string;
+  /** Release time, epoch ms; absent when the catalog does not give one. */
+  released?: number;
 };
 
 export type Decision = {

@@ -361,6 +361,7 @@ Gearbox only switches between models of the session's own provider and never pic
 
 - **Who is on it:** every enabled, tool-capable model of the provider whose id matches `effortModels`.
 - **Price limit:** its output price is at or below the chat model's. Models without a price (subscription catalogs with an empty `cost`) are left out.
+- **No outdated models:** a model is left out when a newer model of the same family (OpenCode's `family`, e.g. `claude-haiku`) costs no more and offers effort control too. Of two aliases with the same price and date, one stays. For example, under `claude-sonnet-5-5` the ladder is `claude-haiku-5-5`, then `claude-sonnet-5-5`: `claude-haiku-4-5` and `claude-sonnet-5` are left out.
 - **Order:** cheapest first, with the chat model last.
 
 **Which rung a level gets.**
@@ -374,6 +375,7 @@ Gearbox only switches between models of the session's own provider and never pic
 - **First prompt:** the child has no cache yet, so Gearbox switches it to the ladder model with the matching variant.
 - **Later prompts** (a resumed subagent): the child holds a warm cache. Gearbox changes its model only when the cost check below (with `minSavingRatio`) says switching is cheaper than staying. So a resumed child never climbs to a pricier model; its effort still follows the level.
 - **Effort rungs first:** the subagent ladder skips cheaper models without effort variants, unless no model on it has any.
+- **No effort above the level:** it also skips cheaper models whose lowest effort variant is above the level, e.g. a model with only `high` and `max` for a `medium` subagent.
 - **Your pick wins:** an agent with its own `model` keeps it. While the root session runs on a variant you picked (and you have not run `/gearbox auto on`), its subagents are left alone too.
 - **No model of its own:** a subagent whose session has no model is routed from its nearest ancestor's model, else from OpenCode's default model. If that ancestor runs on a picked variant, the subagent keeps it.
 

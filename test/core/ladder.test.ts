@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { buildLadder, preferEffortRungs, routeModel } from '../../src/core/ladder.ts';
+import { buildLadder, fitRungs, preferEffortRungs, routeModel } from '../../src/core/ladder.ts';
 import type { ModelLite } from '../../src/core/types.ts';
 
 function model(providerID: string, id: string, output: number, extra: Partial<ModelLite> = {}) {
@@ -117,4 +117,125 @@ test('preferEffortRungs keeps the ladder when no rung has effort variants', () =
   const top = model('anthropic', 'top', 30, { variants: ['none'] });
   const ladder = buildLadder([flash, top], top.ref, any);
   expect(ids(preferEffortRungs(ladder))).toStrictEqual(['flash', 'top']);
+});
+
+// Families and release dates as OpenCode's catalog gives them (`Model.Info.family`,
+// `Model.Info.time.released` in epoch ms).
+const OCT_2025 = 1760486400000;
+const MAY_2026 = 1782691200000;
+const SEP_2026 = 1790553600000;
+const OCT_2026 = 1791331200000;
+const HAIKU = 'claude-haiku';
+const SONNET = 'claude-sonnet';
+const OPUS = 'claude-opus';
+
+test('buildLadder drops a model that a cheaper, newer model of its family beats', () => {
+  // The anthropic catalog under claude-sonnet-5-5 on OpenCode 2.2.6.
+  const chat = model('anthropic', 'claude-sonnet-5-5', 10, { family: SONNET, released: SEP_2026 });
+  const old = { family: HAIKU, released: OCT_2025, variants: ['high', 'max'] };
+  const ladder = buildLadder(
+    [
+      model('anthropic', 'claude-haiku-4-5', 5, old),
+      model('anthropic', 'claude-haiku-4-5-20251001', 5, old),
+      model('anthropic', 'claude-haiku-5-5', 0.5, { family: HAIKU, released: OCT_2026 }),
+      model('anthropic', 'claude-sonnet-5', 10, { family: SONNET, released: MAY_2026 }),
+      chat,
+    ],
+    chat.ref,
+    any,
+  );
+  expect(ids(ladder)).toStrictEqual(['claude-haiku-5-5', 'claude-sonnet-5-5']);
+  expect(routeModel('medium', ladder).ref.id).toBe('claude-haiku-5-5');
+});
+
+test('buildLadder keeps a dearer model of another family, however old', () => {
+  // claude-haiku-5-5 is newer and cheaper than claude-sonnet-5-5 but no substitute for it.
+  const chat = model('anthropic', 'claude-opus-5-5', 20, { family: OPUS, released: SEP_2026 });
+  const sonnet55 = model('anthropic', 'claude-sonnet-5-5', 10, {
+    family: SONNET,
+    released: SEP_2026,
+  });
+  const haiku55 = model('anthropic', 'claude-haiku-5-5', 0.5, {
+    family: HAIKU,
+    released: OCT_2026,
+  });
+  expect(ids(buildLadder([haiku55, sonnet55, chat], chat.ref, any))).toStrictEqual([
+    'claude-haiku-5-5',
+    'claude-sonnet-5-5',
+    'claude-opus-5-5',
+  ]);
+});
+
+test('buildLadder keeps one of two aliases with the same price and date', () => {
+  const chat = model('anthropic', 'claude-opus', 25, { family: OPUS, released: OCT_2026 });
+  const alias = { family: HAIKU, released: OCT_2025 };
+  const ladder = buildLadder(
+    [
+      model('anthropic', 'claude-haiku-4-5-20251001', 5, alias),
+      model('anthropic', 'claude-haiku-4-5', 5, alias),
+      chat,
+    ],
+    chat.ref,
+    any,
+  );
+  expect(ids(ladder)).toStrictEqual(['claude-haiku-4-5', 'claude-opus']);
+});
+
+test('buildLadder lets the chat model beat its own alias', () => {
+  const dated = { family: OPUS, released: OCT_2025 };
+  const chat = model('anthropic', 'claude-opus-4-5-20251101', 25, dated);
+  const alias = model('anthropic', 'claude-opus-4-5', 25, dated);
+  expect(ids(buildLadder([alias, chat], chat.ref, any))).toStrictEqual([
+    'claude-opus-4-5-20251101',
+  ]);
+});
+
+test('buildLadder keeps an older model of the family that is cheaper', () => {
+  const chat = model('anthropic', 'claude-haiku-new', 5, { family: HAIKU, released: OCT_2026 });
+  const old = model('anthropic', 'claude-haiku-old', 1, { family: HAIKU, released: OCT_2025 });
+  expect(ids(buildLadder([old, chat], chat.ref, any))).toStrictEqual([
+    'claude-haiku-old',
+    'claude-haiku-new',
+  ]);
+});
+
+test('buildLadder needs a family and a release date on both sides to drop a model', () => {
+  const chat = model('anthropic', 'claude-opus', 25);
+  const old = model('anthropic', 'claude-sonnet-old', 15, { family: SONNET, released: OCT_2025 });
+  const undated = model('anthropic', 'claude-sonnet-new', 5, { family: SONNET });
+  const nofamily = model('anthropic', 'claude-sonnet-x', 4, { released: OCT_2026 });
+  expect(ids(buildLadder([old, undated, nofamily, chat], chat.ref, any))).toStrictEqual([
+    'claude-sonnet-x',
+    'claude-sonnet-new',
+    'claude-sonnet-old',
+    'claude-opus',
+  ]);
+});
+
+test('buildLadder keeps a model with effort variants over a newer one without', () => {
+  const chat = model('anthropic', 'claude-opus', 25, { family: OPUS, released: OCT_2026 });
+  const effort = model('anthropic', 'claude-haiku-old', 5, { family: HAIKU, released: OCT_2025 });
+  const plain = model('anthropic', 'claude-haiku-plain', 1, {
+    family: HAIKU,
+    released: OCT_2026,
+    variants: [],
+  });
+  expect(ids(buildLadder([effort, plain, chat], chat.ref, any))).toStrictEqual([
+    'claude-haiku-plain',
+    'claude-haiku-old',
+    'claude-opus',
+  ]);
+});
+
+test('fitRungs drops cheaper rungs whose lowest effort is above the level', () => {
+  const budget = model('anthropic', 'claude-haiku-4-5', 5, { variants: ['high', 'max'] });
+  const ladder = [budget, opus];
+  expect(ids(fitRungs(ladder, 'medium'))).toStrictEqual(['claude-opus']);
+  expect(ids(fitRungs(ladder, 'high'))).toStrictEqual(['claude-haiku-4-5', 'claude-opus']);
+});
+
+test('fitRungs keeps the chat model and rungs without effort variants', () => {
+  const plain = model('anthropic', 'flash', 1, { variants: [] });
+  const top = model('anthropic', 'top', 30, { variants: ['max'] });
+  expect(ids(fitRungs([plain, top], 'low'))).toStrictEqual(['flash', 'top']);
 });

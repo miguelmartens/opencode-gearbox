@@ -460,6 +460,46 @@ test('subagent routing skips cheaper models without effort variants', async () =
   expect((call.input as any).model).toStrictEqual({ ...HAIKU, variant: 'low' });
 });
 
+test('subagent routing skips older dearer models and rungs whose lowest effort is too high', async () => {
+  // The 2026-11-12 Sonnet bench: medium subagents ran on claude-haiku-4-5 at `high`.
+  const sessionID = newSession();
+  const OCT_2025 = 1760486400000;
+  const SEP_2026 = 1790553600000;
+  const NOV_2026 = 1794182400000;
+  const dated = { time: { released: NOV_2026 } };
+  const old = model('claude-haiku-4-5', 5, {
+    family: 'claude-haiku',
+    time: { released: OCT_2025 },
+    variants: [
+      { id: 'high', settings: { thinking: { type: 'enabled', budgetTokens: 16000 } } },
+      { id: 'max', settings: { thinking: { type: 'enabled', budgetTokens: 32000 } } },
+    ],
+  });
+  const fake = await setup({
+    models: [
+      { ...opus, ...dated, family: 'claude-opus' },
+      { ...sonnet, ...dated, family: 'claude-sonnet' },
+      model('claude-haiku-5-5', 0.5, { family: 'claude-haiku', time: { released: SEP_2026 } }),
+      old,
+      { ...old, id: 'claude-haiku-4-5-budget', time: { released: NOV_2026 } },
+    ],
+    sessions: {
+      [sessionID]: { id: sessionID, parentID: 'ses_root', agent: 'general', model: OPUS },
+    },
+    agents: [{ id: 'general' }],
+    generateText: async () => ({ text: 'LEVEL: medium' }),
+  });
+  await fake.fire('prompt', promptEvent(sessionID, `${SUBAGENT_PREFIX}Add a field and its test`));
+  const [call] = fake.callsTo('session.switchModel');
+  // Ladder after pruning: haiku-5-5, haiku-4-5-budget (high+ only), sonnet, opus. Without
+  // `fitRungs`, medium would land on haiku-4-5-budget at `high`.
+  expect((call.input as any).model).toStrictEqual({
+    providerID: 'anthropic',
+    id: 'claude-sonnet-5-5',
+    variant: 'medium',
+  });
+});
+
 test('subagent model switching off keeps the model', async () => {
   const sessionID = newSession();
   const fake = await setup({

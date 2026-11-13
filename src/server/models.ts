@@ -27,6 +27,8 @@ export type ModelInfo = {
   enabled?: boolean;
   limit?: { context?: number; input?: number };
   settings?: { cache?: { ttl?: unknown } };
+  family?: unknown;
+  time?: { released?: unknown };
 };
 
 /** The subset of the runtime `Session.Info` that Gearbox reads. */
@@ -190,6 +192,7 @@ export async function findModelInfo(ctx: Ctx, ref: ModelRef): Promise<ModelInfo 
 export function toModelLite(info: ModelInfo): ModelLite | null {
   const base = info.cost?.find((tier) => tier.tier === undefined);
   if (typeof base?.output !== 'number') return null;
+  const released = info.time?.released;
   return {
     ref: { providerID: info.providerID, id: info.id },
     price: {
@@ -202,6 +205,8 @@ export function toModelLite(info: ModelInfo): ModelLite | null {
     tools: info.capabilities?.tools === true,
     enabled: info.enabled !== false,
     contextLimit: contextLimit(info),
+    ...(typeof info.family === 'string' && info.family ? { family: info.family } : {}),
+    ...(typeof released === 'number' && released > 0 ? { released } : {}),
   };
 }
 

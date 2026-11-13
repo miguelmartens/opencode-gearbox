@@ -12,7 +12,7 @@ import type { Decision, ModelLite, ModelRef, Settings } from '../core/types.ts';
 import { applyShaping, pickVariant } from '../core/levels.ts';
 import { classifyPrompt } from '../core/rules.ts';
 import { buildJudgePrompt, parseJudgeAnswer } from '../core/judge.ts';
-import { buildLadder, preferEffortRungs, routeModel, sameModel } from '../core/ladder.ts';
+import { buildLadder, fitRungs, preferEffortRungs, routeModel, sameModel } from '../core/ladder.ts';
 import { expectedOutput, shouldSwitch } from '../core/cost.ts';
 import { contextRatio } from '../core/context.ts';
 import { getState, onForget } from './state.ts';
@@ -361,7 +361,10 @@ export async function registerRouting(ctx: Ctx, deps: Partial<RoutingDeps> = {})
     const lites = liteModels(infos);
     // The ladder of the model the child started with, never above it.
     const top = state.firstModel ?? model;
-    const ladder = preferEffortRungs(buildLadder(lites, top, effortRegex(settings)));
+    const ladder = fitRungs(
+      preferEffortRungs(buildLadder(lites, top, effortRegex(settings))),
+      level,
+    );
     if (ladder.length === 0) return;
     const target = routeModel(level, ladder);
     const variant = pickVariant(level, target.variants);
